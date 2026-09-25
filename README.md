@@ -2,6 +2,14 @@
 
 Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen einem Mercedes C350 W204/M272 und einem ELM327-WiFi-Dongle.
 
+## Version 1.0.1
+
+- DTC-Scan mit eigenem Ergebnisdialog und exklusivem ELM327-Zugriff
+- WLAN-Fallback über alle verfügbaren WiFi-Network-Handles
+- echte Protokollanzeige nach ECU-Erkennung via ATDP/ATDPN
+- gestaffeltes PID-Polling für stabilere Clone-Adapter
+- TX/RX-Zähler bleiben über Reconnects erhalten
+
 ## Funktionen
 
 - ELM327 über TCP/WLAN
@@ -28,6 +36,6 @@ Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen
 
 GitHub Actions baut bei jedem Push auf `main` eine Debug-APK. Das Artifact heißt:
 
-`Mercedes_OBD2_Monitor_v1.0.0-debug`
+`Mercedes_OBD2_Monitor_v1.0.1-debug`
 
 Der komplette Android-Quellcode liegt direkt im Repository.

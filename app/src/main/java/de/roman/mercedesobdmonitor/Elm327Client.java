@@ -102,8 +102,8 @@ public final class Elm327Client implements Closeable {
         return socket != null && socket.isConnected() && !socket.isClosed();
     }
 
-    public long getTxBytes() { return txBytes; }
-    public long getRxBytes() { return rxBytes; }
+    public synchronized long getTxBytes() { return txBytes; }
+    public synchronized long getRxBytes() { return rxBytes; }
 
     @Override
     public synchronized void close() {

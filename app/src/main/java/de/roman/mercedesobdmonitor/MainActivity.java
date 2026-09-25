@@ -2,6 +2,7 @@ package de.roman.mercedesobdmonitor;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -42,6 +43,7 @@ public final class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newFixedThreadPool(2);
     private final AtomicBoolean monitoring = new AtomicBoolean(false);
+    private final AtomicBoolean exclusiveRequest = new AtomicBoolean(false);
 
     private EditText hostInput;
     private EditText portInput;
@@ -50,6 +52,7 @@ public final class MainActivity extends Activity {
     private TextView stats;
     private TextView console;
     private LinearLayout pidBox;
+    private Button dtcButton;
     private SparklineView latencyGraph;
 
     private final Map<Integer, TextView> pidRows = new LinkedHashMap<>();
@@ -64,6 +67,9 @@ public final class MainActivity extends Activity {
     private long noData;
     private long ioErrors;
     private long parserErrors;
+    private long totalTxBytes;
+    private long totalRxBytes;
+    private int pollCycle;
     private String elmId = "–";
     private String protocol = "–";
     private String adapterVoltage = "–";
@@ -101,10 +107,10 @@ public final class MainActivity extends Activity {
         LinearLayout controls = row();
         Button connect = button("Verbinden");
         Button disconnect = button("Trennen");
-        Button dtc = button("DTC");
+        dtcButton = button("DTC");
         controls.addView(connect, weight());
         controls.addView(disconnect, weight());
-        controls.addView(dtc, weight());
+        controls.addView(dtcButton, weight());
         root.addView(controls);
 
         status = text("", 15, Color.WHITE);
@@ -154,14 +160,15 @@ public final class MainActivity extends Activity {
 
         connect.setOnClickListener(v -> connectRequested());
         disconnect.setOnClickListener(v -> disconnect(true));
-        dtc.setOnClickListener(v -> readDtcs());
+        dtcButton.setOnClickListener(v -> readDtcs());
         send.setOnClickListener(v -> sendTerminal());
         export.setOnClickListener(v -> exportCsv());
         clear.setOnClickListener(v -> {
             csv.clear();
             console.setText("Log gelöscht.\n");
             latencyGraph.clear();
-            samples = totalLatency = timeouts = noData = ioErrors = parserErrors = 0;
+            samples = totalLatency = timeouts = noData = ioErrors = parserErrors = totalTxBytes = totalRxBytes = 0;
+            pollCycle = 0;
             updateStats();
         });
 
@@ -232,10 +239,8 @@ public final class MainActivity extends Activity {
 
         try {
             showStatus("Verbinde mit " + host + ":" + port + " …");
-            Network wifi = findWifiNetwork();
-            client = new Elm327Client(host, port, wifi);
-            long connectMs = client.connect(3500);
-            append("TCP verbunden in " + connectMs + " ms" + (wifi != null ? " (WLAN gebunden)" : ""));
+            long connectMs = connectWithFallback(host, port);
+            append("TCP verbunden in " + connectMs + " ms");
 
             command("ATZ", 3000);
             command("ATE0", 1500);
@@ -247,10 +252,12 @@ public final class MainActivity extends Activity {
             command("ATST64", 1500);
 
             elmId = clean(command("ATI", 1800).raw);
-            protocol = clean(command("ATDP", 1800).raw);
             adapterVoltage = clean(command("ATRV", 1800).raw);
 
             detectPids();
+            String dp = clean(command("ATDP", 1800).raw);
+            String dpn = clean(command("ATDPN", 1800).raw);
+            protocol = describeProtocol(dp, dpn);
             showStatus("Verbunden · " + elmId + " · " + protocol);
             append("Adapter: " + elmId);
             append("Protokoll: " + protocol);
@@ -287,15 +294,24 @@ public final class MainActivity extends Activity {
     }
 
     private void monitorLoop() {
+        pollCycle = 0;
         while (monitoring.get() && !userDisconnect) {
+            if (exclusiveRequest.get()) {
+                sleepQuiet(40);
+                continue;
+            }
+
             Elm327Client c = client;
             if (c == null || !c.isConnected()) {
                 reconnectAfterFailure();
                 continue;
             }
 
+            int cycle = ++pollCycle;
             for (ObdPid pid : new ArrayList<>(activePids)) {
-                if (!monitoring.get() || userDisconnect) break;
+                if (!monitoring.get() || userDisconnect || exclusiveRequest.get()) break;
+                if (!shouldPoll(pid.pid, cycle)) continue;
+
                 try {
                     Elm327Client.CommandResult r = command(pid.command(), 1800);
                     if (ObdParser.isNoData(r.raw)) {
@@ -327,10 +343,26 @@ public final class MainActivity extends Activity {
                     updateStats();
                     break;
                 }
+                sleepQuiet(25);
             }
+            sleepQuiet(70);
+        }
+    }
 
-            try { Thread.sleep(120); }
-            catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+    private boolean shouldPoll(int pid, int cycle) {
+        // Schnelle PIDs: jeder Zyklus. Mittlere: jeder 2. Zyklus. Langsame: jeder 5. Zyklus.
+        return switch (pid) {
+            case 0x0C, 0x10, 0x06, 0x08, 0x44 -> true;
+            case 0x0D, 0x04, 0x11, 0x0B -> (cycle % 2) == 0;
+            default -> (cycle % 5) == 0;
+        };
+    }
+
+    private static void sleepQuiet(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -339,11 +371,9 @@ public final class MainActivity extends Activity {
         showStatus("Verbindung unterbrochen · Reconnect …");
         try {
             Thread.sleep(2000);
-            Network wifi = findWifiNetwork();
             String host = hostInput.getText().toString().trim();
             int port = Integer.parseInt(portInput.getText().toString().trim());
-            client = new Elm327Client(host, port, wifi);
-            client.connect(3500);
+            connectWithFallback(host, port);
             command("ATE0", 1500);
             command("ATL0", 1500);
             command("ATS0", 1500);
@@ -365,32 +395,85 @@ public final class MainActivity extends Activity {
     }
 
     private void readDtcs() {
+        Elm327Client c = client;
+        if (c == null || !c.isConnected()) {
+            append("DTC: nicht verbunden");
+            Toast.makeText(this, "Keine ELM327-Verbindung", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!exclusiveRequest.compareAndSet(false, true)) {
+            Toast.makeText(this, "Diagnosevorgang läuft bereits", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        ui.post(() -> {
+            dtcButton.setEnabled(false);
+            dtcButton.setText("Lese DTC…");
+            status.setText("DTC-Scan läuft …");
+        });
+
         io.execute(() -> {
-            if (client == null || !client.isConnected()) {
-                append("DTC: nicht verbunden");
-                return;
-            }
+            String report;
             try {
-                appendDtcGroup("Gespeichert", command("03", 3500).raw, 0x43);
-                appendDtcGroup("Pending", command("07", 3500).raw, 0x47);
-                appendDtcGroup("Permanent", command("0A", 3500).raw, 0x4A);
-            } catch (IOException e) {
+                StringBuilder sb = new StringBuilder();
+                synchronized (c) {
+                    sb.append(readDtcMode(c, "Gespeichert", "03", 0x43));
+                    sb.append("\n\n").append(readDtcMode(c, "Pending", "07", 0x47));
+                    sb.append("\n\n").append(readDtcMode(c, "Permanent", "0A", 0x4A));
+                }
+                report = sb.toString();
+                append("DTC-Scan abgeschlossen");
+            } catch (Exception e) {
+                report = "DTC-Scan fehlgeschlagen:\n" + e.getMessage();
                 append("DTC-Fehler: " + e.getMessage());
+            } finally {
+                exclusiveRequest.set(false);
             }
+
+            final String result = report;
+            ui.post(() -> {
+                dtcButton.setEnabled(true);
+                dtcButton.setText("DTC");
+                status.setText("Verbunden · " + elmId + " · " + protocol);
+                new AlertDialog.Builder(this)
+                        .setTitle("OBD-II Fehlercodes")
+                        .setMessage(result)
+                        .setPositiveButton("OK", null)
+                        .show();
+            });
         });
     }
 
-    private void appendDtcGroup(String label, String raw, int responseMode) {
-        List<String> codes = ObdParser.dtcs(raw, responseMode);
-        if (codes.isEmpty()) {
-            append(label + ": keine DTCs");
-            return;
+    private String readDtcMode(Elm327Client c, String label, String cmd, int responseMode) {
+        try {
+            Elm327Client.CommandResult r = c.sendCommand(cmd, 3500);
+            String raw = clean(r.raw);
+            append("DTC " + label + " [" + cmd + "]: " + raw);
+            List<String> codes = ObdParser.dtcs(r.raw, responseMode);
+            if (codes.isEmpty()) {
+                if (raw.isEmpty()) return label + ": keine Antwort";
+                if (ObdParser.isNoData(r.raw)) return label + ": keine Fehlercodes gemeldet";
+                return label + ": keine Fehlercodes erkannt\nRohantwort: " + raw;
+            }
+            StringBuilder sb = new StringBuilder(label).append(":");
+            for (String code : codes) {
+                sb.append("\n• ").append(DtcDescriptions.describe(code));
+            }
+            return sb.toString();
+        } catch (SocketTimeoutException e) {
+            timeouts++;
+            return label + ": Timeout";
+        } catch (IOException e) {
+            ioErrors++;
+            return label + ": Kommunikationsfehler – " + e.getMessage();
         }
-        append(label + ":");
-        for (String code : codes) append("  " + DtcDescriptions.describe(code));
     }
 
     private void sendTerminal() {
+        if (exclusiveRequest.get()) {
+            Toast.makeText(this, "DTC-Scan läuft gerade", Toast.LENGTH_SHORT).show();
+            return;
+        }
         final String cmd = terminalInput.getText().toString().trim();
         if (cmd.isEmpty()) return;
         io.execute(() -> {
@@ -414,14 +497,81 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private Network findWifiNetwork() {
+    private long connectWithFallback(String host, int port) throws IOException {
+        IOException last = null;
+        List<Network> wifiNetworks = findWifiNetworks();
+
+        for (Network network : wifiNetworks) {
+            Elm327Client candidate = new Elm327Client(host, port, network);
+            try {
+                long ms = candidate.connect(3500);
+                client = candidate;
+                append("WLAN-Netz " + network + " verwendet");
+                return ms;
+            } catch (IOException e) {
+                candidate.close();
+                last = e;
+                append("WLAN-Netz " + network + " verworfen: " + e.getMessage());
+            }
+        }
+
+        Elm327Client candidate = new Elm327Client(host, port, null);
+        try {
+            long ms = candidate.connect(3500);
+            client = candidate;
+            append("Fallback: Android-Standardroute verwendet");
+            return ms;
+        } catch (IOException e) {
+            candidate.close();
+            if (last != null) {
+                throw new IOException("WLAN-Bindung fehlgeschlagen (" + last.getMessage()
+                        + "); Standardroute ebenfalls fehlgeschlagen (" + e.getMessage() + ")");
+            }
+            throw e;
+        }
+    }
+
+    private List<Network> findWifiNetworks() {
+        List<Network> out = new ArrayList<>();
         ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        if (cm == null) return null;
+        if (cm == null) return out;
+
+        Network active = cm.getActiveNetwork();
+        if (active != null) {
+            NetworkCapabilities caps = cm.getNetworkCapabilities(active);
+            if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                out.add(active);
+            }
+        }
+
         for (Network network : cm.getAllNetworks()) {
             NetworkCapabilities caps = cm.getNetworkCapabilities(network);
-            if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return network;
+            if (caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                    && !out.contains(network)) {
+                out.add(network);
+            }
         }
-        return null;
+        return out;
+    }
+
+    private static String describeProtocol(String dp, String dpn) {
+        String code = dpn == null ? "" : dpn.trim().toUpperCase(Locale.US);
+        if (code.startsWith("A")) code = code.substring(1);
+        String decoded = switch (code) {
+            case "1" -> "SAE J1850 PWM";
+            case "2" -> "SAE J1850 VPW";
+            case "3" -> "ISO 9141-2";
+            case "4" -> "ISO 14230-4 KWP (5-baud)";
+            case "5" -> "ISO 14230-4 KWP (fast init)";
+            case "6" -> "ISO 15765-4 CAN 11 bit / 500 kbit/s";
+            case "7" -> "ISO 15765-4 CAN 29 bit / 500 kbit/s";
+            case "8" -> "ISO 15765-4 CAN 11 bit / 250 kbit/s";
+            case "9" -> "ISO 15765-4 CAN 29 bit / 250 kbit/s";
+            default -> "";
+        };
+        if (!decoded.isEmpty()) return decoded + " (ELM " + code + ")";
+        if (dp != null && !dp.isBlank()) return dp + (code.isEmpty() ? "" : " (" + code + ")");
+        return code.isEmpty() ? "Unbekannt" : "ELM-Protokoll " + code;
     }
 
     private void disconnect(boolean fromUser) {
@@ -434,18 +584,22 @@ public final class MainActivity extends Activity {
         closeClient();
     }
 
-    private void closeClient() {
+    private synchronized void closeClient() {
         Elm327Client c = client;
         client = null;
-        if (c != null) c.close();
+        if (c != null) {
+            totalTxBytes += c.getTxBytes();
+            totalRxBytes += c.getRxBytes();
+            c.close();
+        }
     }
 
     private void updateStats() {
         ui.post(() -> {
             Elm327Client c = client;
             long avg = samples == 0 ? 0 : totalLatency / samples;
-            long tx = c == null ? 0 : c.getTxBytes();
-            long rx = c == null ? 0 : c.getRxBytes();
+            long tx = totalTxBytes + (c == null ? 0 : c.getTxBytes());
+            long rx = totalRxBytes + (c == null ? 0 : c.getRxBytes());
             stats.setText(String.format(Locale.GERMANY,
                     "Ø %d ms · Samples %d · Timeouts %d · NO DATA %d · I/O %d · Parser %d · TX/RX %d/%d B · ELM %s",
                     avg, samples, timeouts, noData, ioErrors, parserErrors, tx, rx, adapterVoltage));
