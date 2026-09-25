@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
     steps:
       - uses: actions/checkout@v4
 
@@ -29,18 +30,11 @@ jobs:
         with:
           gradle-version: '9.6.0'
 
-      - name: Extract source
-        run: |
-          rm -rf source
-          mkdir source
-          unzip -q Mercedes_OBD2_Monitor_v1.0.0_Source.zip -d source
-
       - name: Build debug APK
-        working-directory: source
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Rename APK
-        run: cp source/app/build/outputs/apk/debug/app-debug.apk Mercedes_OBD2_Monitor_v1.0.0-debug.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk Mercedes_OBD2_Monitor_v1.0.0-debug.apk
 
       - uses: actions/upload-artifact@v4
         with:
