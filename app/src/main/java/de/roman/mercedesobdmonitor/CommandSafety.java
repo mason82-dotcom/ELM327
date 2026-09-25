@@ -26,6 +26,9 @@ public final class CommandSafety {
     );
 
     private static final Pattern SAFE_TIMEOUT = Pattern.compile("^ATST[0-9A-F]{2}$");
+    // Feste Auswahl der Standard-OBD-Protokolle 1–9 (reiner Adapterbefehl, kein Fahrzeug-Request).
+    // A–C (benutzerdefinierte CAN-Parameter) bleiben gesperrt.
+    private static final Pattern SAFE_PROTOCOL = Pattern.compile("^ATSP[0-9]$");
     private static final Pattern MODE_01 = Pattern.compile("^01[0-9A-F]{2}$");
     private static final Pattern MODE_02 = Pattern.compile("^02[0-9A-F]{4}$");
     private static final Pattern MODE_05 = Pattern.compile("^05(?:[0-9A-F]{2})?$");
@@ -46,7 +49,8 @@ public final class CommandSafety {
         // Reject command stacking / embedded line breaks before any other test.
         if (cmd.indexOf('\r') >= 0 || cmd.indexOf('\n') >= 0 || cmd.indexOf(';') >= 0) return false;
 
-        if (SAFE_AT_EXACT.contains(cmd) || SAFE_TIMEOUT.matcher(cmd).matches()) return true;
+        if (SAFE_AT_EXACT.contains(cmd) || SAFE_TIMEOUT.matcher(cmd).matches()
+                || SAFE_PROTOCOL.matcher(cmd).matches()) return true;
 
         // SAE J1979 read-only services only.
         if (MODE_01.matcher(cmd).matches()) return true; // current data

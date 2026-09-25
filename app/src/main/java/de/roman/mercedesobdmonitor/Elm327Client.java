@@ -84,6 +84,32 @@ public final class Elm327Client implements Closeable {
         return new CommandResult(raw, elapsed);
     }
 
+    /**
+     * Nach einem Timeout auf den verspäteten '>'-Prompt warten und alles bis dahin
+     * verwerfen. Sendet selbst nichts (ein CR würde beim ELM327 den letzten Befehl
+     * wiederholen). true = Adapter ist wieder synchron und bereit.
+     */
+    public synchronized boolean resync(int timeoutMs) {
+        if (!isConnected() || in == null) return false;
+        long deadline = SystemClock.elapsedRealtime() + timeoutMs;
+        try {
+            while (true) {
+                long left = deadline - SystemClock.elapsedRealtime();
+                if (left <= 0) return false;
+                socket.setSoTimeout((int) Math.max(1, left));
+                int b = in.read();
+                if (b < 0) return false;
+                rxBytes++;
+                if (b == '>') {
+                    drainAvailable();
+                    return true;
+                }
+            }
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     private void drainAvailable() throws IOException {
         if (in == null) return;
         int guard = 0;

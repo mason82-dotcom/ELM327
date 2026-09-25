@@ -87,6 +87,11 @@ public final class MainActivity extends Activity {
     private String protocol = "–";
     /** null = unbekannt (Parser erkennt automatisch), sonst CAN/Legacy laut ATDPN. */
     private volatile Boolean protocolIsCan = null;
+    /** ATDPN-Rohwert der Erstverbindung; beim Reconnect wird das Protokoll fest gesetzt. */
+    private volatile String protocolNumber = null;
+    private final LinkPolicy.TimeoutTracker pollTimeouts = new LinkPolicy.TimeoutTracker();
+    /** Erste Fahrzeuganfrage nach Reconnect bekommt längeren Timeout (Protokollsuche). */
+    private volatile boolean firstRequestAfterInit = false;
     private String adapterVoltage = "–";
 
     @Override
@@ -311,6 +316,8 @@ public final class MainActivity extends Activity {
             String dpn = clean(command(session, "ATDPN", 1800).raw);
             protocol = describeProtocol(dp, dpn);
             protocolIsCan = ObdParser.isCanProtocol(dpn);
+            protocolNumber = dpn;
+            pollTimeouts.reset();
             showStatus("Verbunden · " + elmId + " · " + protocol);
             append("Adapter: " + elmId);
             append("Protokoll: " + protocol);
@@ -366,10 +373,13 @@ public final class MainActivity extends Activity {
             for (ObdPid pid : new ArrayList<>(activePids)) {
                 if (!monitoring.get() || userDisconnect || exclusiveRequest.get()
                         || session != sessionGeneration.get()) break;
-                if (!shouldPoll(pid.pid, cycle)) continue;
+                if (!PollSchedule.shouldPoll(pid.pid, cycle, fuelTrimTest.isRunning())) continue;
 
                 try {
-                    Elm327Client.CommandResult r = command(session, pid.command(), 1800);
+                    int timeoutMs = firstRequestAfterInit ? LinkPolicy.FIRST_REQUEST_TIMEOUT_MS : 1800;
+                    Elm327Client.CommandResult r = command(session, pid.command(), timeoutMs);
+                    firstRequestAfterInit = false;
+                    pollTimeouts.onResponse();
                     if (ObdParser.isNoData(r.raw)) {
                         noData++;
                         continue;
@@ -381,6 +391,7 @@ public final class MainActivity extends Activity {
                     }
                     samples++;
                     totalLatency += r.elapsedMs;
+                    if (session != sessionGeneration.get()) break;
                     latestValues.put(pid.pid, value);
                     latestSequences.put(pid.pid, telemetrySequence.incrementAndGet());
                     csv.record(System.currentTimeMillis(), pid, value, r.elapsedMs, r.raw);
@@ -392,11 +403,22 @@ public final class MainActivity extends Activity {
                     });
                 } catch (SocketTimeoutException e) {
                     timeouts++;
-                    append("Timeout bei " + pid.command() + " · Verbindung wird neu synchronisiert");
-                    cancelFuelTrimForConnectionLoss("Timeout");
-                    closeClientIfCurrent(c);
+                    firstRequestAfterInit = false;
+                    // Auf den verspäteten '>'-Prompt warten; erst bei wiederholtem
+                    // Timeout oder fehlgeschlagener Resynchronisation neu verbinden.
+                    boolean resynced = c.resync(1500);
+                    if (pollTimeouts.onTimeout(resynced)) {
+                        append("Timeout bei " + pid.command() + " (" + pollTimeouts.consecutive()
+                                + "× in Folge" + (resynced ? "" : ", kein Prompt") + ") · Verbindung wird neu aufgebaut");
+                        pollTimeouts.reset();
+                        cancelFuelTrimForConnectionLoss("Timeout");
+                        closeClientIfCurrent(c);
+                        updateStats();
+                        break;
+                    }
+                    append("Timeout bei " + pid.command() + " · Prompt resynchronisiert, Verbindung bleibt");
                     updateStats();
-                    break;
+                    continue;
                 } catch (IOException e) {
                     ioErrors++;
                     append("I/O: " + e.getMessage());
@@ -410,15 +432,6 @@ public final class MainActivity extends Activity {
             updatePassiveDiagnostics();
             sleepQuiet(70);
         }
-    }
-
-    private boolean shouldPoll(int pid, int cycle) {
-        // Schnelle PIDs: jeder Zyklus. Mittlere: jeder 2. Zyklus. Langsame: jeder 5. Zyklus.
-        return switch (pid) {
-            case 0x0C, 0x10, 0x06, 0x08, 0x44 -> true;
-            case 0x0D, 0x04, 0x11, 0x0B -> (cycle % 2) == 0;
-            default -> (cycle % 5) == 0;
-        };
     }
 
     private static void sleepQuiet(long ms) {
@@ -436,11 +449,11 @@ public final class MainActivity extends Activity {
             sleepQuiet(2000);
             if (session != sessionGeneration.get()) return;
             connectWithFallback(host, port, session);
-            command(session, "ATE0", 1500);
-            command(session, "ATL0", 1500);
-            command(session, "ATS0", 1500);
-            command(session, "ATH0", 1500);
-            command(session, "ATSP0", 1500);
+            for (String init : LinkPolicy.reconnectInit(protocolNumber)) {
+                command(session, init, 1500);
+            }
+            pollTimeouts.reset();
+            firstRequestAfterInit = true;
             latestValues.clear();
             latestSequences.clear();
             showStatus("Wieder verbunden · " + protocol);
@@ -448,7 +461,7 @@ public final class MainActivity extends Activity {
         } catch (Exception e) {
             if (session != sessionGeneration.get()) return;
             ioErrors++;
-            closeClient();
+            closeClientForSession(session);
             updateStats();
         }
     }
@@ -670,7 +683,8 @@ public final class MainActivity extends Activity {
 
             if (koeo) {
                 fuelTestStatus.setText("Fuel-Trim-Test: Motor aus · STFT/Soll-Lambda derzeit nicht bewerten");
-            } else if (fuelTrimTest.isRunning() || fuelTrimTest.getStage() == FuelTrimTest.Stage.DONE) {
+            } else if (fuelTrimTest.isRunning() || fuelTrimTest.getStage() == FuelTrimTest.Stage.DONE
+                    || fuelTrimTest.getStage() == FuelTrimTest.Stage.FAILED) {
                 fuelTestStatus.setText("Fuel-Trim-Test: " + testUpdate.status);
             } else {
                 fuelTestStatus.setText("Fuel-Trim-Test: bereit");
@@ -683,6 +697,12 @@ public final class MainActivity extends Activity {
                                 + "Die zweite Messphase startet automatisch, sobald die Drehzahl stabil ist.")
                         .setPositiveButton("OK", null)
                         .show();
+            }
+
+            if (testUpdate.failed) {
+                fuelTestButton.setText("Fuel-Trim-Test");
+                fuelTestStatus.setText("Fuel-Trim-Test: " + testUpdate.status);
+                append("Fuel-Trim-Test " + testUpdate.status);
             }
 
             if (testUpdate.completed && testUpdate.report != null) {
@@ -902,6 +922,12 @@ public final class MainActivity extends Activity {
             totalRxBytes += expected.getRxBytes();
             expected.close();
         }
+    }
+
+    /** Schließt den Client nur, wenn die Session noch aktuell ist (kein Übergriff auf neue Session). */
+    private synchronized void closeClientForSession(int session) {
+        if (session != sessionGeneration.get()) return;
+        closeClient();
     }
 
     private synchronized void closeClient() {

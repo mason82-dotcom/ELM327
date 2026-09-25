@@ -42,4 +42,13 @@ public class CommandSafetyTest {
         assertFalse(CommandSafety.isAllowed("010C\r04"));
         assertFalse(CommandSafety.isAllowed("010C;04"));
     }
+
+    @Test public void allowsOnlyStandardProtocolSelection() {
+        assertTrue(CommandSafety.isAllowed("ATSP6"));
+        assertTrue(CommandSafety.isAllowed("ATSP1"));
+        assertFalse(CommandSafety.isAllowed("ATSPA"));
+        assertFalse(CommandSafety.isAllowed("ATSPB"));
+        assertFalse(CommandSafety.isAllowed("ATSP66"));
+        assertFalse(CommandSafety.isAllowed("ATPB0101"));
+    }
 }

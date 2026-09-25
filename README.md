@@ -2,6 +2,17 @@
 
 Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen einem Mercedes C350 W204/M272 und einem ELM327-WiFi-Dongle.
 
+## Version 1.0.7
+
+- ein einzelner ELM327-Timeout erzwingt keinen Reconnect mehr: die App wartet auf den verspäteten `>`-Prompt und verwirft die Spätantwort; neu verbunden wird erst bei 2 Timeouts in Folge oder ohne Prompt
+- Reconnect stellt die vollständige Adapter-Initialisierung wieder her (ATAT1, ATST64) und setzt das bei der Erstverbindung erkannte Protokoll fest (ATSPx statt erneuter Auto-Suche); erste Anfrage danach mit längerem Timeout
+- CommandSafety erlaubt zusätzlich ATSP1–ATSP9 (feste Standardprotokolle); benutzerdefinierte Protokolle A–C bleiben gesperrt
+- Fuel-Trim-Test mittelt STFT/LTFT/MAF/MAP je Kanal unabhängig – jeder frische Wert zählt genau einmal, STFT wird nicht mehr durch das langsame LTFT-Polling ausgedünnt
+- während des Fuel-Trim-Tests werden alle Trim-, Drehzahl-, Geschwindigkeits-, MAF- und MAP-PIDs in jedem Zyklus gelesen
+- Messphasen mit zu wenig frischen Werten brechen nach 30 s Verlängerung kontrolliert ab statt endlos zu warten; der Bericht nennt die Anzahl der Werte je Kanal
+- Reconnect-Fehler schließen nur noch die eigene Session; Werte veralteter Sessions werden nicht mehr übernommen
+- neue Tests für LinkPolicy, PollSchedule, ATSP-Whitelist und Fuel-Trim-Kanalmittelung (41 Tests)
+
 ## Version 1.0.6
 
 - Verbindungs-Sessions sind generation-basiert getrennt; ältere Connect-/Reconnect-Schleifen können keine neuere Sitzung mehr übernehmen
@@ -70,6 +81,6 @@ Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen
 
 GitHub Actions baut bei jedem Push auf `main` eine Debug-APK. Das Artifact heißt:
 
-`Mercedes_OBD2_Monitor_v1.0.6-debug`
+`Mercedes_OBD2_Monitor_v1.0.7-debug`
 
 Der komplette Android-Quellcode liegt direkt im Repository.

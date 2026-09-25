@@ -9,7 +9,7 @@ import java.util.Map;
  */
 public final class FuelTrimTest {
     public enum Stage {
-        IDLE, WAIT_IDLE, COLLECT_IDLE, WAIT_2500, COLLECT_2500, DONE
+        IDLE, WAIT_IDLE, COLLECT_IDLE, WAIT_2500, COLLECT_2500, DONE, FAILED
     }
 
     public static final class Update {
@@ -17,12 +17,19 @@ public final class FuelTrimTest {
         public final boolean prompt2500;
         public final boolean completed;
         public final String report;
+        /** true = Test wurde wegen Datenmangel abgebrochen (Stage FAILED). */
+        public final boolean failed;
 
         Update(String status, boolean prompt2500, boolean completed, String report) {
+            this(status, prompt2500, completed, report, false);
+        }
+
+        Update(String status, boolean prompt2500, boolean completed, String report, boolean failed) {
             this.status = status;
             this.prompt2500 = prompt2500;
             this.completed = completed;
             this.report = report;
+            this.failed = failed;
         }
     }
 
@@ -30,12 +37,14 @@ public final class FuelTrimTest {
     private static final long IDLE_MEASURE_MS = 20000;
     private static final long HIGH_STABLE_MS = 3000;
     private static final long HIGH_MEASURE_MS = 15000;
-    private static final long SAMPLE_INTERVAL_MS = 250;
+    /** Mindestanzahl frischer Werte je Trim-PID und Phase. */
+    static final int MIN_SAMPLES = 3;
+    /** Maximale Verlängerung einer Messphase, wenn noch Werte fehlen. */
+    static final long MAX_EXTRA_MS = 30000;
 
     private Stage stage = Stage.IDLE;
     private long stableSince;
     private long stageSince;
-    private long lastSample;
     private final Acc idle = new Acc();
     private final Acc high = new Acc();
 
@@ -45,18 +54,16 @@ public final class FuelTrimTest {
         stage = Stage.WAIT_IDLE;
         stableSince = 0;
         stageSince = 0;
-        lastSample = 0;
     }
 
     public synchronized void cancel() {
         stage = Stage.IDLE;
         stableSince = 0;
         stageSince = 0;
-        lastSample = 0;
     }
 
     public synchronized boolean isRunning() {
-        return stage != Stage.IDLE && stage != Stage.DONE;
+        return stage != Stage.IDLE && stage != Stage.DONE && stage != Stage.FAILED;
     }
 
     public synchronized Stage getStage() {
@@ -84,7 +91,6 @@ public final class FuelTrimTest {
                 idle.reset(sequences);
                 stage = Stage.COLLECT_IDLE;
                 stageSince = now;
-                lastSample = 0;
                 yield new Update("Leerlaufmessung gestartet", false, false, null);
             }
 
@@ -95,14 +101,14 @@ public final class FuelTrimTest {
                     stableSince = 0;
                     yield new Update("Leerlauf/Fahrzeugstand nicht stabil – Messung wird neu angesetzt", false, false, null);
                 }
-                if (now - lastSample >= SAMPLE_INTERVAL_MS) {
-                    idle.add(values, sequences);
-                    lastSample = now;
-                }
+                idle.add(values, sequences);
                 long elapsed = now - stageSince;
                 if (elapsed >= IDLE_MEASURE_MS) {
-                    if (idle.count < 3) {
-                        yield new Update("Leerlauf: warte auf mindestens 3 frische Trim-Datensätze …", false, false, null);
+                    if (!idle.enough()) {
+                        if (elapsed >= IDLE_MEASURE_MS + MAX_EXTRA_MS) {
+                            yield fail("Leerlauf", idle);
+                        }
+                        yield new Update("Leerlauf: warte auf frische Trim-Werte (" + idle.progress() + ") …", false, false, null);
                     }
                     stage = Stage.WAIT_2500;
                     stableSince = 0;
@@ -125,7 +131,6 @@ public final class FuelTrimTest {
                 high.reset(sequences);
                 stage = Stage.COLLECT_2500;
                 stageSince = now;
-                lastSample = 0;
                 yield new Update("2500-U/min-Messung gestartet", false, false, null);
             }
 
@@ -136,14 +141,14 @@ public final class FuelTrimTest {
                     stableSince = 0;
                     yield new Update("Drehzahl/Fahrzeugstand verlassen – 2500-U/min-Messung wird neu angesetzt", false, false, null);
                 }
-                if (now - lastSample >= SAMPLE_INTERVAL_MS) {
-                    high.add(values, sequences);
-                    lastSample = now;
-                }
+                high.add(values, sequences);
                 long elapsed = now - stageSince;
                 if (elapsed >= HIGH_MEASURE_MS) {
-                    if (high.count < 3) {
-                        yield new Update("2500 U/min: warte auf mindestens 3 frische Trim-Datensätze …", false, false, null);
+                    if (!high.enough()) {
+                        if (elapsed >= HIGH_MEASURE_MS + MAX_EXTRA_MS) {
+                            yield fail("2500 U/min", high);
+                        }
+                        yield new Update("2500 U/min: warte auf frische Trim-Werte (" + high.progress() + ") …", false, false, null);
                     }
                     stage = Stage.DONE;
                     String report = buildReport(idle, high);
@@ -153,7 +158,14 @@ public final class FuelTrimTest {
             }
 
             case DONE -> new Update("Test abgeschlossen", false, false, null);
+            case FAILED -> new Update("abgebrochen · zu wenige frische Trim-Werte", false, false, null);
         };
+    }
+
+    private Update fail(String phase, Acc acc) {
+        stage = Stage.FAILED;
+        return new Update("abgebrochen · " + phase + ": zu wenige frische Trim-Werte (" + acc.progress()
+                + "). Verbindung/Adapter zu langsam?", false, false, null, true);
     }
 
     private static String buildReport(Acc idle, Acc high) {
@@ -167,18 +179,18 @@ public final class FuelTrimTest {
         sb.append(String.format(Locale.GERMANY,
                 "Leerlauf:\nSTFT B1 %+.1f %% · LTFT B1 %+.1f %% · Gesamt B1 %+.1f %%\n" +
                 "STFT B2 %+.1f %% · LTFT B2 %+.1f %% · Gesamt B2 %+.1f %%\n" +
-                "MAF %.2f g/s · MAP %.0f kPa\n\n",
+                "MAF %s g/s · MAP %s kPa\n%s\n\n",
                 idle.avgStft1(), idle.avgLtft1(), idle1,
                 idle.avgStft2(), idle.avgLtft2(), idle2,
-                idle.avgMaf(), idle.avgMap()));
+                fmt(idle.avgMaf(), "%.2f"), fmt(idle.avgMap(), "%.0f"), idle.sampleSummary()));
 
         sb.append(String.format(Locale.GERMANY,
                 "≈2500 U/min:\nSTFT B1 %+.1f %% · LTFT B1 %+.1f %% · Gesamt B1 %+.1f %%\n" +
                 "STFT B2 %+.1f %% · LTFT B2 %+.1f %% · Gesamt B2 %+.1f %%\n" +
-                "MAF %.2f g/s · MAP %.0f kPa\n\n",
+                "MAF %s g/s · MAP %s kPa\n%s\n\n",
                 high.avgStft1(), high.avgLtft1(), high1,
                 high.avgStft2(), high.avgLtft2(), high2,
-                high.avgMaf(), high.avgMap()));
+                fmt(high.avgMaf(), "%.2f"), fmt(high.avgMap(), "%.0f"), high.sampleSummary()));
 
         sb.append("Diagnosehinweise:\n");
         boolean hint = false;
@@ -230,73 +242,95 @@ public final class FuelTrimTest {
         return v == null ? Double.NaN : v;
     }
 
-    private static final class Acc {
-        private int count;
-        private double stft1, ltft1, stft2, ltft2, maf, map;
-        private long seqStft1, seqLtft1, seqStft2, seqLtft2;
+    private static String fmt(double v, String pattern) {
+        return Double.isNaN(v) ? "–" : String.format(Locale.GERMANY, pattern, v);
+    }
 
-        void reset() {
-            reset(null);
-        }
+    /** Mittelwert eines PIDs, der nur frisch eingelesene Werte (neue Sequenznummer) zählt. */
+    private static final class Channel {
+        final int pid;
+        double sum;
+        int count;
+        long lastSeq;
+
+        Channel(int pid) { this.pid = pid; }
 
         void reset(Map<Integer, Long> sequences) {
+            sum = 0.0;
             count = 0;
-            stft1 = ltft1 = stft2 = ltft2 = maf = map = 0.0;
-            seqStft1 = seq(sequences, 0x06);
-            seqLtft1 = seq(sequences, 0x07);
-            seqStft2 = seq(sequences, 0x08);
-            seqLtft2 = seq(sequences, 0x09);
-        }
-
-        private long seq(Map<Integer, Long> sequences, int pid) {
-            if (sequences == null) return 0L;
-            Long value = sequences.get(pid);
-            return value == null ? 0L : value;
+            Long s = sequences == null ? null : sequences.get(pid);
+            lastSeq = s == null ? 0L : s;
         }
 
         void add(Map<Integer, Double> values, Map<Integer, Long> sequences) {
-            Double a = values.get(0x06);
-            Double b = values.get(0x07);
-            Double c = values.get(0x08);
-            Double d = values.get(0x09);
-            Double e = values.get(0x10);
-            Double f = values.get(0x0B);
-            Long sa = sequences.get(0x06);
-            Long sb = sequences.get(0x07);
-            Long sc = sequences.get(0x08);
-            Long sd = sequences.get(0x09);
-
-            if (a == null || b == null || c == null || d == null
-                    || sa == null || sb == null || sc == null || sd == null) return;
-
-            // Nur einen neuen Messpunkt übernehmen, wenn alle vier Trim-PIDs
-            // seit dem letzten akzeptierten Punkt tatsächlich neu eingelesen wurden.
-            if (sa <= seqStft1 || sb <= seqLtft1 || sc <= seqStft2 || sd <= seqLtft2) return;
-
-            stft1 += a;
-            ltft1 += b;
-            stft2 += c;
-            ltft2 += d;
-            if (e != null) maf += e;
-            if (f != null) map += f;
-            seqStft1 = sa;
-            seqLtft1 = sb;
-            seqStft2 = sc;
-            seqLtft2 = sd;
+            Double v = values.get(pid);
+            Long s = sequences.get(pid);
+            if (v == null || s == null || s <= lastSeq || Double.isNaN(v)) return;
+            sum += v;
             count++;
+            lastSeq = s;
         }
 
-        double avgStft1() { return avg(stft1); }
-        double avgLtft1() { return avg(ltft1); }
-        double avgStft2() { return avg(stft2); }
-        double avgLtft2() { return avg(ltft2); }
-        double avgMaf() { return avg(maf); }
-        double avgMap() { return avg(map); }
+        double avg() { return count == 0 ? Double.NaN : sum / count; }
+    }
+
+    /**
+     * Mittelt jeden PID unabhängig. Schnelle STFT-Werte gehen damit vollständig ein,
+     * auch wenn LTFT seltener aktualisiert wird; kein Wert wird doppelt gezählt.
+     */
+    private static final class Acc {
+        private final Channel stft1 = new Channel(0x06);
+        private final Channel ltft1 = new Channel(0x07);
+        private final Channel stft2 = new Channel(0x08);
+        private final Channel ltft2 = new Channel(0x09);
+        private final Channel maf = new Channel(0x10);
+        private final Channel map = new Channel(0x0B);
+        private final Channel[] all = {stft1, ltft1, stft2, ltft2, maf, map};
+        private final Channel[] trims = {stft1, ltft1, stft2, ltft2};
+
+        void reset() { reset(null); }
+
+        void reset(Map<Integer, Long> sequences) {
+            for (Channel c : all) c.reset(sequences);
+        }
+
+        void add(Map<Integer, Double> values, Map<Integer, Long> sequences) {
+            for (Channel c : all) c.add(values, sequences);
+        }
+
+        boolean enough() {
+            for (Channel c : trims) if (c.count < MIN_SAMPLES) return false;
+            return true;
+        }
+
+        String progress() {
+            return String.format(Locale.GERMANY, "STFT %d/%d · LTFT %d/%d, min. %d",
+                    stft1.count, stft2.count, ltft1.count, ltft2.count, MIN_SAMPLES);
+        }
+
+        String sampleSummary() {
+            return String.format(Locale.GERMANY, "Werte: STFT B1/B2 %d/%d · LTFT B1/B2 %d/%d",
+                    stft1.count, stft2.count, ltft1.count, ltft2.count);
+        }
+
+        int count(int pid) {
+            for (Channel c : all) if (c.pid == pid) return c.count;
+            return 0;
+        }
+
+        double avgStft1() { return stft1.avg(); }
+        double avgLtft1() { return ltft1.avg(); }
+        double avgStft2() { return stft2.avg(); }
+        double avgLtft2() { return ltft2.avg(); }
+        double avgMaf() { return maf.avg(); }
+        double avgMap() { return map.avg(); }
         double total1() { return avgStft1() + avgLtft1(); }
         double total2() { return avgStft2() + avgLtft2(); }
-
-        private double avg(double sum) {
-            return count == 0 ? Double.NaN : sum / count;
-        }
     }
+
+    /** Nur für Tests: Anzahl gezählter Werte je PID der Leerlaufphase. */
+    synchronized int idleSampleCount(int pid) { return idle.count(pid); }
+
+    /** Nur für Tests: Anzahl gezählter Werte je PID der 2500-U/min-Phase. */
+    synchronized int highSampleCount(int pid) { return high.count(pid); }
 }
