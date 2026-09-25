@@ -53,8 +53,11 @@ public final class Elm327Client implements Closeable {
 
     public synchronized CommandResult sendCommand(String command, int timeoutMs) throws IOException {
         ensureConnected();
-        String cmd = command == null ? "" : command.trim().toUpperCase();
+        String cmd = CommandSafety.normalize(command);
         if (cmd.isEmpty()) throw new IllegalArgumentException("Leerer ELM327-Befehl");
+        if (!CommandSafety.isAllowed(cmd)) {
+            throw new IOException("Read-Only-Schutz: " + CommandSafety.blockedReason(cmd));
+        }
         drainAvailable();
         byte[] data = (cmd + "\r").getBytes(StandardCharsets.US_ASCII);
         long start = SystemClock.elapsedRealtime();

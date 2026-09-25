@@ -97,6 +97,11 @@ public final class MainActivity extends Activity {
         TextView sub = text("C350 W204 / M272 · ELM327 WiFi", 14, Color.LTGRAY);
         root.addView(sub);
 
+        TextView safety = text("🔒 READ-ONLY · Keine Codierung · Kein Löschen · Keine Stellgliedbefehle", 13,
+                Color.rgb(129, 199, 132));
+        safety.setPadding(0, dp(6), 0, dp(4));
+        root.addView(safety);
+
         LinearLayout endpoint = row();
         hostInput = edit("192.168.0.10", false);
         portInput = edit("35000", true);
@@ -140,7 +145,7 @@ public final class MainActivity extends Activity {
         logControls.addView(clear, weight());
         root.addView(logControls);
 
-        TextView termTitle = text("ELM327-Terminal", 18, Color.WHITE);
+        TextView termTitle = text("ELM327-Terminal (Read-Only)", 18, Color.WHITE);
         termTitle.setTypeface(null, 1);
         termTitle.setPadding(0, dp(14), 0, dp(6));
         root.addView(termTitle);
@@ -476,6 +481,12 @@ public final class MainActivity extends Activity {
         }
         final String cmd = terminalInput.getText().toString().trim();
         if (cmd.isEmpty()) return;
+        if (!CommandSafety.isAllowed(cmd)) {
+            String reason = CommandSafety.blockedReason(cmd);
+            append("BLOCKIERT > " + cmd + " · " + reason);
+            Toast.makeText(this, "Read-Only-Schutz: " + reason, Toast.LENGTH_LONG).show();
+            return;
+        }
         io.execute(() -> {
             try {
                 append("> " + cmd);
