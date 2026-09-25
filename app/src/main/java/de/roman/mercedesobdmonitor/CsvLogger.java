@@ -81,6 +81,6 @@ public final class CsvLogger {
 
     private static String csv(String value) {
         if (value == null) return "";
-        return '"' + value.replace(""", """").replace("\r", " ").replace("\n", " ") + '"';
+        return "\"" + value.replace("\"", "\"\"").replace("\r", " ").replace("\n", " ") + "\"";
     }
 }
