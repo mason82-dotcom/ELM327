@@ -30,14 +30,26 @@ public final class ObdParser {
 
     public static Set<Integer> supportedPids(String raw, int basePid) {
         Set<Integer> result = new HashSet<>();
-        byte[] d = mode01Data(raw, basePid, 4);
-        if (d == null || d.length < 4) return result;
-        long mask = ((long) (d[0] & 0xFF) << 24)
-                | ((long) (d[1] & 0xFF) << 16)
-                | ((long) (d[2] & 0xFF) << 8)
-                | (long) (d[3] & 0xFF);
+        if (raw == null) return result;
+
+        // Mercedes kann auf funktionale OBD-Anfragen mit mehreren ECUs antworten.
+        // Deshalb alle 41xx-Bitmaps logisch vereinigen statt nur die erste Zeile zu verwenden.
+        String marker = String.format(Locale.US, "41%02X", basePid & 0xFF);
+        long unionMask = 0L;
+
+        for (String line : normalizedLines(raw)) {
+            int pos = line.indexOf(marker);
+            if (pos < 0) continue;
+            String hex = line.substring(pos + marker.length()).replaceAll("[^0-9A-F]", "");
+            if (hex.length() < 8) continue;
+            try {
+                long mask = Long.parseLong(hex.substring(0, 8), 16);
+                unionMask |= mask;
+            } catch (RuntimeException ignored) { }
+        }
+
         for (int bit = 0; bit < 32; bit++) {
-            if ((mask & (1L << (31 - bit))) != 0) result.add(basePid + bit + 1);
+            if ((unionMask & (1L << (31 - bit))) != 0) result.add(basePid + bit + 1);
         }
         return result;
     }
@@ -53,18 +65,31 @@ public final class ObdParser {
         List<String> out = new ArrayList<>();
         if (raw == null) return out;
         String marker = String.format(Locale.US, "%02X", responseMode & 0xFF);
+
         for (String line : normalizedLines(raw)) {
-            int pos = line.indexOf(marker);
-            if (pos < 0) continue;
-            String hex = line.substring(pos + marker.length()).replaceAll("[^0-9A-F]", "");
-            for (int i = 0; i + 3 < hex.length(); i += 4) {
-                try {
-                    int a = Integer.parseInt(hex.substring(i, i + 2), 16);
-                    int bb = Integer.parseInt(hex.substring(i + 2, i + 4), 16);
-                    if (a == 0 && bb == 0) continue;
-                    String code = decodeDtc(a, bb);
-                    if (!out.contains(code)) out.add(code);
-                } catch (RuntimeException ignored) { }
+            int searchFrom = 0;
+            while (searchFrom < line.length()) {
+                int pos = line.indexOf(marker, searchFrom);
+                if (pos < 0) break;
+
+                int next = line.indexOf(marker, pos + marker.length());
+                String hex = line.substring(
+                        pos + marker.length(),
+                        next >= 0 ? next : line.length()
+                ).replaceAll("[^0-9A-F]", "");
+
+                for (int i = 0; i + 3 < hex.length(); i += 4) {
+                    try {
+                        int a = Integer.parseInt(hex.substring(i, i + 2), 16);
+                        int bb = Integer.parseInt(hex.substring(i + 2, i + 4), 16);
+                        if (a == 0 && bb == 0) continue;
+                        String code = decodeDtc(a, bb);
+                        if (!out.contains(code)) out.add(code);
+                    } catch (RuntimeException ignored) { }
+                }
+
+                if (next < 0) break;
+                searchFrom = next;
             }
         }
         return out;

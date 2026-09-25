@@ -422,9 +422,21 @@ public final class MainActivity extends Activity {
             try {
                 StringBuilder sb = new StringBuilder();
                 synchronized (c) {
+                    sb.append("Generische OBD-II-Fehlercodes\n\n");
                     sb.append(readDtcMode(c, "Gespeichert", "03", 0x43));
+                    sleepQuiet(180);
                     sb.append("\n\n").append(readDtcMode(c, "Pending", "07", 0x47));
+                    sleepQuiet(180);
                     sb.append("\n\n").append(readDtcMode(c, "Permanent", "0A", 0x4A));
+                    sleepQuiet(250);
+
+                    // Nach dem DTC-Scan einen harmlosen Read-Only-Request als Verbindungsprobe.
+                    try {
+                        c.sendCommand("0100", 2200);
+                    } catch (IOException probeError) {
+                        append("DTC-Nachtest: Verbindung wird neu aufgebaut – " + probeError.getMessage());
+                        closeClient();
+                    }
                 }
                 report = sb.toString();
                 append("DTC-Scan abgeschlossen");
@@ -457,7 +469,14 @@ public final class MainActivity extends Activity {
             List<String> codes = ObdParser.dtcs(r.raw, responseMode);
             if (codes.isEmpty()) {
                 if (raw.isEmpty()) return label + ": keine Antwort";
-                if (ObdParser.isNoData(r.raw)) return label + ": keine Fehlercodes gemeldet";
+                if (ObdParser.isNoData(r.raw)) {
+                    return responseMode == 0x4A
+                            ? label + ": nicht unterstützt / NO DATA"
+                            : label + ": keine Fehlercodes gemeldet";
+                }
+                if (raw.replace(" ", "").matches("^(43|47)(00)+(\\s*(43|47)(00)+)*$")) {
+                    return label + ": keine Fehlercodes gemeldet";
+                }
                 return label + ": keine Fehlercodes erkannt\nRohantwort: " + raw;
             }
             StringBuilder sb = new StringBuilder(label).append(":");
@@ -509,15 +528,29 @@ public final class MainActivity extends Activity {
     }
 
     private long connectWithFallback(String host, int port) throws IOException {
-        IOException last = null;
-        List<Network> wifiNetworks = findWifiNetworks();
+        IOException standardRouteError = null;
 
-        for (Network network : wifiNetworks) {
+        // Auf dem OnePlus 13R routet Android die lokale 192.168.0.x-Strecke korrekt über WLAN.
+        // Diese Variante vermeidet den auf OxygenOS beobachteten EPERM-Fehler beim Network-SocketFactory-Binding.
+        Elm327Client direct = new Elm327Client(host, port, null);
+        try {
+            long ms = direct.connect(3500);
+            client = direct;
+            append("Android-Standardroute verwendet");
+            return ms;
+        } catch (IOException e) {
+            direct.close();
+            standardRouteError = e;
+            append("Standardroute fehlgeschlagen: " + e.getMessage());
+        }
+
+        IOException last = standardRouteError;
+        for (Network network : findWifiNetworks()) {
             Elm327Client candidate = new Elm327Client(host, port, network);
             try {
                 long ms = candidate.connect(3500);
                 client = candidate;
-                append("WLAN-Netz " + network + " verwendet");
+                append("Fallback über WLAN-Netz " + network);
                 return ms;
             } catch (IOException e) {
                 candidate.close();
@@ -526,20 +559,7 @@ public final class MainActivity extends Activity {
             }
         }
 
-        Elm327Client candidate = new Elm327Client(host, port, null);
-        try {
-            long ms = candidate.connect(3500);
-            client = candidate;
-            append("Fallback: Android-Standardroute verwendet");
-            return ms;
-        } catch (IOException e) {
-            candidate.close();
-            if (last != null) {
-                throw new IOException("WLAN-Bindung fehlgeschlagen (" + last.getMessage()
-                        + "); Standardroute ebenfalls fehlgeschlagen (" + e.getMessage() + ")");
-            }
-            throw e;
-        }
+        throw last != null ? last : new IOException("Keine Route zum ELM327 verfügbar");
     }
 
     private List<Network> findWifiNetworks() {
