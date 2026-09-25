@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -50,14 +51,20 @@ public final class MainActivity extends Activity {
     private EditText terminalInput;
     private TextView status;
     private TextView stats;
+    private TextView operatingState;
+    private TextView voltageState;
+    private TextView fuelTestStatus;
     private TextView console;
     private LinearLayout pidBox;
     private Button dtcButton;
+    private Button fuelTestButton;
     private SparklineView latencyGraph;
 
     private final Map<Integer, TextView> pidRows = new LinkedHashMap<>();
     private final List<ObdPid> activePids = new ArrayList<>();
     private final CsvLogger csv = new CsvLogger();
+    private final Map<Integer, Double> latestValues = new ConcurrentHashMap<>();
+    private final FuelTrimTest fuelTrimTest = new FuelTrimTest();
 
     private volatile Elm327Client client;
     private volatile boolean userDisconnect;
@@ -125,6 +132,20 @@ public final class MainActivity extends Activity {
         stats = text("", 13, Color.LTGRAY);
         root.addView(stats);
 
+        operatingState = text("Betriebszustand: –", 14, Color.LTGRAY);
+        operatingState.setPadding(0, dp(7), 0, dp(2));
+        root.addView(operatingState);
+
+        voltageState = text("Spannungsbewertung: –", 13, Color.LTGRAY);
+        root.addView(voltageState);
+
+        fuelTestStatus = text("Fuel-Trim-Test: bereit", 13, Color.LTGRAY);
+        fuelTestStatus.setPadding(0, dp(3), 0, dp(4));
+        root.addView(fuelTestStatus);
+
+        fuelTestButton = button("Fuel-Trim-Test");
+        root.addView(fuelTestButton, new LinearLayout.LayoutParams(-1, dp(48)));
+
         latencyGraph = new SparklineView(this);
         root.addView(latencyGraph, new LinearLayout.LayoutParams(-1, dp(135)));
 
@@ -166,6 +187,7 @@ public final class MainActivity extends Activity {
         connect.setOnClickListener(v -> connectRequested());
         disconnect.setOnClickListener(v -> disconnect(true));
         dtcButton.setOnClickListener(v -> readDtcs());
+        fuelTestButton.setOnClickListener(v -> toggleFuelTrimTest());
         send.setOnClickListener(v -> sendTerminal());
         export.setOnClickListener(v -> exportCsv());
         clear.setOnClickListener(v -> {
@@ -174,6 +196,10 @@ public final class MainActivity extends Activity {
             latencyGraph.clear();
             samples = totalLatency = timeouts = noData = ioErrors = parserErrors = totalTxBytes = totalRxBytes = 0;
             pollCycle = 0;
+            latestValues.clear();
+            fuelTrimTest.cancel();
+            fuelTestButton.setText("Fuel-Trim-Test");
+            fuelTestStatus.setText("Fuel-Trim-Test: bereit");
             updateStats();
         });
 
@@ -330,6 +356,7 @@ public final class MainActivity extends Activity {
                     }
                     samples++;
                     totalLatency += r.elapsedMs;
+                    latestValues.put(pid.pid, value);
                     csv.record(System.currentTimeMillis(), pid, value, r.elapsedMs, r.raw);
                     ui.post(() -> {
                         TextView v = pidRows.get(pid.pid);
@@ -350,6 +377,7 @@ public final class MainActivity extends Activity {
                 }
                 sleepQuiet(25);
             }
+            updatePassiveDiagnostics();
             sleepQuiet(70);
         }
     }
@@ -493,6 +521,175 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void toggleFuelTrimTest() {
+        if (fuelTrimTest.isRunning()) {
+            fuelTrimTest.cancel();
+            fuelTestButton.setText("Fuel-Trim-Test");
+            fuelTestStatus.setText("Fuel-Trim-Test: abgebrochen");
+            append("Fuel-Trim-Test abgebrochen");
+            return;
+        }
+
+        Elm327Client c = client;
+        if (c == null || !c.isConnected()) {
+            Toast.makeText(this, "Keine ELM327-Verbindung", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Double rpm = latestValues.get(0x0C);
+        if (rpm == null || rpm < 300.0) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Fuel-Trim-Test")
+                    .setMessage("Der Motor muss laufen. Bitte Motor starten und anschließend den Test erneut beginnen.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+
+        Double coolant = latestValues.get(0x05);
+        if (coolant == null || coolant < 80.0) {
+            String value = coolant == null ? "unbekannt" : String.format(Locale.GERMANY, "%.0f °C", coolant);
+            new AlertDialog.Builder(this)
+                    .setTitle("Motor noch nicht warm")
+                    .setMessage("Kühlmittel aktuell: " + value
+                            + "\n\nFür einen aussagekräftigen Fuel-Trim-Test werden mindestens etwa 80 °C empfohlen. "
+                            + "Der Test wurde noch nicht gestartet.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+
+        fuelTrimTest.start();
+        fuelTestButton.setText("Test abbrechen");
+        fuelTestStatus.setText("Fuel-Trim-Test: Leerlauf stabilisieren …");
+        append("Passiver Fuel-Trim-Test gestartet");
+        new AlertDialog.Builder(this)
+                .setTitle("Fuel-Trim-Test gestartet")
+                .setMessage("1. Fahrzeug stehen lassen und stabilen Leerlauf halten.\n"
+                        + "2. Die App misst automatisch 20 Sekunden.\n"
+                        + "3. Danach wirst du aufgefordert, die Drehzahl manuell bei ca. 2500 U/min zu halten.\n\n"
+                        + "Die App steuert keinerlei Stellglieder und verändert keine Fahrzeugkonfiguration.")
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
+    private void updatePassiveDiagnostics() {
+        Double rpmValue = latestValues.get(0x0C);
+        Double voltageValue = latestValues.get(0x42);
+
+        final boolean koeo = rpmValue != null && rpmValue < 100.0;
+        final boolean koer = rpmValue != null && rpmValue >= 300.0;
+
+        final String stateText;
+        final int stateColor;
+        if (koeo) {
+            stateText = "Betriebszustand: KOEO · Zündung an / Motor aus";
+            stateColor = Color.rgb(255, 193, 7);
+        } else if (koer) {
+            stateText = "Betriebszustand: KOER · Motor läuft";
+            stateColor = Color.rgb(129, 199, 132);
+        } else if (rpmValue == null) {
+            stateText = "Betriebszustand: noch keine Drehzahlinformation";
+            stateColor = Color.LTGRAY;
+        } else {
+            stateText = "Betriebszustand: Startphase / unklar";
+            stateColor = Color.LTGRAY;
+        }
+
+        final String voltageText = evaluateVoltage(voltageValue, koeo, koer);
+
+        FuelTrimTest.Update testUpdate = fuelTrimTest.tick(latestValues, System.currentTimeMillis());
+
+        ui.post(() -> {
+            operatingState.setText(stateText);
+            operatingState.setTextColor(stateColor);
+            voltageState.setText(voltageText);
+
+            TextView stft1 = pidRows.get(0x06);
+            TextView stft2 = pidRows.get(0x08);
+            TextView lambda = pidRows.get(0x44);
+            int liveColor = koeo ? Color.GRAY : Color.WHITE;
+            if (stft1 != null) stft1.setTextColor(liveColor);
+            if (stft2 != null) stft2.setTextColor(liveColor);
+            if (lambda != null) lambda.setTextColor(liveColor);
+
+            if (koeo) {
+                fuelTestStatus.setText("Fuel-Trim-Test: Motor aus · STFT/Soll-Lambda derzeit nicht bewerten");
+            } else if (fuelTrimTest.isRunning() || fuelTrimTest.getStage() == FuelTrimTest.Stage.DONE) {
+                fuelTestStatus.setText("Fuel-Trim-Test: " + testUpdate.status);
+            } else {
+                fuelTestStatus.setText("Fuel-Trim-Test: bereit");
+            }
+
+            if (testUpdate.prompt2500) {
+                new AlertDialog.Builder(this)
+                        .setTitle("Leerlaufmessung abgeschlossen")
+                        .setMessage("Jetzt die Motordrehzahl manuell auf etwa 2300–2700 U/min anheben und konstant halten. "
+                                + "Die zweite Messphase startet automatisch, sobald die Drehzahl stabil ist.")
+                        .setPositiveButton("OK", null)
+                        .show();
+            }
+
+            if (testUpdate.completed && testUpdate.report != null) {
+                fuelTestButton.setText("Fuel-Trim-Test");
+                fuelTestStatus.setText("Fuel-Trim-Test: abgeschlossen");
+                append("Fuel-Trim-Test abgeschlossen");
+                new AlertDialog.Builder(this)
+                        .setTitle("Fuel-Trim-Auswertung")
+                        .setMessage(testUpdate.report)
+                        .setPositiveButton("OK", null)
+                        .show();
+            }
+        });
+    }
+
+    private static String evaluateVoltage(Double voltage, boolean koeo, boolean koer) {
+        if (voltage == null || Double.isNaN(voltage)) {
+            return "Spannungsbewertung: noch kein PID-0142-Wert";
+        }
+
+        if (koeo) {
+            if (voltage < 11.8) {
+                return String.format(Locale.GERMANY,
+                        "Spannungsbewertung: %.3f V · sehr niedrig unter Zündungslast · Batterie an den Polen prüfen",
+                        voltage);
+            }
+            if (voltage < 12.2) {
+                return String.format(Locale.GERMANY,
+                        "Spannungsbewertung: %.3f V · niedrig unter Zündungslast · Batteriezustand prüfen",
+                        voltage);
+            }
+            if (voltage < 12.5) {
+                return String.format(Locale.GERMANY,
+                        "Spannungsbewertung: %.3f V · mäßig unter Zündungslast",
+                        voltage);
+            }
+            return String.format(Locale.GERMANY,
+                    "Spannungsbewertung: %.3f V · unter Zündungslast plausibel",
+                    voltage);
+        }
+
+        if (koer) {
+            if (voltage < 13.2) {
+                return String.format(Locale.GERMANY,
+                        "Spannungsbewertung: %.3f V · Ladespannung auffällig niedrig",
+                        voltage);
+            }
+            if (voltage <= 14.9) {
+                return String.format(Locale.GERMANY,
+                        "Spannungsbewertung: %.3f V · Ladespannung plausibel",
+                        voltage);
+            }
+            return String.format(Locale.GERMANY,
+                    "Spannungsbewertung: %.3f V · Ladespannung auffällig hoch",
+                    voltage);
+        }
+
+        return String.format(Locale.GERMANY,
+                "Spannungsbewertung: %.3f V · Betriebszustand noch unklar",
+                voltage);
+    }
+
     private void sendTerminal() {
         if (exclusiveRequest.get()) {
             Toast.makeText(this, "DTC-Scan läuft gerade", Toast.LENGTH_SHORT).show();
@@ -609,6 +806,13 @@ public final class MainActivity extends Activity {
         if (fromUser) {
             userDisconnect = true;
             monitoring.set(false);
+            fuelTrimTest.cancel();
+            if (fuelTestButton != null) {
+                ui.post(() -> {
+                    fuelTestButton.setText("Fuel-Trim-Test");
+                    fuelTestStatus.setText("Fuel-Trim-Test: bereit");
+                });
+            }
             showStatus("Getrennt");
             append("Verbindung getrennt");
         }

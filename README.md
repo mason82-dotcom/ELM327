@@ -2,8 +2,14 @@
 
 Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen einem Mercedes C350 W204/M272 und einem ELM327-WiFi-Dongle.
 
-## Version 1.0.3
+## Version 1.0.4
 
+- automatische KOEO/KOER-Erkennung anhand der gelesenen Motordrehzahl
+- zustandsabhängige Bewertung von PID 0142 (Steuergeräte-/Bordnetzspannung)
+- bei KOEO werden STFT und Soll-Lambda sichtbar als derzeit nicht aussagekräftig behandelt
+- geführter passiver Fuel-Trim-Test: 20 s Leerlauf + 15 s bei manuell gehaltenen ca. 2500 U/min
+- Fuel-Trim-Test wertet ausschließlich bereits gelesene Mode-01-PIDs aus und sendet keine Stellglied-, Codier- oder Schreibbefehle
+- Auswertung vergleicht Gesamttrim Bank 1/2 zwischen Leerlauf und 2500 U/min und gibt Diagnosehinweise zu bankspezifischer Abweichung, Falschluft-Muster und dauerhaft positiver/negativer Korrektur
 - Android-Standardroute wird zuerst verwendet, um OxygenOS-EPERM beim expliziten WLAN-Binding zu vermeiden
 - Multi-ECU-PID-Bitmaps werden vereinigt, damit unterstützte PIDs nicht verloren gehen
 - DTC-Antworten mehrerer ECUs werden getrennt dekodiert; 43 00 / 47 00 werden korrekt als keine DTCs behandelt
@@ -44,6 +50,6 @@ Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen
 
 GitHub Actions baut bei jedem Push auf `main` eine Debug-APK. Das Artifact heißt:
 
-`Mercedes_OBD2_Monitor_v1.0.3-debug`
+`Mercedes_OBD2_Monitor_v1.0.4-debug`
 
 Der komplette Android-Quellcode liegt direkt im Repository.
