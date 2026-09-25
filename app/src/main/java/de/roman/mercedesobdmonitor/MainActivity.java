@@ -585,8 +585,10 @@ public final class MainActivity extends Activity {
                             ? label + ": nicht unterstützt / NO DATA"
                             : label + ": keine Fehlercodes gemeldet";
                 }
-                if (raw.replace(" ", "").matches("^(43|47)(00)+(\\s*(43|47)(00)+)*$")) {
-                    return label + ": keine Fehlercodes gemeldet";
+                if (ObdParser.isEmptyDtcResponse(r.raw, responseMode, protocolIsCan)) {
+                    return responseMode == 0x4A
+                            ? label + ": keine permanenten Fehlercodes"
+                            : label + ": keine Fehlercodes gemeldet";
                 }
                 return label + ": keine Fehlercodes erkannt\nRohantwort: " + raw;
             }
@@ -707,49 +709,40 @@ public final class MainActivity extends Activity {
         return report;
     }
 
-    /** HU/AU-Vorab-Check: 01 01, 03/07/0A, 01 21/30/31, Freeze Frame. */
+    /**
+     * HU/AU-Vorab-Check: 01 01, 03/07/0A, 01 21/30/31, Freeze Frame.
+     * Einzelne Timeouts werden per Resync überbrückt (siehe InspectionReader).
+     */
     private String readInspection(Elm327Client c) throws IOException {
-        InspectionCheck.Input in = new InspectionCheck.Input();
-        in.readiness = Readiness.parse(diagCommand(c, "0101", 3000).raw);
-
-        in.stored = ObdParser.dtcs(diagCommand(c, "03", 3500).raw, 0x43, protocolIsCan);
-        in.pending = ObdParser.dtcs(diagCommand(c, "07", 3500).raw, 0x47, protocolIsCan);
-        Elm327Client.CommandResult perm = diagCommand(c, "0A", 3500);
-        in.permanentSupported = !ObdParser.isNoData(perm.raw);
-        in.permanent = ObdParser.dtcs(perm.raw, 0x4A, protocolIsCan);
-
-        in.kmWithMil = optionalWord(c, 0x21);
-        in.warmupsSinceCleared = optionalByte(c, 0x30);
-        in.kmSinceCleared = optionalWord(c, 0x31);
-
-        Elm327Client.CommandResult ffDtc = diagCommand(c, "020200", 3000);
-        in.freezeFrameDtc = InspectionCheck.freezeFrameDtc(ffDtc.raw);
-        if (in.freezeFrameDtc != null) {
-            for (ObdPid pid : ObdPid.defaultPids()) {
-                if (!activePids.isEmpty() && !containsPid(pid.pid)) continue;
-                Elm327Client.CommandResult r = diagCommand(c,
-                        String.format(Locale.US, "02%02X00", pid.pid), 2500);
-                if (ObdParser.isNoData(r.raw)) continue;
-                Double v = pid.parseFreezeFrame(r.raw);
-                if (v != null) in.freezeFrame.add(pid.label + ": " + pid.format(v));
+        InspectionReader reader = new InspectionReader(new InspectionReader.Transport() {
+            @Override
+            public String send(String cmd, int timeoutMs) throws IOException {
+                return diagCommand(c, cmd, timeoutMs).raw;
             }
+
+            @Override
+            public boolean resync() {
+                boolean ok = c.resync(1500);
+                append("HU/AU-Check: Timeout · " + (ok ? "Prompt resynchronisiert, weiter"
+                        : "kein Prompt"));
+                return ok;
+            }
+        }, protocolIsCan);
+        try {
+            String report = InspectionCheck.report(reader.read(
+                    pid -> activePids.isEmpty() || containsPid(pid)));
+            timeouts += reader.timeoutCount();
+            return report;
+        } catch (SocketTimeoutException e) {
+            // Der abbrechende Timeout wird in runExclusiveDiagnosis gezählt.
+            timeouts += Math.max(0, reader.timeoutCount() - 1);
+            throw e;
         }
-        return InspectionCheck.report(in);
     }
 
     private boolean containsPid(int pid) {
         for (ObdPid p : new ArrayList<>(activePids)) if (p.pid == pid) return true;
         return false;
-    }
-
-    private Integer optionalWord(Elm327Client c, int pid) throws IOException {
-        Elm327Client.CommandResult r = diagCommand(c, String.format(Locale.US, "01%02X", pid), 2500);
-        return InspectionCheck.word(ObdParser.mode01Data(r.raw, pid, 2));
-    }
-
-    private Integer optionalByte(Elm327Client c, int pid) throws IOException {
-        Elm327Client.CommandResult r = diagCommand(c, String.format(Locale.US, "01%02X", pid), 2500);
-        return InspectionCheck.byteValue(ObdParser.mode01Data(r.raw, pid, 1));
     }
 
     private void toggleFuelTrimTest() {

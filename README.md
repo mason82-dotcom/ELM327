@@ -2,6 +2,16 @@
 
 Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen einem Mercedes C350 W204/M272 und einem ELM327-WiFi-Dongle.
 
+## Version 1.0.9
+
+- HU/AU-Check: die von der ECU gemeldete DTC-Anzahl (01 01) führt zu „nicht bereit“, auch wenn Mode 03 keine Codes liefert
+- HU/AU-Check: Pending-DTCs ergeben mindestens „unklar“, nie „bereit“
+- neutrale Formulierung „Diagnosespeicher vor kurzem zurückgesetzt“ (Löschen, Steuergerät-Reset oder Batterietrennung) statt „kürzlich gelöscht“
+- HU/AU-Abfragen einzeln fehlertolerant: ein Timeout wird per Prompt-Resync überbrückt und als „nicht verfügbar“ angezeigt; fehlendes 03/07 → „unklar“; Abbruch nur bei verlorenem Sync oder 3 Timeouts in Folge
+- Mode-06-Aussetzer nur mit UASID 0x24 (Zähler) ausgewertet
+- „4A 00“ im DTC-Dialog als „keine permanenten Fehlercodes“ (auch bei mehreren ECUs und Legacy-Frames)
+- Regressionstests für alle sechs Punkte
+
 ## Version 1.0.8
 
 - Aussetzer-Analyse pro Zylinder über Mode 06 (OBDMID A2–A7, TID 0B EWMA / 0C aktueller Zyklus) mit M272-Bankzuordnung (Bank 1 = Zyl. 1–3, Bank 2 = Zyl. 4–6); zeigt Aussetzer auch ohne bestätigten Fehlercode
@@ -91,6 +101,6 @@ Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen
 
 GitHub Actions baut bei jedem Push auf `main` eine Debug-APK. Das Artifact heißt:
 
-`Mercedes_OBD2_Monitor_v1.0.8-debug`
+`Mercedes_OBD2_Monitor_v1.0.9-debug`
 
 Der komplette Android-Quellcode liegt direkt im Repository.

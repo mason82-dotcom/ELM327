@@ -107,6 +107,26 @@ public final class ObdParser {
         return null;
     }
 
+    /**
+     * true, wenn mindestens ein Steuergerät eine gültige Antwort des Modus geliefert hat
+     * (z. B. "43 00", "4A 00", Legacy "4A 00 00 00 00 00 00") – unabhängig davon, ob DTCs enthalten sind.
+     */
+    public static boolean hasDtcResponse(String raw, int responseMode, Boolean can) {
+        if (raw == null) return false;
+        String marker = String.format(Locale.US, "%02X", responseMode & 0xFF);
+        List<String> lines = normalizedLines(raw);
+        boolean isCan = can != null ? can : looksLikeCan(lines, marker);
+        for (String msg : isCan ? assembleCanMessages(lines) : legacyFrames(lines, marker)) {
+            if (msg.startsWith(marker)) return true;
+        }
+        return false;
+    }
+
+    /** Gültige Antwort ohne DTCs („43 00“, „47 00“, „4A 00“, auch mehrere ECUs). */
+    public static boolean isEmptyDtcResponse(String raw, int responseMode, Boolean can) {
+        return hasDtcResponse(raw, responseMode, can) && dtcs(raw, responseMode, can).isEmpty();
+    }
+
     /** Protokoll unbekannt: CAN vs. Legacy wird aus dem Antwortformat abgeleitet. */
     public static List<String> dtcs(String raw, int responseMode) {
         return dtcs(raw, responseMode, null);

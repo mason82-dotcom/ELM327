@@ -19,6 +19,8 @@ public final class Mode06 {
     public static final int MID_MISFIRE_CYL1 = 0xA2;
     public static final int TID_EWMA = 0x0B;
     public static final int TID_CURRENT_CYCLE = 0x0C;
+    /** SAE J1979 Unit/Scaling-ID 0x24 = Zähler (1 count/bit). Nur so sind Aussetzerwerte eindeutig. */
+    public static final int UASID_COUNTS = 0x24;
 
     public static final class TestResult {
         public final int mid;
@@ -99,7 +101,7 @@ public final class Mode06 {
         int mid = MID_MISFIRE_CYL1 + cylinder - 1;
         Integer ewma = null, current = null;
         for (TestResult r : results(raw)) {
-            if (r.mid != mid) continue;
+            if (r.mid != mid || r.uasid != UASID_COUNTS) continue;
             if (r.tid == TID_EWMA) ewma = r.value;
             else if (r.tid == TID_CURRENT_CYCLE) current = r.value;
         }

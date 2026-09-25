@@ -16,6 +16,11 @@ public final class InspectionCheck {
         public List<String> pending = new ArrayList<>();
         public List<String> permanent = new ArrayList<>();
         public boolean permanentSupported;
+        /** false = Abfrage 03 bzw. 07 fehlgeschlagen (Timeout/Fehler) – Ergebnis unbekannt. */
+        public boolean storedKnown = true;
+        public boolean pendingKnown = true;
+        /** Optionale Abfragen, die keine gültige Antwort lieferten (nur zur Anzeige). */
+        public List<String> unavailable = new ArrayList<>();
         public Integer kmSinceCleared;      // PID 31
         public Integer warmupsSinceCleared; // PID 30
         public Integer kmWithMil;           // PID 21
@@ -23,24 +28,33 @@ public final class InspectionCheck {
         public List<String> freezeFrame = new ArrayList<>(); // formatierte Zeilen
     }
 
-    /** Unter diesen Werten gelten die Fehlercodes als "kürzlich gelöscht". */
-    public static final int RECENT_CLEAR_KM = 100;
-    public static final int RECENT_CLEAR_WARMUPS = 10;
+    /**
+     * Unter diesen Werten gilt der Diagnosezustand als kürzlich zurückgesetzt
+     * (Fehlerspeicher gelöscht, Steuergerät-Reset oder Batterie abgeklemmt).
+     */
+    public static final int RECENT_RESET_KM = 100;
+    public static final int RECENT_RESET_WARMUPS = 10;
 
     private InspectionCheck() { }
 
     public static Verdict verdict(Input in) {
-        if (in.readiness == null) return Verdict.UNCERTAIN;
-        if (in.readiness.milOn || !in.stored.isEmpty() || !in.permanent.isEmpty()) {
+        Readiness r = in.readiness;
+        // Harte Ausschlusskriterien – gelten auch, wenn andere Daten fehlen.
+        if ((r != null && (r.milOn || r.dtcCount > 0))
+                || !in.stored.isEmpty() || !in.permanent.isEmpty()) {
             return Verdict.NOT_READY;
         }
-        if (in.readiness.incompleteCount() > 0) return Verdict.UNCERTAIN;
+        if (r == null) return Verdict.UNCERTAIN;
+        // Ohne gelesene 03/07 kein „bereit“.
+        if (!in.storedKnown || !in.pendingKnown) return Verdict.UNCERTAIN;
+        if (!in.pending.isEmpty()) return Verdict.UNCERTAIN;
+        if (r.incompleteCount() > 0) return Verdict.UNCERTAIN;
         return Verdict.READY;
     }
 
-    public static boolean recentlyCleared(Input in) {
-        return (in.kmSinceCleared != null && in.kmSinceCleared < RECENT_CLEAR_KM)
-                || (in.warmupsSinceCleared != null && in.warmupsSinceCleared < RECENT_CLEAR_WARMUPS);
+    public static boolean recentReset(Input in) {
+        return (in.kmSinceCleared != null && in.kmSinceCleared < RECENT_RESET_KM)
+                || (in.warmupsSinceCleared != null && in.warmupsSinceCleared < RECENT_RESET_WARMUPS);
     }
 
     public static String report(Input in) {
@@ -69,13 +83,15 @@ public final class InspectionCheck {
         }
 
         sb.append("\nFehlercodes:\n");
-        appendCodes(sb, "Gespeichert", in.stored);
-        appendCodes(sb, "Pending", in.pending);
+        if (in.storedKnown) appendCodes(sb, "Gespeichert", in.stored);
+        else sb.append("  Gespeichert: nicht lesbar\n");
+        if (in.pendingKnown) appendCodes(sb, "Pending", in.pending);
+        else sb.append("  Pending: nicht lesbar\n");
         if (in.permanentSupported) appendCodes(sb, "Permanent", in.permanent);
         else sb.append("  Permanent: nicht unterstützt\n");
 
         if (in.kmSinceCleared != null || in.warmupsSinceCleared != null || in.kmWithMil != null) {
-            sb.append("\nSeit dem letzten Löschen:\n");
+            sb.append("\nSeit dem letzten Rücksetzen des Diagnosespeichers:\n");
             if (in.kmSinceCleared != null) sb.append("  Strecke: ").append(in.kmSinceCleared).append(" km\n");
             if (in.warmupsSinceCleared != null) sb.append("  Warmlaufzyklen: ").append(in.warmupsSinceCleared).append('\n');
             if (in.kmWithMil != null) sb.append("  Strecke mit MIL an: ").append(in.kmWithMil).append(" km\n");
@@ -84,6 +100,10 @@ public final class InspectionCheck {
         if (in.freezeFrameDtc != null) {
             sb.append("\nFreeze Frame (auslösender Code ").append(in.freezeFrameDtc).append("):\n");
             for (String line : in.freezeFrame) sb.append("  ").append(line).append('\n');
+        }
+
+        if (!in.unavailable.isEmpty()) {
+            sb.append("\nNicht verfügbar: ").append(String.join(", ", in.unavailable)).append('\n');
         }
 
         sb.append("\nHinweise:\n");
@@ -97,22 +117,31 @@ public final class InspectionCheck {
         List<String> out = new ArrayList<>();
         Readiness r = in.readiness;
         if (r != null && r.milOn) out.add("MIL ist an – Ursache beheben, bevor das Fahrzeug vorgeführt wird.");
+        if (r != null && r.dtcCount > 0 && in.stored.isEmpty()) {
+            out.add("Steuergerät meldet " + r.dtcCount + " bestätigte(n) Fehlercode(s) (01 01), "
+                    + "die Mode 03 nicht geliefert hat – Fehlerspeicher erneut lesen.");
+        }
+        if (!in.storedKnown || !in.pendingKnown) {
+            out.add("Fehlerspeicher konnte nicht vollständig gelesen werden – Check wiederholen.");
+        }
         if (!in.stored.isEmpty()) out.add("Gespeicherte Fehlercodes vorhanden – im DTC-Dialog stehen M272-Hinweise.");
         if (!in.permanent.isEmpty()) {
             out.add("Permanente Codes löschen sich nur selbst, nachdem das Steuergerät den Fehler "
                     + "in eigenen Fahrzyklen nicht mehr sieht – Löschen per Tester hilft nicht.");
         }
         if (!in.pending.isEmpty() && in.stored.isEmpty()) {
-            out.add("Nur Pending-Codes: Fehler noch nicht bestätigt, kann sich beim nächsten Fahrzyklus verfestigen.");
+            out.add("Pending-Codes vorhanden: Fehler noch nicht bestätigt, kann sich beim nächsten "
+                    + "Fahrzyklus verfestigen – vor der Vorführung klären.");
         }
         if (r != null && r.incompleteCount() > 0) {
             out.add(r.incompleteCount() + " Monitor(e) nicht abgeschlossen. Typisch nach Löschen der "
                     + "Fehlercodes oder Batterie-Abklemmen. Gemischter Fahrzyklus (Kaltstart, Stadt, "
                     + "gleichmäßige Landstraße 80–100 km/h, Leerlaufphasen) über mehrere Tage.");
         }
-        if (recentlyCleared(in)) {
-            out.add("Fehlercodes wurden kürzlich gelöscht (" + describeClear(in) + ") – "
-                    + "Prüfstellen erkennen das an Readiness und diesen Zählern.");
+        if (recentReset(in)) {
+            out.add("Diagnosespeicher wurde vor kurzem zurückgesetzt (" + describeClear(in) + "). "
+                    + "Ursache kann Löschen per Tester, Steuergerät-Reset oder Batterietrennung sein; "
+                    + "die Monitore brauchen danach Fahrzyklen, um sich neu zu bewerten.");
         }
         return out;
     }

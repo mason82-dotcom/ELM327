@@ -39,9 +39,9 @@ public class InspectionCheckTest {
         in.kmSinceCleared = 12;
         in.warmupsSinceCleared = 2;
         assertEquals(InspectionCheck.Verdict.UNCERTAIN, InspectionCheck.verdict(in));
-        assertTrue(InspectionCheck.recentlyCleared(in));
+        assertTrue(InspectionCheck.recentReset(in));
         String rep = InspectionCheck.report(in);
-        assertTrue(rep, rep.contains("kürzlich gelöscht"));
+        assertTrue(rep, rep.contains("Diagnosespeicher wurde vor kurzem zurückgesetzt"));
         assertTrue(rep, rep.contains("Katalysator – nicht abgeschlossen"));
     }
 
