@@ -63,6 +63,8 @@ public final class MainActivity extends Activity {
     private LinearLayout pidBox;
     private Button dtcButton;
     private Button fuelTestButton;
+    private Button misfireButton;
+    private Button inspectionButton;
     private SparklineView latencyGraph;
 
     private final Map<Integer, TextView> pidRows = new LinkedHashMap<>();
@@ -159,6 +161,13 @@ public final class MainActivity extends Activity {
         fuelTestButton = button("Fuel-Trim-Test");
         root.addView(fuelTestButton, new LinearLayout.LayoutParams(-1, dp(48)));
 
+        LinearLayout diagControls = row();
+        misfireButton = button("Aussetzer (Mode 06)");
+        inspectionButton = button("HU/AU-Check");
+        diagControls.addView(misfireButton, weight());
+        diagControls.addView(inspectionButton, weight());
+        root.addView(diagControls);
+
         latencyGraph = new SparklineView(this);
         root.addView(latencyGraph, new LinearLayout.LayoutParams(-1, dp(135)));
 
@@ -201,6 +210,10 @@ public final class MainActivity extends Activity {
         disconnect.setOnClickListener(v -> disconnect(true));
         dtcButton.setOnClickListener(v -> readDtcs());
         fuelTestButton.setOnClickListener(v -> toggleFuelTrimTest());
+        misfireButton.setOnClickListener(v -> runExclusiveDiagnosis(misfireButton,
+                "Aussetzer-Analyse", "Lese Mode 06 …", this::readMisfires));
+        inspectionButton.setOnClickListener(v -> runExclusiveDiagnosis(inspectionButton,
+                "HU/AU-Vorab-Check", "Lese Readiness …", this::readInspection));
         send.setOnClickListener(v -> sendTerminal());
         export.setOnClickListener(v -> exportCsv());
         clear.setOnClickListener(v -> {
@@ -498,13 +511,14 @@ public final class MainActivity extends Activity {
             String report;
             try {
                 StringBuilder sb = new StringBuilder();
+                List<String> allCodes = new ArrayList<>();
                 synchronized (c) {
                     sb.append("Generische OBD-II-Fehlercodes\n\n");
-                    sb.append(readDtcMode(c, "Gespeichert", "03", 0x43));
+                    sb.append(readDtcMode(c, "Gespeichert", "03", 0x43, allCodes));
                     sleepQuiet(180);
-                    sb.append("\n\n").append(readDtcMode(c, "Pending", "07", 0x47));
+                    sb.append("\n\n").append(readDtcMode(c, "Pending", "07", 0x47, allCodes));
                     sleepQuiet(180);
-                    sb.append("\n\n").append(readDtcMode(c, "Permanent", "0A", 0x4A));
+                    sb.append("\n\n").append(readDtcMode(c, "Permanent", "0A", 0x4A, allCodes));
                     sleepQuiet(250);
 
                     // Nach dem DTC-Scan einen harmlosen Read-Only-Request als Verbindungsprobe.
@@ -515,6 +529,7 @@ public final class MainActivity extends Activity {
                         closeClient();
                     }
                 }
+                sb.append(m272Section(allCodes));
                 report = sb.toString();
                 append("DTC-Scan abgeschlossen");
             } catch (Exception e) {
@@ -541,12 +556,28 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private String readDtcMode(Elm327Client c, String label, String cmd, int responseMode) {
+    private static String m272Section(List<String> codes) {
+        List<String> seen = new ArrayList<>();
+        StringBuilder sb = new StringBuilder();
+        for (String code : codes) {
+            if (seen.contains(code)) continue;
+            seen.add(code);
+            String h = M272Hints.hint(code);
+            if (h != null) sb.append("\n\n").append(code).append(": ").append(h);
+        }
+        for (String p : M272Hints.patterns(seen)) sb.append("\n\n⚑ ").append(p);
+        if (sb.length() == 0) return "";
+        return "\n\n— M272-Werkstatthinweise (typische Ursachen, keine Diagnose) —" + sb;
+    }
+
+    private String readDtcMode(Elm327Client c, String label, String cmd, int responseMode,
+                               List<String> collected) {
         try {
             Elm327Client.CommandResult r = c.sendCommand(cmd, 3500);
             String raw = clean(r.raw);
             append("DTC " + label + " [" + cmd + "]: " + raw);
             List<String> codes = ObdParser.dtcs(r.raw, responseMode, protocolIsCan);
+            if (collected != null) collected.addAll(codes);
             if (codes.isEmpty()) {
                 if (raw.isEmpty()) return label + ": keine Antwort";
                 if (ObdParser.isNoData(r.raw)) {
@@ -575,6 +606,150 @@ public final class MainActivity extends Activity {
             closeClientIfCurrent(c);
             return label + ": Kommunikationsfehler – " + e.getMessage();
         }
+    }
+
+    private interface Diagnosis {
+        String run(Elm327Client c) throws IOException;
+    }
+
+    /**
+     * Führt eine Read-Only-Diagnose mit exklusivem Adapterzugriff aus (Live-Polling pausiert)
+     * und zeigt das Ergebnis als Dialog. Timeouts werden wie beim DTC-Scan behandelt.
+     */
+    private void runExclusiveDiagnosis(Button button, String title, String busyText, Diagnosis job) {
+        Elm327Client c = client;
+        if (c == null || !c.isConnected()) {
+            Toast.makeText(this, "Keine ELM327-Verbindung", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (fuelTrimTest.isRunning()) {
+            Toast.makeText(this, "Fuel-Trim-Test läuft – bitte zuerst beenden", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!exclusiveRequest.compareAndSet(false, true)) {
+            Toast.makeText(this, "Diagnosevorgang läuft bereits", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final CharSequence label = button.getText();
+        button.setEnabled(false);
+        button.setText(busyText);
+        status.setText(title + " läuft …");
+
+        io.execute(() -> {
+            String report;
+            try {
+                synchronized (c) {
+                    report = job.run(c);
+                }
+                append(title + " abgeschlossen");
+            } catch (SocketTimeoutException e) {
+                timeouts++;
+                append(title + ": Timeout · Verbindung wird neu synchronisiert");
+                closeClientIfCurrent(c);
+                report = title + " abgebrochen: Timeout.\nDie Verbindung wird neu aufgebaut.";
+            } catch (IOException e) {
+                ioErrors++;
+                closeClientIfCurrent(c);
+                report = title + " fehlgeschlagen:\n" + e.getMessage();
+            } catch (RuntimeException e) {
+                parserErrors++;
+                report = title + " fehlgeschlagen (Auswertung):\n" + e;
+            } finally {
+                exclusiveRequest.set(false);
+            }
+            final String result = report;
+            ui.post(() -> {
+                button.setEnabled(true);
+                button.setText(label);
+                Elm327Client current = client;
+                status.setText(current != null && current.isConnected()
+                        ? "Verbunden · " + elmId + " · " + protocol
+                        : title + " beendet · Reconnect läuft …");
+                updateStats();
+                new AlertDialog.Builder(this)
+                        .setTitle(title)
+                        .setMessage(result)
+                        .setPositiveButton("OK", null)
+                        .show();
+            });
+        });
+    }
+
+    private Elm327Client.CommandResult diagCommand(Elm327Client c, String cmd, int timeoutMs) throws IOException {
+        Elm327Client.CommandResult r = c.sendCommand(cmd, timeoutMs);
+        append(cmd + " → " + clean(r.raw));
+        sleepQuiet(60);
+        return r;
+    }
+
+    /** Mode 06: OBDMID A2–A7 = Aussetzer Zylinder 1–6 (M272). */
+    private String readMisfires(Elm327Client c) throws IOException {
+        if (Boolean.FALSE.equals(protocolIsCan)) {
+            return "Mode 06 wird nur für CAN (ISO 15765-4) ausgewertet. Erkanntes Protokoll: " + protocol;
+        }
+        Elm327Client.CommandResult sup = diagCommand(c, Mode06.command(Mode06.MID_SUPPORT_A0), 3000);
+        Set<Integer> mids = Mode06.supportedMids(sup.raw, Mode06.MID_SUPPORT_A0);
+        boolean bitmapKnown = !mids.isEmpty();
+
+        List<Mode06.Misfire> list = new ArrayList<>();
+        for (int cyl = 1; cyl <= 6; cyl++) {
+            int mid = Mode06.MID_MISFIRE_CYL1 + cyl - 1;
+            if (bitmapKnown && !mids.contains(mid)) continue;
+            Elm327Client.CommandResult r = diagCommand(c, Mode06.command(mid), 3000);
+            if (ObdParser.isNoData(r.raw)) continue;
+            Mode06.Misfire m = Mode06.misfire(r.raw, cyl);
+            if (m != null) list.add(m);
+        }
+        String report = Mode06.misfireReport(list);
+        if (!bitmapKnown) {
+            report += "\n\nHinweis: Keine Mode-06-Bitmap (06A0) erhalten – Zylinder wurden direkt abgefragt.";
+        }
+        return report;
+    }
+
+    /** HU/AU-Vorab-Check: 01 01, 03/07/0A, 01 21/30/31, Freeze Frame. */
+    private String readInspection(Elm327Client c) throws IOException {
+        InspectionCheck.Input in = new InspectionCheck.Input();
+        in.readiness = Readiness.parse(diagCommand(c, "0101", 3000).raw);
+
+        in.stored = ObdParser.dtcs(diagCommand(c, "03", 3500).raw, 0x43, protocolIsCan);
+        in.pending = ObdParser.dtcs(diagCommand(c, "07", 3500).raw, 0x47, protocolIsCan);
+        Elm327Client.CommandResult perm = diagCommand(c, "0A", 3500);
+        in.permanentSupported = !ObdParser.isNoData(perm.raw);
+        in.permanent = ObdParser.dtcs(perm.raw, 0x4A, protocolIsCan);
+
+        in.kmWithMil = optionalWord(c, 0x21);
+        in.warmupsSinceCleared = optionalByte(c, 0x30);
+        in.kmSinceCleared = optionalWord(c, 0x31);
+
+        Elm327Client.CommandResult ffDtc = diagCommand(c, "020200", 3000);
+        in.freezeFrameDtc = InspectionCheck.freezeFrameDtc(ffDtc.raw);
+        if (in.freezeFrameDtc != null) {
+            for (ObdPid pid : ObdPid.defaultPids()) {
+                if (!activePids.isEmpty() && !containsPid(pid.pid)) continue;
+                Elm327Client.CommandResult r = diagCommand(c,
+                        String.format(Locale.US, "02%02X00", pid.pid), 2500);
+                if (ObdParser.isNoData(r.raw)) continue;
+                Double v = pid.parseFreezeFrame(r.raw);
+                if (v != null) in.freezeFrame.add(pid.label + ": " + pid.format(v));
+            }
+        }
+        return InspectionCheck.report(in);
+    }
+
+    private boolean containsPid(int pid) {
+        for (ObdPid p : new ArrayList<>(activePids)) if (p.pid == pid) return true;
+        return false;
+    }
+
+    private Integer optionalWord(Elm327Client c, int pid) throws IOException {
+        Elm327Client.CommandResult r = diagCommand(c, String.format(Locale.US, "01%02X", pid), 2500);
+        return InspectionCheck.word(ObdParser.mode01Data(r.raw, pid, 2));
+    }
+
+    private Integer optionalByte(Elm327Client c, int pid) throws IOException {
+        Elm327Client.CommandResult r = diagCommand(c, String.format(Locale.US, "01%02X", pid), 2500);
+        return InspectionCheck.byteValue(ObdParser.mode01Data(r.raw, pid, 1));
     }
 
     private void toggleFuelTrimTest() {

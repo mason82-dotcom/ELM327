@@ -32,8 +32,24 @@ public final class ObdPid {
             case RPM, MAF, VOLTAGE, EQUIV_RATIO -> 2;
             default -> 1;
         };
-        byte[] d = ObdParser.mode01Data(raw, pid, need);
-        if (d == null) return null;
+        return decode(ObdParser.mode01Data(raw, pid, need));
+    }
+
+    /** Freeze-Frame-Wert (Mode 02, Frame 00) mit identischer Formel wie Mode 01. */
+    public Double parseFreezeFrame(String raw) {
+        return decode(ObdParser.mode02Data(raw, pid, bytesNeeded()));
+    }
+
+    private int bytesNeeded() {
+        return switch (formula) {
+            case RPM, MAF, VOLTAGE, EQUIV_RATIO -> 2;
+            default -> 1;
+        };
+    }
+
+    private Double decode(byte[] d) {
+        int need = bytesNeeded();
+        if (d == null || d.length < need) return null;
         int a = d[0] & 0xFF;
         int b = d.length > 1 ? d[1] & 0xFF : 0;
         return switch (formula) {

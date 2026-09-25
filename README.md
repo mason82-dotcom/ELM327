@@ -2,6 +2,16 @@
 
 Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen einem Mercedes C350 W204/M272 und einem ELM327-WiFi-Dongle.
 
+## Version 1.0.8
+
+- Aussetzer-Analyse pro Zylinder über Mode 06 (OBDMID A2–A7, TID 0B EWMA / 0C aktueller Zyklus) mit M272-Bankzuordnung (Bank 1 = Zyl. 1–3, Bank 2 = Zyl. 4–6); zeigt Aussetzer auch ohne bestätigten Fehlercode
+- M272-Werkstatthinweise im DTC-Dialog: typische Ursachen für Nockenwelle/Steuertrieb (P0016–P0019), Nockenwellenversteller, Saugrohrklappen (P2004–P2007), Gemisch (P0171/P0174, P2187/P2189), Aussetzer, Thermostat, Sekundärluft, Kat, Tankentlüftung und Sensoren – ausdrücklich keine Diagnose
+- Musterhinweise über mehrere Codes (z. B. P0171 + P0174 = gemeinsame Falschluft-Ursache)
+- HU/AU-Vorab-Check: Readiness-Monitore (01 01, mehrere Steuergeräte zusammengeführt), MIL, gespeicherte/Pending/permanente Codes, Strecke/Warmläufe seit Löschen (01 31/30), Strecke mit MIL (01 21) und Freeze Frame (Mode 02) mit Gesamteinschätzung bereit / nicht bereit / unklar
+- Hinweis auf kürzlich gelöschte Fehlercodes und Fahrzyklus-Empfehlung für offene Monitore
+- alle neuen Funktionen nutzen ausschließlich bereits freigegebene Read-Only-Dienste; exklusiver Adapterzugriff pausiert das Live-Polling während der Diagnose
+- weitere JUnit-Tests für Readiness, Mode 06, M272-Hinweise und HU/AU-Check
+
 ## Version 1.0.7
 
 - ein einzelner ELM327-Timeout erzwingt keinen Reconnect mehr: die App wartet auf den verspäteten `>`-Prompt und verwirft die Spätantwort; neu verbunden wird erst bei 2 Timeouts in Folge oder ohne Prompt
@@ -81,6 +91,6 @@ Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen
 
 GitHub Actions baut bei jedem Push auf `main` eine Debug-APK. Das Artifact heißt:
 
-`Mercedes_OBD2_Monitor_v1.0.7-debug`
+`Mercedes_OBD2_Monitor_v1.0.8-debug`
 
 Der komplette Android-Quellcode liegt direkt im Repository.

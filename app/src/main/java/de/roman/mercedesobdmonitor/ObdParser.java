@@ -28,6 +28,36 @@ public final class ObdParser {
         return null;
     }
 
+    /**
+     * Mode 02 (Freeze Frame): "42 PP FF data…" – PP = PID, FF = Frame-Nummer.
+     * Liefert die Nutzdaten ab dem ersten Datenbyte nach der Frame-Nummer.
+     */
+    public static byte[] mode02Data(String raw, int pid, int minBytes) {
+        if (raw == null) return null;
+        String marker = String.format(Locale.US, "42%02X", pid & 0xFF);
+        for (String line : normalizedLines(raw)) {
+            String hex = line.replaceAll("[^0-9A-F]", "");
+            if (!hex.startsWith(marker)) continue;
+            String body = hex.substring(marker.length());
+            if (body.length() < 2 + minBytes * 2) continue;
+            body = body.substring(2); // Frame-Nummer
+            byte[] out = new byte[body.length() / 2];
+            try {
+                for (int i = 0; i < out.length; i++) {
+                    out[i] = (byte) Integer.parseInt(body.substring(i * 2, i * 2 + 2), 16);
+                }
+                return out;
+            } catch (RuntimeException ignored) { }
+        }
+        return null;
+    }
+
+    /** Rohantwort → zusammengesetzte CAN-Nachrichten (ISO-TP-Segmente verbunden, nur Hex). */
+    public static List<String> canMessages(String raw) {
+        if (raw == null) return new ArrayList<>();
+        return assembleCanMessages(normalizedLines(raw));
+    }
+
     public static Set<Integer> supportedPids(String raw, int basePid) {
         Set<Integer> result = new HashSet<>();
         if (raw == null) return result;
@@ -159,7 +189,7 @@ public final class ObdParser {
     }
 
     /** Fügt ISO-TP-Segmente zusammen; Single-Frame-Zeilen bleiben einzeln. */
-    private static List<String> assembleCanMessages(List<String> lines) {
+    static List<String> assembleCanMessages(List<String> lines) {
         List<String> messages = new ArrayList<>();
         StringBuilder current = null;
         int expectedBytes = -1;
@@ -211,6 +241,11 @@ public final class ObdParser {
         return frames;
     }
 
+    /** Zwei Rohbytes → DTC-Text (z. B. 01 71 → P0171). */
+    public static String decodeDtcCode(int a, int b) {
+        return decodeDtc(a & 0xFF, b & 0xFF);
+    }
+
     private static String decodeDtc(int a, int b) {
         char[] family = {'P', 'C', 'B', 'U'};
         char f = family[(a >> 6) & 0x03];
@@ -221,7 +256,7 @@ public final class ObdParser {
         return String.format(Locale.US, "%c%d%X%X%X", f, d1, d2, d3, d4);
     }
 
-    private static List<String> normalizedLines(String raw) {
+    static List<String> normalizedLines(String raw) {
         String u = raw.toUpperCase(Locale.US).replace('\r', '\n');
         String[] pieces = u.split("\\n+");
         List<String> lines = new ArrayList<>();
