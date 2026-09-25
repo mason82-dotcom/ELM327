@@ -2,6 +2,14 @@
 
 Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen einem Mercedes C350 W204/M272 und einem ELM327-WiFi-Dongle.
 
+## Version 1.0.5
+
+- DTC-Dekodierung für CAN (ISO 15765-4) korrigiert: das DTC-Anzahl-Byte wird ausgewertet statt als Teil des ersten Codes gelesen (vorher z. B. P0171 → P0101)
+- ISO-TP-Multiframe-Antworten (`00A` / `0:` / `1:`) werden zusammengesetzt; Segmentnummern und Padding gehen nicht mehr in DTCs ein
+- Antwortkennung 43/47/4A wird nur am Frame-Anfang erkannt – DTCs mit Byte 0x43 (z. B. P0043) werden nicht mehr zerschnitten
+- CAN/Legacy wird aus ATDPN bestimmt; ohne Protokollinfo automatische Erkennung am Antwortformat
+- erste JUnit-Tests für den DTC-Parser; CI führt Unit-Tests vor dem APK-Build aus
+
 ## Version 1.0.4
 
 - automatische KOEO/KOER-Erkennung anhand der gelesenen Motordrehzahl
@@ -50,6 +58,6 @@ Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen
 
 GitHub Actions baut bei jedem Push auf `main` eine Debug-APK. Das Artifact heißt:
 
-`Mercedes_OBD2_Monitor_v1.0.4-debug`
+`Mercedes_OBD2_Monitor_v1.0.5-debug`
 
 Der komplette Android-Quellcode liegt direkt im Repository.

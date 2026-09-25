@@ -10,8 +10,8 @@ android {
         applicationId 'de.roman.mercedesobdmonitor'
         minSdk 26
         targetSdk 37
-        versionCode 5
-        versionName '1.0.4'
+        versionCode 6
+        versionName '1.0.5'
     }
 
     buildTypes {
@@ -25,4 +25,8 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
 }

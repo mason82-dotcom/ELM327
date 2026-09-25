@@ -79,6 +79,8 @@ public final class MainActivity extends Activity {
     private int pollCycle;
     private String elmId = "–";
     private String protocol = "–";
+    /** null = unbekannt (Parser erkennt automatisch), sonst CAN/Legacy laut ATDPN. */
+    private volatile Boolean protocolIsCan = null;
     private String adapterVoltage = "–";
 
     @Override
@@ -289,6 +291,7 @@ public final class MainActivity extends Activity {
             String dp = clean(command("ATDP", 1800).raw);
             String dpn = clean(command("ATDPN", 1800).raw);
             protocol = describeProtocol(dp, dpn);
+            protocolIsCan = ObdParser.isCanProtocol(dpn);
             showStatus("Verbunden · " + elmId + " · " + protocol);
             append("Adapter: " + elmId);
             append("Protokoll: " + protocol);
@@ -494,7 +497,7 @@ public final class MainActivity extends Activity {
             Elm327Client.CommandResult r = c.sendCommand(cmd, 3500);
             String raw = clean(r.raw);
             append("DTC " + label + " [" + cmd + "]: " + raw);
-            List<String> codes = ObdParser.dtcs(r.raw, responseMode);
+            List<String> codes = ObdParser.dtcs(r.raw, responseMode, protocolIsCan);
             if (codes.isEmpty()) {
                 if (raw.isEmpty()) return label + ": keine Antwort";
                 if (ObdParser.isNoData(r.raw)) {

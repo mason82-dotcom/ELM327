@@ -61,38 +61,154 @@ public final class ObdParser {
                 || u.contains("BUS ERROR") || u.contains("CAN ERROR");
     }
 
+    /**
+     * Wertet die ATDPN-Antwort aus ("6", "A6" bei Auto-Erkennung, …).
+     * ELM 6–9 = ISO 15765-4 CAN, A–C = benutzerdefiniertes CAN, 1–5 = Legacy.
+     * @return null, wenn unbekannt
+     */
+    public static Boolean isCanProtocol(String dpn) {
+        String code = dpn == null ? "" : dpn.trim().toUpperCase(Locale.US);
+        if (code.startsWith("A") && code.length() > 1) code = code.substring(1);
+        if (code.length() != 1) return null;
+        char ch = code.charAt(0);
+        if (ch >= '6' && ch <= '9') return Boolean.TRUE;
+        if (ch >= 'A' && ch <= 'C') return Boolean.TRUE;
+        if (ch >= '1' && ch <= '5') return Boolean.FALSE;
+        return null;
+    }
+
+    /** Protokoll unbekannt: CAN vs. Legacy wird aus dem Antwortformat abgeleitet. */
     public static List<String> dtcs(String raw, int responseMode) {
+        return dtcs(raw, responseMode, null);
+    }
+
+    /**
+     * Dekodiert Mode 03/07/0A-Antworten (Header aus, ATH0).
+     *
+     * CAN (ISO 15765-4): [4x][Anzahl][DTC-Paare…], ggf. als ISO-TP-Multiframe
+     * ("00A" / "0:…" / "1:…"). Legacy (J1850/ISO 9141/KWP): pro Frame
+     * [4x] + genau 3 DTC-Paare, 0000 = Füllwert.
+     *
+     * @param can true = CAN, false = Legacy, null = automatisch erkennen
+     */
+    public static List<String> dtcs(String raw, int responseMode, Boolean can) {
         List<String> out = new ArrayList<>();
         if (raw == null) return out;
         String marker = String.format(Locale.US, "%02X", responseMode & 0xFF);
+        List<String> lines = normalizedLines(raw);
+        boolean isCan = can != null ? can : looksLikeCan(lines, marker);
 
-        for (String line : normalizedLines(raw)) {
-            int searchFrom = 0;
-            while (searchFrom < line.length()) {
-                int pos = line.indexOf(marker, searchFrom);
-                if (pos < 0) break;
-
-                int next = line.indexOf(marker, pos + marker.length());
-                String hex = line.substring(
-                        pos + marker.length(),
-                        next >= 0 ? next : line.length()
-                ).replaceAll("[^0-9A-F]", "");
-
-                for (int i = 0; i + 3 < hex.length(); i += 4) {
-                    try {
-                        int a = Integer.parseInt(hex.substring(i, i + 2), 16);
-                        int bb = Integer.parseInt(hex.substring(i + 2, i + 4), 16);
-                        if (a == 0 && bb == 0) continue;
-                        String code = decodeDtc(a, bb);
-                        if (!out.contains(code)) out.add(code);
-                    } catch (RuntimeException ignored) { }
+        for (String msg : isCan ? assembleCanMessages(lines) : legacyFrames(lines, marker)) {
+            if (!msg.startsWith(marker)) continue;
+            String body = msg.substring(marker.length());
+            if (isCan) {
+                if (body.length() < 2) continue;
+                int count;
+                try {
+                    count = Integer.parseInt(body.substring(0, 2), 16);
+                } catch (RuntimeException e) {
+                    continue;
                 }
-
-                if (next < 0) break;
-                searchFrom = next;
+                body = body.substring(2);
+                // Anzahl-Byte begrenzt die Nutzdaten; Padding dahinter ignorieren.
+                body = body.substring(0, Math.min(body.length(), count * 4));
             }
+            addDtcPairs(body, out);
         }
         return out;
+    }
+
+    private static void addDtcPairs(String hex, List<String> out) {
+        for (int i = 0; i + 3 < hex.length(); i += 4) {
+            try {
+                int a = Integer.parseInt(hex.substring(i, i + 2), 16);
+                int b = Integer.parseInt(hex.substring(i + 2, i + 4), 16);
+                if (a == 0 && b == 0) continue;
+                String code = decodeDtc(a, b);
+                if (!out.contains(code)) out.add(code);
+            } catch (RuntimeException ignored) { }
+        }
+    }
+
+    private static boolean isIsoTpLength(String line) {
+        return line.matches("[0-9A-F]{3}");
+    }
+
+    private static boolean isIsoTpSegment(String line) {
+        return line.matches("[0-9A-F]:[0-9A-F]*");
+    }
+
+    private static boolean looksLikeCan(List<String> lines, String marker) {
+        for (String line : lines) {
+            if (isIsoTpLength(line) || isIsoTpSegment(line)) return true;
+        }
+        for (String line : lines) {
+            if (!line.startsWith(marker)) continue;
+            String hex = line.replaceAll("[^0-9A-F]", "");
+            // Legacy-Frames sind immer 7 Byte (Kennung + 3 DTC-Paare).
+            if (hex.length() == 14) return false;
+            // CAN-Single-Frame: Kennung + Anzahl + Anzahl*2 Byte (max. 7 Byte).
+            if (hex.length() >= 4) {
+                try {
+                    int count = Integer.parseInt(hex.substring(2, 4), 16);
+                    if (hex.length() == 4 + count * 4) return true;
+                } catch (RuntimeException ignored) { }
+            }
+        }
+        return false;
+    }
+
+    /** Fügt ISO-TP-Segmente zusammen; Single-Frame-Zeilen bleiben einzeln. */
+    private static List<String> assembleCanMessages(List<String> lines) {
+        List<String> messages = new ArrayList<>();
+        StringBuilder current = null;
+        int expectedBytes = -1;
+
+        for (String line : lines) {
+            if (isIsoTpLength(line)) {
+                flush(messages, current, expectedBytes);
+                current = new StringBuilder();
+                expectedBytes = Integer.parseInt(line, 16);
+            } else if (isIsoTpSegment(line)) {
+                if (current == null) {
+                    current = new StringBuilder();
+                    expectedBytes = -1;
+                }
+                current.append(line.substring(2));
+            } else {
+                flush(messages, current, expectedBytes);
+                current = null;
+                expectedBytes = -1;
+                messages.add(line.replaceAll("[^0-9A-F]", ""));
+            }
+        }
+        flush(messages, current, expectedBytes);
+        return messages;
+    }
+
+    private static void flush(List<String> messages, StringBuilder current, int expectedBytes) {
+        if (current == null || current.length() == 0) return;
+        String hex = current.toString();
+        if (expectedBytes > 0 && hex.length() > expectedBytes * 2) {
+            hex = hex.substring(0, expectedBytes * 2);
+        }
+        messages.add(hex);
+    }
+
+    /** Legacy: jeder Frame beginnt mit der Kennung und ist 7 Byte lang. */
+    private static List<String> legacyFrames(List<String> lines, String marker) {
+        List<String> frames = new ArrayList<>();
+        for (String line : lines) {
+            String hex = line.replaceAll("[^0-9A-F]", "");
+            if (!hex.startsWith(marker)) continue;
+            // Falls mehrere Frames ohne Zeilenumbruch ankommen, in 7-Byte-Blöcke teilen.
+            if (hex.length() > 14 && hex.length() % 14 == 0) {
+                for (int i = 0; i < hex.length(); i += 14) frames.add(hex.substring(i, i + 14));
+            } else {
+                frames.add(hex);
+            }
+        }
+        return frames;
     }
 
     private static String decodeDtc(int a, int b) {
