@@ -14,6 +14,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -36,6 +37,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class MainActivity extends Activity {
     private static final int REQ_NET = 41;
@@ -45,6 +48,8 @@ public final class MainActivity extends Activity {
     private final ExecutorService io = Executors.newFixedThreadPool(2);
     private final AtomicBoolean monitoring = new AtomicBoolean(false);
     private final AtomicBoolean exclusiveRequest = new AtomicBoolean(false);
+    private final AtomicInteger sessionGeneration = new AtomicInteger(0);
+    private final AtomicLong telemetrySequence = new AtomicLong(0);
 
     private EditText hostInput;
     private EditText portInput;
@@ -64,6 +69,7 @@ public final class MainActivity extends Activity {
     private final List<ObdPid> activePids = new ArrayList<>();
     private final CsvLogger csv = new CsvLogger();
     private final Map<Integer, Double> latestValues = new ConcurrentHashMap<>();
+    private final Map<Integer, Long> latestSequences = new ConcurrentHashMap<>();
     private final FuelTrimTest fuelTrimTest = new FuelTrimTest();
 
     private volatile Elm327Client client;
@@ -199,6 +205,7 @@ public final class MainActivity extends Activity {
             samples = totalLatency = timeouts = noData = ioErrors = parserErrors = totalTxBytes = totalRxBytes = 0;
             pollCycle = 0;
             latestValues.clear();
+            latestSequences.clear();
             fuelTrimTest.cancel();
             fuelTestButton.setText("Fuel-Trim-Test");
             fuelTestStatus.setText("Fuel-Trim-Test: bereit");
@@ -224,10 +231,32 @@ public final class MainActivity extends Activity {
     }
 
     private void connectRequested() {
+        if (exclusiveRequest.get()) {
+            Toast.makeText(this, "DTC-Scan läuft gerade", Toast.LENGTH_SHORT).show();
+            return;
+        }
         if (!ensurePermissions()) return;
+
+        final String host = hostInput.getText().toString().trim();
+        final int port;
+        try {
+            port = Integer.parseInt(portInput.getText().toString().trim());
+            if (port < 1 || port > 65535) throw new NumberFormatException();
+        } catch (NumberFormatException e) {
+            showStatus("Ungültiger TCP-Port");
+            return;
+        }
+
         saveSettings();
+        final int session = sessionGeneration.incrementAndGet();
         userDisconnect = false;
-        io.execute(this::connectAndStart);
+        monitoring.set(false);
+        latestValues.clear();
+        latestSequences.clear();
+        fuelTrimTest.cancel();
+        closeClient();
+
+        io.execute(() -> connectAndStart(session, host, port));
     }
 
     private boolean ensurePermissions() {
@@ -258,47 +287,39 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void connectAndStart() {
-        disconnect(false);
-        final String host = hostInput.getText().toString().trim();
-        final int port;
+    private void connectAndStart(int session, String host, int port) {
         try {
-            port = Integer.parseInt(portInput.getText().toString().trim());
-            if (port < 1 || port > 65535) throw new NumberFormatException();
-        } catch (NumberFormatException e) {
-            showStatus("Ungültiger TCP-Port");
-            return;
-        }
-
-        try {
+            if (session != sessionGeneration.get()) return;
             showStatus("Verbinde mit " + host + ":" + port + " …");
-            long connectMs = connectWithFallback(host, port);
+            long connectMs = connectWithFallback(host, port, session);
             append("TCP verbunden in " + connectMs + " ms");
 
-            command("ATZ", 3000);
-            command("ATE0", 1500);
-            command("ATL0", 1500);
-            command("ATS0", 1500);
-            command("ATH0", 1500);
-            command("ATAT1", 1500);
-            command("ATSP0", 1500);
-            command("ATST64", 1500);
+            command(session, "ATZ", 3000);
+            command(session, "ATE0", 1500);
+            command(session, "ATL0", 1500);
+            command(session, "ATS0", 1500);
+            command(session, "ATH0", 1500);
+            command(session, "ATAT1", 1500);
+            command(session, "ATSP0", 1500);
+            command(session, "ATST64", 1500);
 
-            elmId = clean(command("ATI", 1800).raw);
-            adapterVoltage = clean(command("ATRV", 1800).raw);
+            elmId = clean(command(session, "ATI", 1800).raw);
+            adapterVoltage = clean(command(session, "ATRV", 1800).raw);
 
-            detectPids();
-            String dp = clean(command("ATDP", 1800).raw);
-            String dpn = clean(command("ATDPN", 1800).raw);
+            detectPids(session);
+            String dp = clean(command(session, "ATDP", 1800).raw);
+            String dpn = clean(command(session, "ATDPN", 1800).raw);
             protocol = describeProtocol(dp, dpn);
             protocolIsCan = ObdParser.isCanProtocol(dpn);
             showStatus("Verbunden · " + elmId + " · " + protocol);
             append("Adapter: " + elmId);
             append("Protokoll: " + protocol);
             append("Versorgung: " + adapterVoltage);
+            if (session != sessionGeneration.get()) return;
             monitoring.set(true);
-            monitorLoop();
+            monitorLoop(session, host, port);
         } catch (Exception e) {
+            if (session != sessionGeneration.get()) return;
             ioErrors++;
             append("Verbindungsfehler: " + e.getMessage());
             showStatus("Verbindung fehlgeschlagen");
@@ -307,16 +328,16 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void detectPids() throws IOException {
+    private void detectPids(int session) throws IOException {
         Set<Integer> supported = new java.util.HashSet<>();
-        Elm327Client.CommandResult p0 = command("0100", 2500);
+        Elm327Client.CommandResult p0 = command(session, "0100", 2500);
         supported.addAll(ObdParser.supportedPids(p0.raw, 0x00));
         if (supported.contains(0x20)) {
-            Elm327Client.CommandResult p20 = command("0120", 2500);
+            Elm327Client.CommandResult p20 = command(session, "0120", 2500);
             supported.addAll(ObdParser.supportedPids(p20.raw, 0x20));
         }
         if (supported.contains(0x40)) {
-            Elm327Client.CommandResult p40 = command("0140", 2500);
+            Elm327Client.CommandResult p40 = command(session, "0140", 2500);
             supported.addAll(ObdParser.supportedPids(p40.raw, 0x40));
         }
 
@@ -327,9 +348,9 @@ public final class MainActivity extends Activity {
         append("Aktive Live-PIDs: " + activePids.size());
     }
 
-    private void monitorLoop() {
+    private void monitorLoop(int session, String host, int port) {
         pollCycle = 0;
-        while (monitoring.get() && !userDisconnect) {
+        while (monitoring.get() && !userDisconnect && session == sessionGeneration.get()) {
             if (exclusiveRequest.get()) {
                 sleepQuiet(40);
                 continue;
@@ -337,17 +358,18 @@ public final class MainActivity extends Activity {
 
             Elm327Client c = client;
             if (c == null || !c.isConnected()) {
-                reconnectAfterFailure();
+                reconnectAfterFailure(session, host, port);
                 continue;
             }
 
             int cycle = ++pollCycle;
             for (ObdPid pid : new ArrayList<>(activePids)) {
-                if (!monitoring.get() || userDisconnect || exclusiveRequest.get()) break;
+                if (!monitoring.get() || userDisconnect || exclusiveRequest.get()
+                        || session != sessionGeneration.get()) break;
                 if (!shouldPoll(pid.pid, cycle)) continue;
 
                 try {
-                    Elm327Client.CommandResult r = command(pid.command(), 1800);
+                    Elm327Client.CommandResult r = command(session, pid.command(), 1800);
                     if (ObdParser.isNoData(r.raw)) {
                         noData++;
                         continue;
@@ -360,6 +382,7 @@ public final class MainActivity extends Activity {
                     samples++;
                     totalLatency += r.elapsedMs;
                     latestValues.put(pid.pid, value);
+                    latestSequences.put(pid.pid, telemetrySequence.incrementAndGet());
                     csv.record(System.currentTimeMillis(), pid, value, r.elapsedMs, r.raw);
                     ui.post(() -> {
                         TextView v = pidRows.get(pid.pid);
@@ -369,12 +392,16 @@ public final class MainActivity extends Activity {
                     });
                 } catch (SocketTimeoutException e) {
                     timeouts++;
-                    append("Timeout bei " + pid.command());
+                    append("Timeout bei " + pid.command() + " · Verbindung wird neu synchronisiert");
+                    cancelFuelTrimForConnectionLoss("Timeout");
+                    closeClientIfCurrent(c);
                     updateStats();
+                    break;
                 } catch (IOException e) {
                     ioErrors++;
                     append("I/O: " + e.getMessage());
-                    closeClient();
+                    cancelFuelTrimForConnectionLoss("Verbindungsfehler");
+                    closeClientIfCurrent(c);
                     updateStats();
                     break;
                 }
@@ -402,30 +429,36 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void reconnectAfterFailure() {
-        if (userDisconnect || !monitoring.get()) return;
+    private void reconnectAfterFailure(int session, String host, int port) {
+        if (userDisconnect || !monitoring.get() || session != sessionGeneration.get()) return;
         showStatus("Verbindung unterbrochen · Reconnect …");
         try {
-            Thread.sleep(2000);
-            String host = hostInput.getText().toString().trim();
-            int port = Integer.parseInt(portInput.getText().toString().trim());
-            connectWithFallback(host, port);
-            command("ATE0", 1500);
-            command("ATL0", 1500);
-            command("ATS0", 1500);
-            command("ATH0", 1500);
-            command("ATSP0", 1500);
+            sleepQuiet(2000);
+            if (session != sessionGeneration.get()) return;
+            connectWithFallback(host, port, session);
+            command(session, "ATE0", 1500);
+            command(session, "ATL0", 1500);
+            command(session, "ATS0", 1500);
+            command(session, "ATH0", 1500);
+            command(session, "ATSP0", 1500);
+            latestValues.clear();
+            latestSequences.clear();
             showStatus("Wieder verbunden · " + protocol);
             append("Auto-Reconnect erfolgreich");
         } catch (Exception e) {
+            if (session != sessionGeneration.get()) return;
             ioErrors++;
             closeClient();
             updateStats();
         }
     }
 
-    private Elm327Client.CommandResult command(String cmd, int timeoutMs) throws IOException {
-        Elm327Client c = client;
+    private Elm327Client.CommandResult command(int session, String cmd, int timeoutMs) throws IOException {
+        final Elm327Client c;
+        synchronized (this) {
+            if (session != sessionGeneration.get()) throw new IOException("Veraltete Diagnose-Session");
+            c = client;
+        }
         if (c == null) throw new IOException("Nicht verbunden");
         return c.sendCommand(cmd, timeoutMs);
     }
@@ -482,7 +515,10 @@ public final class MainActivity extends Activity {
             ui.post(() -> {
                 dtcButton.setEnabled(true);
                 dtcButton.setText("DTC");
-                status.setText("Verbunden · " + elmId + " · " + protocol);
+                Elm327Client current = client;
+                status.setText(current != null && current.isConnected()
+                        ? "Verbunden · " + elmId + " · " + protocol
+                        : "DTC-Scan beendet · Reconnect läuft …");
                 new AlertDialog.Builder(this)
                         .setTitle("OBD-II Fehlercodes")
                         .setMessage(result)
@@ -517,9 +553,13 @@ public final class MainActivity extends Activity {
             return sb.toString();
         } catch (SocketTimeoutException e) {
             timeouts++;
-            return label + ": Timeout";
+            append("DTC " + label + ": Timeout · Verbindung wird neu synchronisiert");
+            cancelFuelTrimForConnectionLoss("DTC-Timeout");
+            closeClientIfCurrent(c);
+            return label + ": Timeout · Verbindung wird neu synchronisiert";
         } catch (IOException e) {
             ioErrors++;
+            closeClientIfCurrent(c);
             return label + ": Kommunikationsfehler – " + e.getMessage();
         }
     }
@@ -544,6 +584,17 @@ public final class MainActivity extends Activity {
             new AlertDialog.Builder(this)
                     .setTitle("Fuel-Trim-Test")
                     .setMessage("Der Motor muss laufen. Bitte Motor starten und anschließend den Test erneut beginnen.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+
+        if (latestValues.get(0x06) == null || latestValues.get(0x07) == null
+                || latestValues.get(0x08) == null || latestValues.get(0x09) == null) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Fuel-Trim-Test")
+                    .setMessage("STFT/LTFT für beide Bänke sind noch nicht vollständig verfügbar. "
+                            + "Bitte die Live-Daten kurz weiterlaufen lassen und den Test erneut starten.")
                     .setPositiveButton("OK", null)
                     .show();
             return;
@@ -601,7 +652,8 @@ public final class MainActivity extends Activity {
 
         final String voltageText = evaluateVoltage(voltageValue, koeo, koer);
 
-        FuelTrimTest.Update testUpdate = fuelTrimTest.tick(latestValues, System.currentTimeMillis());
+        FuelTrimTest.Update testUpdate = fuelTrimTest.tick(
+                latestValues, latestSequences, SystemClock.elapsedRealtime());
 
         ui.post(() -> {
             operatingState.setText(stateText);
@@ -699,6 +751,7 @@ public final class MainActivity extends Activity {
             return;
         }
         final String cmd = terminalInput.getText().toString().trim();
+        final int session = sessionGeneration.get();
         if (cmd.isEmpty()) return;
         if (!CommandSafety.isAllowed(cmd)) {
             String reason = CommandSafety.blockedReason(cmd);
@@ -709,7 +762,7 @@ public final class MainActivity extends Activity {
         io.execute(() -> {
             try {
                 append("> " + cmd);
-                append(command(cmd, 4000).raw);
+                append(command(session, cmd, 4000).raw);
             } catch (IOException e) {
                 append("Terminalfehler: " + e.getMessage());
             }
@@ -727,15 +780,16 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private long connectWithFallback(String host, int port) throws IOException {
+    private long connectWithFallback(String host, int port, int session) throws IOException {
         IOException standardRouteError = null;
 
         // Auf dem OnePlus 13R routet Android die lokale 192.168.0.x-Strecke korrekt über WLAN.
         // Diese Variante vermeidet den auf OxygenOS beobachteten EPERM-Fehler beim Network-SocketFactory-Binding.
+        if (session != sessionGeneration.get()) throw new IOException("Veraltete Diagnose-Session");
         Elm327Client direct = new Elm327Client(host, port, null);
         try {
             long ms = direct.connect(3500);
-            client = direct;
+            installClientForSession(direct, session);
             append("Android-Standardroute verwendet");
             return ms;
         } catch (IOException e) {
@@ -746,10 +800,11 @@ public final class MainActivity extends Activity {
 
         IOException last = standardRouteError;
         for (Network network : findWifiNetworks()) {
+            if (session != sessionGeneration.get()) throw new IOException("Veraltete Diagnose-Session");
             Elm327Client candidate = new Elm327Client(host, port, network);
             try {
                 long ms = candidate.connect(3500);
-                client = candidate;
+                installClientForSession(candidate, session);
                 append("Fallback über WLAN-Netz " + network);
                 return ms;
             } catch (IOException e) {
@@ -807,8 +862,11 @@ public final class MainActivity extends Activity {
 
     private void disconnect(boolean fromUser) {
         if (fromUser) {
+            sessionGeneration.incrementAndGet();
             userDisconnect = true;
             monitoring.set(false);
+            latestValues.clear();
+            latestSequences.clear();
             fuelTrimTest.cancel();
             if (fuelTestButton != null) {
                 ui.post(() -> {
@@ -822,6 +880,30 @@ public final class MainActivity extends Activity {
         closeClient();
     }
 
+    private synchronized void installClientForSession(Elm327Client candidate, int session) throws IOException {
+        if (session != sessionGeneration.get()) {
+            candidate.close();
+            throw new IOException("Verbindungsversuch durch neuere Session ersetzt");
+        }
+        Elm327Client old = client;
+        client = candidate;
+        if (old != null && old != candidate) {
+            totalTxBytes += old.getTxBytes();
+            totalRxBytes += old.getRxBytes();
+            old.close();
+        }
+    }
+
+    private synchronized void closeClientIfCurrent(Elm327Client expected) {
+        if (client != expected) return;
+        client = null;
+        if (expected != null) {
+            totalTxBytes += expected.getTxBytes();
+            totalRxBytes += expected.getRxBytes();
+            expected.close();
+        }
+    }
+
     private synchronized void closeClient() {
         Elm327Client c = client;
         client = null;
@@ -830,6 +912,18 @@ public final class MainActivity extends Activity {
             totalRxBytes += c.getRxBytes();
             c.close();
         }
+    }
+
+    private void cancelFuelTrimForConnectionLoss(String reason) {
+        if (!fuelTrimTest.isRunning()) return;
+        fuelTrimTest.cancel();
+        latestValues.clear();
+        latestSequences.clear();
+        ui.post(() -> {
+            fuelTestButton.setText("Fuel-Trim-Test");
+            fuelTestStatus.setText("Fuel-Trim-Test: abgebrochen · " + reason);
+        });
+        append("Fuel-Trim-Test wegen " + reason + " abgebrochen");
     }
 
     private void updateStats() {
@@ -877,6 +971,7 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        sessionGeneration.incrementAndGet();
         monitoring.set(false);
         userDisconnect = true;
         closeClient();

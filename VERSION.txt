@@ -1,4 +1,4 @@
-Mercedes OBD2 Monitor v1.0.5
+Mercedes OBD2 Monitor v1.0.6
 Package: de.roman.mercedesobdmonitor
 Default ELM327 WiFi endpoint: 192.168.0.10:35000
 Target: Android 17 / API 37; compatible with Android 8.0+

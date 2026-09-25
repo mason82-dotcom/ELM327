@@ -63,7 +63,7 @@ public final class FuelTrimTest {
         return stage;
     }
 
-    public synchronized Update tick(Map<Integer, Double> values, long now) {
+    public synchronized Update tick(Map<Integer, Double> values, Map<Integer, Long> sequences, long now) {
         double rpm = get(values, 0x0C);
         double speed = get(values, 0x0D);
 
@@ -81,7 +81,7 @@ public final class FuelTrimTest {
                 if (left > 0) {
                     yield new Update("Leerlauf stabilisieren … " + secondsCeil(left) + " s", false, false, null);
                 }
-                idle.reset();
+                idle.reset(sequences);
                 stage = Stage.COLLECT_IDLE;
                 stageSince = now;
                 lastSample = 0;
@@ -89,18 +89,21 @@ public final class FuelTrimTest {
             }
 
             case COLLECT_IDLE -> {
-                if (!inRange(rpm, 500, 1100)) {
-                    idle.reset();
+                if (!inRange(rpm, 500, 1100) || (!Double.isNaN(speed) && speed >= 3)) {
+                    idle.reset(sequences);
                     stage = Stage.WAIT_IDLE;
                     stableSince = 0;
-                    yield new Update("Leerlauf nicht stabil – Messung wird neu angesetzt", false, false, null);
+                    yield new Update("Leerlauf/Fahrzeugstand nicht stabil – Messung wird neu angesetzt", false, false, null);
                 }
                 if (now - lastSample >= SAMPLE_INTERVAL_MS) {
-                    idle.add(values);
+                    idle.add(values, sequences);
                     lastSample = now;
                 }
                 long elapsed = now - stageSince;
                 if (elapsed >= IDLE_MEASURE_MS) {
+                    if (idle.count < 3) {
+                        yield new Update("Leerlauf: warte auf mindestens 3 frische Trim-Datensätze …", false, false, null);
+                    }
                     stage = Stage.WAIT_2500;
                     stableSince = 0;
                     yield new Update("Leerlauf fertig · jetzt manuell ca. 2500 U/min halten", true, false, null);
@@ -109,7 +112,7 @@ public final class FuelTrimTest {
             }
 
             case WAIT_2500 -> {
-                boolean stable = inRange(rpm, 2200, 2800);
+                boolean stable = inRange(rpm, 2200, 2800) && (Double.isNaN(speed) || speed < 3);
                 if (!stable) {
                     stableSince = 0;
                     yield new Update("Drehzahl manuell auf 2300–2700 U/min bringen", false, false, null);
@@ -119,7 +122,7 @@ public final class FuelTrimTest {
                 if (left > 0) {
                     yield new Update("2500 U/min stabilisieren … " + secondsCeil(left) + " s", false, false, null);
                 }
-                high.reset();
+                high.reset(sequences);
                 stage = Stage.COLLECT_2500;
                 stageSince = now;
                 lastSample = 0;
@@ -127,18 +130,21 @@ public final class FuelTrimTest {
             }
 
             case COLLECT_2500 -> {
-                if (!inRange(rpm, 2100, 2900)) {
-                    high.reset();
+                if (!inRange(rpm, 2100, 2900) || (!Double.isNaN(speed) && speed >= 3)) {
+                    high.reset(sequences);
                     stage = Stage.WAIT_2500;
                     stableSince = 0;
-                    yield new Update("Drehzahl verlassen – 2500-U/min-Messung wird neu angesetzt", false, false, null);
+                    yield new Update("Drehzahl/Fahrzeugstand verlassen – 2500-U/min-Messung wird neu angesetzt", false, false, null);
                 }
                 if (now - lastSample >= SAMPLE_INTERVAL_MS) {
-                    high.add(values);
+                    high.add(values, sequences);
                     lastSample = now;
                 }
                 long elapsed = now - stageSince;
                 if (elapsed >= HIGH_MEASURE_MS) {
+                    if (high.count < 3) {
+                        yield new Update("2500 U/min: warte auf mindestens 3 frische Trim-Datensätze …", false, false, null);
+                    }
                     stage = Stage.DONE;
                     String report = buildReport(idle, high);
                     yield new Update("Test abgeschlossen", false, true, report);
@@ -227,26 +233,56 @@ public final class FuelTrimTest {
     private static final class Acc {
         private int count;
         private double stft1, ltft1, stft2, ltft2, maf, map;
+        private long seqStft1, seqLtft1, seqStft2, seqLtft2;
 
         void reset() {
-            count = 0;
-            stft1 = ltft1 = stft2 = ltft2 = maf = map = 0.0;
+            reset(null);
         }
 
-        void add(Map<Integer, Double> values) {
+        void reset(Map<Integer, Long> sequences) {
+            count = 0;
+            stft1 = ltft1 = stft2 = ltft2 = maf = map = 0.0;
+            seqStft1 = seq(sequences, 0x06);
+            seqLtft1 = seq(sequences, 0x07);
+            seqStft2 = seq(sequences, 0x08);
+            seqLtft2 = seq(sequences, 0x09);
+        }
+
+        private long seq(Map<Integer, Long> sequences, int pid) {
+            if (sequences == null) return 0L;
+            Long value = sequences.get(pid);
+            return value == null ? 0L : value;
+        }
+
+        void add(Map<Integer, Double> values, Map<Integer, Long> sequences) {
             Double a = values.get(0x06);
             Double b = values.get(0x07);
             Double c = values.get(0x08);
             Double d = values.get(0x09);
             Double e = values.get(0x10);
             Double f = values.get(0x0B);
-            if (a == null || b == null || c == null || d == null) return;
+            Long sa = sequences.get(0x06);
+            Long sb = sequences.get(0x07);
+            Long sc = sequences.get(0x08);
+            Long sd = sequences.get(0x09);
+
+            if (a == null || b == null || c == null || d == null
+                    || sa == null || sb == null || sc == null || sd == null) return;
+
+            // Nur einen neuen Messpunkt übernehmen, wenn alle vier Trim-PIDs
+            // seit dem letzten akzeptierten Punkt tatsächlich neu eingelesen wurden.
+            if (sa <= seqStft1 || sb <= seqLtft1 || sc <= seqStft2 || sd <= seqLtft2) return;
+
             stft1 += a;
             ltft1 += b;
             stft2 += c;
             ltft2 += d;
             if (e != null) maf += e;
             if (f != null) map += f;
+            seqStft1 = sa;
+            seqLtft1 = sb;
+            seqStft2 = sc;
+            seqLtft2 = sd;
             count++;
         }
 
