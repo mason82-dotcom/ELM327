@@ -28,7 +28,7 @@ public final class SparklineView extends View {
         gridPaint.setStrokeWidth(dp(1));
         textPaint.setColor(Color.LTGRAY);
         textPaint.setTextSize(dp(12));
-        setMinimumHeight(dp(120));
+        setMinimumHeight(Math.round(dp(120)));
     }
 
     public void addValue(float value) {
