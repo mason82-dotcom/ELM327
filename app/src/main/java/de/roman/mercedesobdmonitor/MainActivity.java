@@ -79,15 +79,15 @@ public final class MainActivity extends Activity {
 
     private volatile Elm327Client client;
     private volatile boolean userDisconnect;
-    private long samples;
-    private long totalLatency;
-    private long timeouts;
-    private long noData;
-    private long ioErrors;
-    private long parserErrors;
-    private long totalTxBytes;
-    private long totalRxBytes;
-    private int pollCycle;
+    // Statistik: geschrieben von I/O-Threads, gelesen/zurückgesetzt im UI-Thread.
+    private final AtomicLong samples = new AtomicLong();
+    private final AtomicLong totalLatency = new AtomicLong();
+    private final AtomicLong timeouts = new AtomicLong();
+    private final AtomicLong noData = new AtomicLong();
+    private final AtomicLong ioErrors = new AtomicLong();
+    private final AtomicLong parserErrors = new AtomicLong();
+    private final AtomicLong totalTxBytes = new AtomicLong();
+    private final AtomicLong totalRxBytes = new AtomicLong();
     private String elmId = "–";
     private String protocol = "–";
     /** null = unbekannt (Parser erkennt automatisch), sonst CAN/Legacy laut ATDPN. */
@@ -225,8 +225,8 @@ public final class MainActivity extends Activity {
             csv.clear();
             console.setText("Log gelöscht.\n");
             latencyGraph.clear();
-            samples = totalLatency = timeouts = noData = ioErrors = parserErrors = totalTxBytes = totalRxBytes = 0;
-            pollCycle = 0;
+            for (AtomicLong counter : new AtomicLong[] {samples, totalLatency, timeouts, noData,
+                    ioErrors, parserErrors, totalTxBytes, totalRxBytes}) counter.set(0);
             latestValues.clear();
             latestSequences.clear();
             fuelTrimTest.cancel();
@@ -346,7 +346,7 @@ public final class MainActivity extends Activity {
             monitorLoop(session, host, port);
         } catch (Exception e) {
             if (session != sessionGeneration.get()) return;
-            ioErrors++;
+            ioErrors.incrementAndGet();
             append("Verbindungsfehler: " + e.getMessage());
             showStatus("Verbindung fehlgeschlagen");
             closeClient();
@@ -375,7 +375,7 @@ public final class MainActivity extends Activity {
     }
 
     private void monitorLoop(int session, String host, int port) {
-        pollCycle = 0;
+        int pollCycle = 0;
         while (monitoring.get() && !userDisconnect && session == sessionGeneration.get()) {
             if (exclusiveRequest.get()) {
                 sleepQuiet(40);
@@ -400,16 +400,16 @@ public final class MainActivity extends Activity {
                     firstRequestAfterInit = false;
                     pollTimeouts.onResponse();
                     if (ObdParser.isNoData(r.raw)) {
-                        noData++;
+                        noData.incrementAndGet();
                         continue;
                     }
                     Double value = pid.parse(r.raw);
                     if (value == null) {
-                        parserErrors++;
+                        parserErrors.incrementAndGet();
                         continue;
                     }
-                    samples++;
-                    totalLatency += r.elapsedMs;
+                    samples.incrementAndGet();
+                    totalLatency.addAndGet(r.elapsedMs);
                     if (session != sessionGeneration.get()) break;
                     latestValues.put(pid.pid, value);
                     latestSequences.put(pid.pid, telemetrySequence.incrementAndGet());
@@ -421,7 +421,7 @@ public final class MainActivity extends Activity {
                         updateStats();
                     });
                 } catch (SocketTimeoutException e) {
-                    timeouts++;
+                    timeouts.incrementAndGet();
                     firstRequestAfterInit = false;
                     // Auf den verspäteten '>'-Prompt warten; erst bei wiederholtem
                     // Timeout oder fehlgeschlagener Resynchronisation neu verbinden.
@@ -441,7 +441,7 @@ public final class MainActivity extends Activity {
                 } catch (IOException e) {
                     // Nach „Trennen“/neuer Session ist der Socketabbruch erwartet, kein Fehler.
                     if (userDisconnect || session != sessionGeneration.get()) break;
-                    ioErrors++;
+                    ioErrors.incrementAndGet();
                     append("I/O: " + e.getMessage());
                     cancelFuelTrimForConnectionLoss("Verbindungsfehler");
                     closeClientIfCurrent(c);
@@ -481,7 +481,7 @@ public final class MainActivity extends Activity {
             append("Auto-Reconnect erfolgreich");
         } catch (Exception e) {
             if (session != sessionGeneration.get()) return;
-            ioErrors++;
+            ioErrors.incrementAndGet();
             closeClientForSession(session);
             updateStats();
         }
@@ -530,11 +530,13 @@ public final class MainActivity extends Activity {
                     sleepQuiet(250);
 
                     // Nach dem DTC-Scan einen harmlosen Read-Only-Request als Verbindungsprobe.
-                    try {
-                        c.sendCommand("0100", 2200);
-                    } catch (IOException probeError) {
-                        append("DTC-Nachtest: Verbindung wird neu aufgebaut – " + probeError.getMessage());
-                        closeClientIfCurrent(c);
+                    if (c.isConnected()) {
+                        try {
+                            c.sendCommand("0100", 2200);
+                        } catch (IOException probeError) {
+                            append("DTC-Nachtest: Verbindung wird neu aufgebaut – " + probeError.getMessage());
+                            closeClientIfCurrent(c);
+                        }
                     }
                 }
                 sb.append(m272Section(allCodes));
@@ -576,6 +578,10 @@ public final class MainActivity extends Activity {
 
     private String readDtcMode(Elm327Client c, String label, String cmd, int responseMode,
                                List<String> collected) {
+        if (!c.isConnected()) {
+            // Ein vorheriger Modus hat die Verbindung bereits verworfen (Timeout/I/O).
+            return label + ": übersprungen · Verbindung wird neu aufgebaut";
+        }
         try {
             Elm327Client.CommandResult r = c.sendCommand(cmd, 3500);
             String raw = clean(r.raw);
@@ -602,13 +608,13 @@ public final class MainActivity extends Activity {
             }
             return sb.toString();
         } catch (SocketTimeoutException e) {
-            timeouts++;
+            timeouts.incrementAndGet();
             append("DTC " + label + ": Timeout · Verbindung wird neu synchronisiert");
             cancelFuelTrimForConnectionLoss("DTC-Timeout");
             closeClientIfCurrent(c);
             return label + ": Timeout · Verbindung wird neu synchronisiert";
         } catch (IOException e) {
-            ioErrors++;
+            ioErrors.incrementAndGet();
             closeClientIfCurrent(c);
             return label + ": Kommunikationsfehler – " + e.getMessage();
         }
@@ -649,16 +655,16 @@ public final class MainActivity extends Activity {
                 }
                 append(title + " abgeschlossen");
             } catch (SocketTimeoutException e) {
-                timeouts++;
+                timeouts.incrementAndGet();
                 append(title + ": Timeout · Verbindung wird neu synchronisiert");
                 closeClientIfCurrent(c);
                 report = title + " abgebrochen: Timeout.\nDie Verbindung wird neu aufgebaut.";
             } catch (IOException e) {
-                ioErrors++;
+                ioErrors.incrementAndGet();
                 closeClientIfCurrent(c);
                 report = title + " fehlgeschlagen:\n" + e.getMessage();
             } catch (RuntimeException e) {
-                parserErrors++;
+                parserErrors.incrementAndGet();
                 report = title + " fehlgeschlagen (Auswertung):\n" + e;
             } finally {
                 exclusiveRequest.set(false);
@@ -731,11 +737,11 @@ public final class MainActivity extends Activity {
         try {
             String report = InspectionCheck.report(reader.read(
                     pid -> activePids.isEmpty() || containsPid(pid)));
-            timeouts += reader.timeoutCount();
+            timeouts.addAndGet(reader.timeoutCount());
             return report;
         } catch (SocketTimeoutException e) {
             // Der abbrechende Timeout wird in runExclusiveDiagnosis gezählt.
-            timeouts += Math.max(0, reader.timeoutCount() - 1);
+            timeouts.addAndGet(Math.max(0, reader.timeoutCount() - 1));
             throw e;
         }
     }
@@ -923,12 +929,27 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "Read-Only-Schutz: " + reason, Toast.LENGTH_LONG).show();
             return;
         }
+        // Formatändernde Befehle (ATZ, ATH1, …) laufen exklusiv; danach wird der
+        // Polling-Zustand wiederhergestellt, damit Livewerte/DTC-Parser weiter stimmen.
+        final List<String> restore = LinkPolicy.restoreAfterTerminal(cmd, protocolNumber);
+        final boolean exclusive = !restore.isEmpty();
+        if (exclusive && !exclusiveRequest.compareAndSet(false, true)) {
+            Toast.makeText(this, "Diagnosevorgang läuft gerade", Toast.LENGTH_SHORT).show();
+            return;
+        }
         io.execute(() -> {
             try {
                 append("> " + cmd);
                 append(command(session, cmd, 4000).raw);
+                for (String r : restore) command(session, r, 1500);
+                if (exclusive) {
+                    if (CommandSafety.normalize(cmd).equals("ATZ")) firstRequestAfterInit = true;
+                    append("Adapter-Format für Live-Polling wiederhergestellt: " + String.join(" ", restore));
+                }
             } catch (IOException e) {
                 append("Terminalfehler: " + e.getMessage());
+            } finally {
+                if (exclusive) exclusiveRequest.set(false);
             }
         });
     }
@@ -1055,8 +1076,8 @@ public final class MainActivity extends Activity {
         Elm327Client old = client;
         client = candidate;
         if (old != null && old != candidate) {
-            totalTxBytes += old.getTxBytes();
-            totalRxBytes += old.getRxBytes();
+            totalTxBytes.addAndGet(old.getTxBytes());
+            totalRxBytes.addAndGet(old.getRxBytes());
             old.close();
         }
     }
@@ -1065,8 +1086,8 @@ public final class MainActivity extends Activity {
         if (client != expected) return;
         client = null;
         if (expected != null) {
-            totalTxBytes += expected.getTxBytes();
-            totalRxBytes += expected.getRxBytes();
+            totalTxBytes.addAndGet(expected.getTxBytes());
+            totalRxBytes.addAndGet(expected.getRxBytes());
             expected.close();
         }
     }
@@ -1081,8 +1102,8 @@ public final class MainActivity extends Activity {
         Elm327Client c = client;
         client = null;
         if (c != null) {
-            totalTxBytes += c.getTxBytes();
-            totalRxBytes += c.getRxBytes();
+            totalTxBytes.addAndGet(c.getTxBytes());
+            totalRxBytes.addAndGet(c.getRxBytes());
             c.close();
         }
     }
@@ -1102,12 +1123,13 @@ public final class MainActivity extends Activity {
     private void updateStats() {
         ui.post(() -> {
             Elm327Client c = client;
-            long avg = samples == 0 ? 0 : totalLatency / samples;
-            long tx = totalTxBytes + (c == null ? 0 : c.getTxBytes());
-            long rx = totalRxBytes + (c == null ? 0 : c.getRxBytes());
+            long n = samples.get();
+            long avg = n == 0 ? 0 : totalLatency.get() / n;
+            long tx = totalTxBytes.get() + (c == null ? 0 : c.getTxBytes());
+            long rx = totalRxBytes.get() + (c == null ? 0 : c.getRxBytes());
             stats.setText(String.format(Locale.GERMANY,
                     "Ø %d ms · Samples %d · Timeouts %d · NO DATA %d · I/O %d · Parser %d · TX/RX %d/%d B · ELM %s",
-                    avg, samples, timeouts, noData, ioErrors, parserErrors, tx, rx, adapterVoltage));
+                    avg, n, timeouts.get(), noData.get(), ioErrors.get(), parserErrors.get(), tx, rx, adapterVoltage));
         });
     }
 
