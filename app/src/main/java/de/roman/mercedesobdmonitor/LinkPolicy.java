@@ -42,6 +42,30 @@ public final class LinkPolicy {
     }
 
     /**
+     * Terminalbefehle, die das Antwortformat des Adapters verändern (Echo, Header,
+     * Leerzeichen, Zeilenvorschub, Adaptive Timing, Timeout, Reset), würden den Parser
+     * für Live-Polling und DTC-Scan stören. Liefert die Befehle, die danach den
+     * Polling-Zustand wiederherstellen; leer, wenn nichts zu tun ist.
+     * Eine bewusst gewählte Protokollauswahl (ATSPx) bleibt unangetastet.
+     */
+    public static List<String> restoreAfterTerminal(String command, String dpn) {
+        String cmd = CommandSafety.normalize(command);
+        List<String> out = new ArrayList<>();
+        switch (cmd) {
+            case "ATZ" -> out.addAll(reconnectInit(dpn));
+            case "ATE1" -> out.add("ATE0");
+            case "ATL1" -> out.add("ATL0");
+            case "ATS1" -> out.add("ATS0");
+            case "ATH1" -> out.add("ATH0");
+            case "ATAT0", "ATAT2" -> out.add("ATAT1");
+            default -> {
+                if (cmd.startsWith("ATST") && !"ATST64".equals(cmd)) out.add("ATST64");
+            }
+        }
+        return out;
+    }
+
+    /**
      * Zählt Timeouts in Folge. Ein einzelner Timeout mit erfolgreicher
      * Prompt-Resynchronisation hält die Verbindung; erst wiederholte Timeouts
      * oder eine fehlgeschlagene Resynchronisation erzwingen einen Reconnect.
