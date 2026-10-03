@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -34,6 +35,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -68,7 +70,8 @@ public final class MainActivity extends Activity {
     private SparklineView latencyGraph;
 
     private final Map<Integer, TextView> pidRows = new LinkedHashMap<>();
-    private final List<ObdPid> activePids = new ArrayList<>();
+    /** Wird beim Verbinden neu befüllt und parallel vom Polling gelesen. */
+    private final List<ObdPid> activePids = new CopyOnWriteArrayList<>();
     private final CsvLogger csv = new CsvLogger();
     private final Map<Integer, Double> latestValues = new ConcurrentHashMap<>();
     private final Map<Integer, Long> latestSequences = new ConcurrentHashMap<>();
@@ -106,6 +109,8 @@ public final class MainActivity extends Activity {
 
     private void buildUi() {
         ScrollView scroll = new ScrollView(this);
+        // targetSdk 35+ erzwingt Edge-to-Edge: Inhalt nicht unter Status-/Navigationsleiste legen.
+        scroll.setFitsSystemWindows(true);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(14), dp(14), dp(14), dp(28));
@@ -113,7 +118,7 @@ public final class MainActivity extends Activity {
         scroll.addView(root);
 
         TextView title = text("Mercedes OBD2 Monitor", 24, Color.WHITE);
-        title.setTypeface(null, 1);
+        title.setTypeface(null, Typeface.BOLD);
         root.addView(title);
 
         TextView sub = text("C350 W204 / M272 · ELM327 WiFi", 14, Color.LTGRAY);
@@ -172,7 +177,7 @@ public final class MainActivity extends Activity {
         root.addView(latencyGraph, new LinearLayout.LayoutParams(-1, dp(135)));
 
         TextView liveTitle = text("Livewerte", 18, Color.WHITE);
-        liveTitle.setTypeface(null, 1);
+        liveTitle.setTypeface(null, Typeface.BOLD);
         liveTitle.setPadding(0, dp(12), 0, dp(6));
         root.addView(liveTitle);
 
@@ -189,7 +194,7 @@ public final class MainActivity extends Activity {
         root.addView(logControls);
 
         TextView termTitle = text("ELM327-Terminal (Read-Only)", 18, Color.WHITE);
-        termTitle.setTypeface(null, 1);
+        termTitle.setTypeface(null, Typeface.BOLD);
         termTitle.setPadding(0, dp(14), 0, dp(6));
         root.addView(termTitle);
 
@@ -250,7 +255,7 @@ public final class MainActivity extends Activity {
 
     private void connectRequested() {
         if (exclusiveRequest.get()) {
-            Toast.makeText(this, "DTC-Scan läuft gerade", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Diagnosevorgang läuft gerade", Toast.LENGTH_SHORT).show();
             return;
         }
         if (!ensurePermissions()) return;
@@ -298,7 +303,8 @@ public final class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == REQ_NET) {
-            boolean ok = true;
+            // Leere Ergebnisse = Anfrage abgebrochen; nicht erneut anfragen (Endlosschleife).
+            boolean ok = results.length > 0;
             for (int r : results) ok &= r == PackageManager.PERMISSION_GRANTED;
             if (ok) connectRequested();
             else Toast.makeText(this, "Netzwerkberechtigung wurde nicht erteilt", Toast.LENGTH_LONG).show();
@@ -383,7 +389,7 @@ public final class MainActivity extends Activity {
             }
 
             int cycle = ++pollCycle;
-            for (ObdPid pid : new ArrayList<>(activePids)) {
+            for (ObdPid pid : activePids) {
                 if (!monitoring.get() || userDisconnect || exclusiveRequest.get()
                         || session != sessionGeneration.get()) break;
                 if (!PollSchedule.shouldPoll(pid.pid, cycle, fuelTrimTest.isRunning())) continue;
@@ -433,6 +439,8 @@ public final class MainActivity extends Activity {
                     updateStats();
                     continue;
                 } catch (IOException e) {
+                    // Nach „Trennen“/neuer Session ist der Socketabbruch erwartet, kein Fehler.
+                    if (userDisconnect || session != sessionGeneration.get()) break;
                     ioErrors++;
                     append("I/O: " + e.getMessage());
                     cancelFuelTrimForConnectionLoss("Verbindungsfehler");
@@ -526,7 +534,7 @@ public final class MainActivity extends Activity {
                         c.sendCommand("0100", 2200);
                     } catch (IOException probeError) {
                         append("DTC-Nachtest: Verbindung wird neu aufgebaut – " + probeError.getMessage());
-                        closeClient();
+                        closeClientIfCurrent(c);
                     }
                 }
                 sb.append(m272Section(allCodes));
@@ -547,11 +555,7 @@ public final class MainActivity extends Activity {
                 status.setText(current != null && current.isConnected()
                         ? "Verbunden · " + elmId + " · " + protocol
                         : "DTC-Scan beendet · Reconnect läuft …");
-                new AlertDialog.Builder(this)
-                        .setTitle("OBD-II Fehlercodes")
-                        .setMessage(result)
-                        .setPositiveButton("OK", null)
-                        .show();
+                showDialog("OBD-II Fehlercodes", result);
             });
         });
     }
@@ -668,11 +672,7 @@ public final class MainActivity extends Activity {
                         ? "Verbunden · " + elmId + " · " + protocol
                         : title + " beendet · Reconnect läuft …");
                 updateStats();
-                new AlertDialog.Builder(this)
-                        .setTitle(title)
-                        .setMessage(result)
-                        .setPositiveButton("OK", null)
-                        .show();
+                showDialog(title, result);
             });
         });
     }
@@ -741,7 +741,7 @@ public final class MainActivity extends Activity {
     }
 
     private boolean containsPid(int pid) {
-        for (ObdPid p : new ArrayList<>(activePids)) if (p.pid == pid) return true;
+        for (ObdPid p : activePids) if (p.pid == pid) return true;
         return false;
     }
 
@@ -762,35 +762,23 @@ public final class MainActivity extends Activity {
 
         Double rpm = latestValues.get(0x0C);
         if (rpm == null || rpm < 300.0) {
-            new AlertDialog.Builder(this)
-                    .setTitle("Fuel-Trim-Test")
-                    .setMessage("Der Motor muss laufen. Bitte Motor starten und anschließend den Test erneut beginnen.")
-                    .setPositiveButton("OK", null)
-                    .show();
+            showDialog("Fuel-Trim-Test", "Der Motor muss laufen. Bitte Motor starten und anschließend den Test erneut beginnen.");
             return;
         }
 
         if (latestValues.get(0x06) == null || latestValues.get(0x07) == null
                 || latestValues.get(0x08) == null || latestValues.get(0x09) == null) {
-            new AlertDialog.Builder(this)
-                    .setTitle("Fuel-Trim-Test")
-                    .setMessage("STFT/LTFT für beide Bänke sind noch nicht vollständig verfügbar. "
-                            + "Bitte die Live-Daten kurz weiterlaufen lassen und den Test erneut starten.")
-                    .setPositiveButton("OK", null)
-                    .show();
+            showDialog("Fuel-Trim-Test", "STFT/LTFT für beide Bänke sind noch nicht vollständig verfügbar. "
+                    + "Bitte die Live-Daten kurz weiterlaufen lassen und den Test erneut starten.");
             return;
         }
 
         Double coolant = latestValues.get(0x05);
         if (coolant == null || coolant < 80.0) {
             String value = coolant == null ? "unbekannt" : String.format(Locale.GERMANY, "%.0f °C", coolant);
-            new AlertDialog.Builder(this)
-                    .setTitle("Motor noch nicht warm")
-                    .setMessage("Kühlmittel aktuell: " + value
-                            + "\n\nFür einen aussagekräftigen Fuel-Trim-Test werden mindestens etwa 80 °C empfohlen. "
-                            + "Der Test wurde noch nicht gestartet.")
-                    .setPositiveButton("OK", null)
-                    .show();
+            showDialog("Motor noch nicht warm", "Kühlmittel aktuell: " + value
+                    + "\n\nFür einen aussagekräftigen Fuel-Trim-Test werden mindestens etwa 80 °C empfohlen. "
+                    + "Der Test wurde noch nicht gestartet.");
             return;
         }
 
@@ -798,14 +786,10 @@ public final class MainActivity extends Activity {
         fuelTestButton.setText("Test abbrechen");
         fuelTestStatus.setText("Fuel-Trim-Test: Leerlauf stabilisieren …");
         append("Passiver Fuel-Trim-Test gestartet");
-        new AlertDialog.Builder(this)
-                .setTitle("Fuel-Trim-Test gestartet")
-                .setMessage("1. Fahrzeug stehen lassen und stabilen Leerlauf halten.\n"
-                        + "2. Die App misst automatisch 20 Sekunden.\n"
-                        + "3. Danach wirst du aufgefordert, die Drehzahl manuell bei ca. 2500 U/min zu halten.\n\n"
-                        + "Die App steuert keinerlei Stellglieder und verändert keine Fahrzeugkonfiguration.")
-                .setPositiveButton("OK", null)
-                .show();
+        showDialog("Fuel-Trim-Test gestartet", "1. Fahrzeug stehen lassen und stabilen Leerlauf halten.\n"
+                + "2. Die App misst automatisch 20 Sekunden.\n"
+                + "3. Danach wirst du aufgefordert, die Drehzahl manuell bei ca. 2500 U/min zu halten.\n\n"
+                + "Die App steuert keinerlei Stellglieder und verändert keine Fahrzeugkonfiguration.");
     }
 
     private void updatePassiveDiagnostics() {
@@ -859,12 +843,8 @@ public final class MainActivity extends Activity {
             }
 
             if (testUpdate.prompt2500) {
-                new AlertDialog.Builder(this)
-                        .setTitle("Leerlaufmessung abgeschlossen")
-                        .setMessage("Jetzt die Motordrehzahl manuell auf etwa 2300–2700 U/min anheben und konstant halten. "
-                                + "Die zweite Messphase startet automatisch, sobald die Drehzahl stabil ist.")
-                        .setPositiveButton("OK", null)
-                        .show();
+                showDialog("Leerlaufmessung abgeschlossen", "Jetzt die Motordrehzahl manuell auf etwa 2300–2700 U/min anheben und konstant halten. "
+                        + "Die zweite Messphase startet automatisch, sobald die Drehzahl stabil ist.");
             }
 
             if (testUpdate.failed) {
@@ -877,11 +857,7 @@ public final class MainActivity extends Activity {
                 fuelTestButton.setText("Fuel-Trim-Test");
                 fuelTestStatus.setText("Fuel-Trim-Test: abgeschlossen");
                 append("Fuel-Trim-Test abgeschlossen");
-                new AlertDialog.Builder(this)
-                        .setTitle("Fuel-Trim-Auswertung")
-                        .setMessage(testUpdate.report)
-                        .setPositiveButton("OK", null)
-                        .show();
+                showDialog("Fuel-Trim-Auswertung", testUpdate.report);
             }
         });
     }
@@ -935,7 +911,7 @@ public final class MainActivity extends Activity {
 
     private void sendTerminal() {
         if (exclusiveRequest.get()) {
-            Toast.makeText(this, "DTC-Scan läuft gerade", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Diagnosevorgang läuft gerade", Toast.LENGTH_SHORT).show();
             return;
         }
         final String cmd = terminalInput.getText().toString().trim();
@@ -1005,6 +981,9 @@ public final class MainActivity extends Activity {
         throw last != null ? last : new IOException("Keine Route zum ELM327 verfügbar");
     }
 
+    // getAllNetworks() ist ab API 31 deprecated, bleibt aber der einzige synchrone Weg,
+    // alle WLAN-Netze ohne NetworkCallback-Registrierung aufzuzählen.
+    @SuppressWarnings("deprecation")
     private List<Network> findWifiNetworks() {
         List<Network> out = new ArrayList<>();
         ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -1130,6 +1109,16 @@ public final class MainActivity extends Activity {
                     "Ø %d ms · Samples %d · Timeouts %d · NO DATA %d · I/O %d · Parser %d · TX/RX %d/%d B · ELM %s",
                     avg, samples, timeouts, noData, ioErrors, parserErrors, tx, rx, adapterVoltage));
         });
+    }
+
+    /** Zeigt einen OK-Dialog; nach onDestroy (z. B. später fertiger Scan) wird nichts angezeigt. */
+    private void showDialog(CharSequence title, CharSequence message) {
+        if (isFinishing() || isDestroyed()) return;
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(message)
+                .setPositiveButton("OK", null)
+                .show();
     }
 
     private void showStatus(String s) {

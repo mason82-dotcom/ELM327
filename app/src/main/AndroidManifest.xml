@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -8,7 +9,8 @@
     <!-- Android 13-16 / Android 16 local-network opt-in compatibility. -->
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"
-        android:usesPermissionFlags="neverForLocation" />
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="31" />
 
     <!-- Android 17+: mandatory runtime permission for LAN access when targeting API 37+. -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
@@ -23,7 +25,12 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:screenOrientation="portrait">
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:screenOrientation="portrait"
+            tools:ignore="DiscouragedApi,LockedOrientationActivity">
+            <!-- Ab Android 16 wird die feste Ausrichtung auf großen Displays ignoriert.
+                 configChanges verhindert, dass Drehen/Fenstergröße die Activity samt
+                 laufender ELM327-Verbindung neu erzeugt. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

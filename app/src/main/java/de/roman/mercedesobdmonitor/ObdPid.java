@@ -28,11 +28,7 @@ public final class ObdPid {
     }
 
     public Double parse(String raw) {
-        int need = switch (formula) {
-            case RPM, MAF, VOLTAGE, EQUIV_RATIO -> 2;
-            default -> 1;
-        };
-        return decode(ObdParser.mode01Data(raw, pid, need));
+        return decode(ObdParser.mode01Data(raw, pid, bytesNeeded()));
     }
 
     /** Freeze-Frame-Wert (Mode 02, Frame 00) mit identischer Formel wie Mode 01. */

@@ -3,28 +3,37 @@ plugins {
 }
 
 android {
-    namespace 'de.roman.mercedesobdmonitor'
-    compileSdk 37
+    namespace = 'de.roman.mercedesobdmonitor'
+    compileSdk = 37
 
     defaultConfig {
-        applicationId 'de.roman.mercedesobdmonitor'
-        minSdk 26
-        targetSdk 37
-        versionCode 10
-        versionName '1.0.9'
+        applicationId = 'de.roman.mercedesobdmonitor'
+        minSdk = 26
+        targetSdk = 37
+        versionCode = 10
+        versionName = '1.0.9'
     }
 
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled = false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
+
+    lint {
+        // Die App ist bewusst rein deutschsprachig; UI-Texte werden im Code gesetzt.
+        disable += 'SetTextI18n'
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs += ['-Xlint:deprecation', '-Xlint:unchecked']
 }
 
 dependencies {
