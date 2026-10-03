@@ -22,6 +22,8 @@ import java.util.Locale;
 public final class CsvLogger {
     private final List<String> rows = new ArrayList<>();
     private static final int MAX_ROWS = 100_000;
+    /** Nur unter dem Objekt-Lock verwenden (SimpleDateFormat ist nicht thread-safe). */
+    private final SimpleDateFormat timestampFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.GERMANY);
 
     public CsvLogger() {
         clear();
@@ -34,7 +36,7 @@ public final class CsvLogger {
 
     public synchronized void record(long epochMs, ObdPid pid, double value, long latencyMs, String raw) {
         if (rows.size() >= MAX_ROWS) return;
-        String ts = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.GERMANY).format(new Date(epochMs));
+        String ts = timestampFormat.format(new Date(epochMs));
         rows.add(csv(ts) + ";" + String.format(Locale.US, "%02X", pid.pid) + ";" + csv(pid.label) + ";"
                 + String.format(Locale.US, "%.6f", value) + ";" + csv(pid.unit) + ";" + latencyMs + ";" + csv(raw));
     }

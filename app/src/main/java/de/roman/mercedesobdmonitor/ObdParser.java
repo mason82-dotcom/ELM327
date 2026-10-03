@@ -5,9 +5,19 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public final class ObdParser {
+    // Vorkompiliert: der Parser läuft im Polling-Takt für jede Antwort.
+    private static final Pattern NON_HEX = Pattern.compile("[^0-9A-F]");
+    private static final Pattern ISO_TP_LENGTH = Pattern.compile("[0-9A-F]{3}");
+    private static final Pattern ISO_TP_SEGMENT = Pattern.compile("[0-9A-F]:[0-9A-F]*");
+
     private ObdParser() { }
+
+    private static String hexOnly(String s) {
+        return NON_HEX.matcher(s).replaceAll("");
+    }
 
     public static byte[] mode01Data(String raw, int pid, int minBytes) {
         if (raw == null) return null;
@@ -15,7 +25,7 @@ public final class ObdParser {
         for (String line : normalizedLines(raw)) {
             int pos = line.indexOf(marker);
             if (pos < 0) continue;
-            String hex = line.substring(pos + marker.length()).replaceAll("[^0-9A-F]", "");
+            String hex = hexOnly(line.substring(pos + marker.length()));
             if (hex.length() < minBytes * 2) continue;
             byte[] out = new byte[hex.length() / 2];
             try {
@@ -36,7 +46,7 @@ public final class ObdParser {
         if (raw == null) return null;
         String marker = String.format(Locale.US, "42%02X", pid & 0xFF);
         for (String line : normalizedLines(raw)) {
-            String hex = line.replaceAll("[^0-9A-F]", "");
+            String hex = hexOnly(line);
             if (!hex.startsWith(marker)) continue;
             String body = hex.substring(marker.length());
             if (body.length() < 2 + minBytes * 2) continue;
@@ -70,7 +80,7 @@ public final class ObdParser {
         for (String line : normalizedLines(raw)) {
             int pos = line.indexOf(marker);
             if (pos < 0) continue;
-            String hex = line.substring(pos + marker.length()).replaceAll("[^0-9A-F]", "");
+            String hex = hexOnly(line.substring(pos + marker.length()));
             if (hex.length() < 8) continue;
             try {
                 long mask = Long.parseLong(hex.substring(0, 8), 16);
@@ -181,11 +191,11 @@ public final class ObdParser {
     }
 
     private static boolean isIsoTpLength(String line) {
-        return line.matches("[0-9A-F]{3}");
+        return ISO_TP_LENGTH.matcher(line).matches();
     }
 
     private static boolean isIsoTpSegment(String line) {
-        return line.matches("[0-9A-F]:[0-9A-F]*");
+        return ISO_TP_SEGMENT.matcher(line).matches();
     }
 
     private static boolean looksLikeCan(List<String> lines, String marker) {
@@ -194,7 +204,7 @@ public final class ObdParser {
         }
         for (String line : lines) {
             if (!line.startsWith(marker)) continue;
-            String hex = line.replaceAll("[^0-9A-F]", "");
+            String hex = hexOnly(line);
             // Legacy-Frames sind immer 7 Byte (Kennung + 3 DTC-Paare).
             if (hex.length() == 14) return false;
             // CAN-Single-Frame: Kennung + Anzahl + Anzahl*2 Byte (max. 7 Byte).
@@ -229,7 +239,7 @@ public final class ObdParser {
                 flush(messages, current, expectedBytes);
                 current = null;
                 expectedBytes = -1;
-                messages.add(line.replaceAll("[^0-9A-F]", ""));
+                messages.add(hexOnly(line));
             }
         }
         flush(messages, current, expectedBytes);
@@ -249,7 +259,7 @@ public final class ObdParser {
     private static List<String> legacyFrames(List<String> lines, String marker) {
         List<String> frames = new ArrayList<>();
         for (String line : lines) {
-            String hex = line.replaceAll("[^0-9A-F]", "");
+            String hex = hexOnly(line);
             if (!hex.startsWith(marker)) continue;
             // Falls mehrere Frames ohne Zeilenumbruch ankommen, in 7-Byte-Blöcke teilen.
             if (hex.length() > 14 && hex.length() % 14 == 0) {

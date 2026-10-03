@@ -24,7 +24,8 @@ jobs:
         run: |
           SDKMANAGER="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-37.0" "build-tools;37.0.0"
+          # AGP 9.4 nutzt standardmäßig Build-Tools 36.0.0.
+          "$SDKMANAGER" "platforms;android-37.0" "build-tools;36.0.0"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -32,6 +33,17 @@ jobs:
 
       - name: Unit tests
         run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Android Lint
+        run: gradle :app:lintDebug --stacktrace
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
 
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
