@@ -118,6 +118,25 @@ public class CsvLogWriterTest {
         assertEquals("Mercedes_OBD2_Monitor_" + f.format(new Date(WALL + 4000)) + ".csv", names[2]);
     }
 
+    @Test public void newestLogFindsPreviousSessionFile() throws IOException {
+        File dir = tmp.newFolder();
+        assertNull(CsvLogWriter.newestLog(dir));
+        assertNull(CsvLogWriter.newestLog(null));
+        CsvLogWriter w = writer(dir, 1_000_000, 20);
+        w.append("alt", WALL, 0);
+        w.close();
+        w.append("neu", WALL + 60_000, 1);
+        File newest = w.currentFile();
+        w.close();
+        // Neuer Writer wie nach einem Prozessneustart: noch keine eigene Datei.
+        CsvLogWriter.Snapshot s = CsvLogWriter.newestLog(dir);
+        assertNotNull(s);
+        assertEquals(newest, s.file);
+        assertEquals(newest.length(), s.bytes);
+        assertTrue(new File(dir, "andere.txt").createNewFile());
+        assertEquals(newest, CsvLogWriter.newestLog(dir).file);
+    }
+
     @Test public void unwritableDirectoryFailsOnceThenStops() throws IOException {
         File notADir = tmp.newFile();
         CsvLogWriter w = writer(new File(notADir, "logs"), 1_000_000, 20);

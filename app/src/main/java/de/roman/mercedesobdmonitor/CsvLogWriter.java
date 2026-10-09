@@ -165,6 +165,19 @@ public final class CsvLogWriter {
         prune();
     }
 
+    /**
+     * Neueste Logdatei im Ordner (z. B. aus einer früheren App-Sitzung), vollständig als Snapshot;
+     * null, wenn keine existiert. Eine nach Prozessende abgeschnittene letzte Zeile bleibt enthalten.
+     */
+    public static Snapshot newestLog(File dir) {
+        File[] logs = dir == null ? null
+                : dir.listFiles((d, name) -> name.startsWith(PREFIX) && name.endsWith(SUFFIX));
+        if (logs == null || logs.length == 0) return null;
+        File newest = logs[0];
+        for (File f : logs) if (f.getName().compareTo(newest.getName()) > 0) newest = f;
+        return new Snapshot(newest, newest.length());
+    }
+
     /** Löscht die ältesten Logs, sodass höchstens keepFiles übrig bleiben (Namen sind zeitlich sortierbar). */
     private void prune() {
         File[] logs = dir.listFiles((d, name) -> name.startsWith(PREFIX) && name.endsWith(SUFFIX));

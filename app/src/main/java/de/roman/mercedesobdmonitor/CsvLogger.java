@@ -84,11 +84,14 @@ public final class CsvLogger {
 
     /**
      * Kopiert die aktuelle Datei bis zum zuletzt vollständig geschriebenen Stand nach
-     * Downloads; die Aufzeichnung läuft dabei weiter.
+     * Downloads; die Aufzeichnung läuft dabei weiter. Gibt es seit dem App-Start noch
+     * kein Log (z. B. nachdem Android die App beendet hat), wird die neueste vorhandene
+     * Datei exportiert.
      * @return Speicherort zur Anzeige
      */
     public String export(Context context) throws IOException {
         CsvLogWriter.Snapshot snap = writer.flush();
+        if (snap == null) snap = CsvLogWriter.newestLog(logDirectory(context));
         if (snap == null) throw new IOException("Noch keine Messwerte im Log");
         final String fileName = snap.file.getName();
 

@@ -88,7 +88,7 @@ Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen
 - Verbindung läuft als Foreground-Service weiter (Bildschirm aus, App im Hintergrund); Benachrichtigung mit Status und „Trennen“
 - DTC-Abfrage über Mode 03, 07 und 0A
 - integriertes ELM327-Terminal
-- CSV-Log wird fortlaufend in den App-Speicher geschrieben (höchstens 2 s Verlust, wenn Android die App beendet; bis 200 MB je Datei, die letzten 20 Dateien bleiben); „CSV exportieren“ kopiert die aktuelle Datei nach Downloads/MercedesOBD2Monitor, „Neues Log“ beginnt eine neue Datei
+- CSV-Log wird fortlaufend in den App-Speicher geschrieben (höchstens 2 s Verlust, wenn Android die App beendet; bis 200 MB je Datei, die letzten 20 Dateien bleiben); „CSV exportieren“ kopiert die aktuelle Datei (ohne Log seit App-Start die neueste vorhandene) nach Downloads/MercedesOBD2Monitor, „Neues Log“ beginnt eine neue Datei
 - kein automatisches Löschen von Fehlercodes
 
 ## Android
