@@ -104,3 +104,9 @@ GitHub Actions baut bei jedem Push auf `main` eine Debug-APK. Das Artifact heiß
 `Mercedes_OBD2_Monitor_v1.0.9-debug`
 
 Der komplette Android-Quellcode liegt direkt im Repository.
+
+Lokal bauen (Gradle kommt über den Wrapper, benötigt wird nur JDK 17+ und das Android SDK):
+
+```
+./gradlew :app:testDebugUnitTest :app:assembleDebug
+```

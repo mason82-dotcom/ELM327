@@ -94,11 +94,23 @@ public final class ObdParser {
         return result;
     }
 
+    /** „NO DATA“: Bus erreichbar, aber kein Steuergerät hat Daten zu dieser Anfrage. */
     public static boolean isNoData(String raw) {
         if (raw == null) return true;
         String u = raw.toUpperCase(Locale.US);
-        return u.contains("NO DATA") || u.contains("NODATA") || u.contains("UNABLE TO CONNECT")
-                || u.contains("BUS ERROR") || u.contains("CAN ERROR");
+        return u.contains("NO DATA") || u.contains("NODATA");
+    }
+
+    /**
+     * ELM327-Meldung, dass die Anfrage das Fahrzeug nicht erreicht hat bzw. die Antwort
+     * gestört ist. Anders als „NO DATA“ sagt das nichts über den Fahrzeugzustand aus.
+     */
+    public static boolean isLinkError(String raw) {
+        if (raw == null) return false;
+        String u = raw.toUpperCase(Locale.US);
+        return u.contains("UNABLE TO CONNECT") || u.contains("BUS ERROR") || u.contains("BUS INIT")
+                || u.contains("CAN ERROR") || u.contains("FB ERROR") || u.contains("DATA ERROR")
+                || u.contains("BUFFER FULL") || u.contains("STOPPED");
     }
 
     /**
