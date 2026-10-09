@@ -82,9 +82,13 @@ public final class InspectionReader {
         return in;
     }
 
-    /** DTC-Liste nur als bekannt werten, wenn die Antwort gültig oder „NO DATA“ ist. */
+    /**
+     * DTC-Liste nur als bekannt werten, wenn die Antwort gültig oder „NO DATA“ ist.
+     * Bus-/Verbindungsfehler („UNABLE TO CONNECT“, „CAN ERROR“ …) bedeuten „nicht gelesen“,
+     * nicht „keine Codes“.
+     */
     private boolean isValidDtcAnswer(String raw, int mode) {
-        if (raw == null) return false;
+        if (raw == null || ObdParser.isLinkError(raw)) return false;
         return ObdParser.hasDtcResponse(raw, mode, isCan) || ObdParser.isNoData(raw);
     }
 

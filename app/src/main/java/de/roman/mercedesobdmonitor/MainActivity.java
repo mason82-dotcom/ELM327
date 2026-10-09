@@ -88,8 +88,9 @@ public final class MainActivity extends Activity {
     private final AtomicLong parserErrors = new AtomicLong();
     private final AtomicLong totalTxBytes = new AtomicLong();
     private final AtomicLong totalRxBytes = new AtomicLong();
-    private String elmId = "–";
-    private String protocol = "–";
+    // Geschrieben im I/O-Thread, gelesen im UI-Thread.
+    private volatile String elmId = "–";
+    private volatile String protocol = "–";
     /** null = unbekannt (Parser erkennt automatisch), sonst CAN/Legacy laut ATDPN. */
     private volatile Boolean protocolIsCan = null;
     /** ATDPN-Rohwert der Erstverbindung; beim Reconnect wird das Protokoll fest gesetzt. */
@@ -97,7 +98,7 @@ public final class MainActivity extends Activity {
     private final LinkPolicy.TimeoutTracker pollTimeouts = new LinkPolicy.TimeoutTracker();
     /** Erste Fahrzeuganfrage nach Reconnect bekommt längeren Timeout (Protokollsuche). */
     private volatile boolean firstRequestAfterInit = false;
-    private String adapterVoltage = "–";
+    private volatile String adapterVoltage = "–";
 
     @Override
     protected void onCreate(Bundle state) {
@@ -399,6 +400,10 @@ public final class MainActivity extends Activity {
                     Elm327Client.CommandResult r = command(session, pid.command(), timeoutMs);
                     firstRequestAfterInit = false;
                     pollTimeouts.onResponse();
+                    if (ObdParser.isLinkError(r.raw)) {
+                        ioErrors.incrementAndGet();
+                        continue;
+                    }
                     if (ObdParser.isNoData(r.raw)) {
                         noData.incrementAndGet();
                         continue;
@@ -504,6 +509,10 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "Keine ELM327-Verbindung", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (fuelTrimTest.isRunning()) {
+            Toast.makeText(this, "Fuel-Trim-Test läuft – bitte zuerst beenden", Toast.LENGTH_SHORT).show();
+            return;
+        }
         if (!exclusiveRequest.compareAndSet(false, true)) {
             Toast.makeText(this, "Diagnosevorgang läuft bereits", Toast.LENGTH_SHORT).show();
             return;
@@ -590,6 +599,9 @@ public final class MainActivity extends Activity {
             if (collected != null) collected.addAll(codes);
             if (codes.isEmpty()) {
                 if (raw.isEmpty()) return label + ": keine Antwort";
+                if (ObdParser.isLinkError(r.raw)) {
+                    return label + ": nicht gelesen – Adapter meldet " + raw;
+                }
                 if (ObdParser.isNoData(r.raw)) {
                     return responseMode == 0x4A
                             ? label + ": nicht unterstützt / NO DATA"
@@ -609,10 +621,15 @@ public final class MainActivity extends Activity {
             return sb.toString();
         } catch (SocketTimeoutException e) {
             timeouts.incrementAndGet();
-            append("DTC " + label + ": Timeout · Verbindung wird neu synchronisiert");
-            cancelFuelTrimForConnectionLoss("DTC-Timeout");
+            // Wie beim Live-Polling: auf den verspäteten Prompt warten; neu verbinden
+            // nur, wenn der Adapter nicht wieder synchron wird.
+            if (c.resync(1500)) {
+                append("DTC " + label + ": Timeout · Prompt resynchronisiert, Verbindung bleibt");
+                return label + ": Timeout – nicht gelesen";
+            }
+            append("DTC " + label + ": Timeout · kein Prompt, Verbindung wird neu aufgebaut");
             closeClientIfCurrent(c);
-            return label + ": Timeout · Verbindung wird neu synchronisiert";
+            return label + ": Timeout · Verbindung wird neu aufgebaut";
         } catch (IOException e) {
             ioErrors.incrementAndGet();
             closeClientIfCurrent(c);

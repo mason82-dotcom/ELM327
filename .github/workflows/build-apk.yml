@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build:
@@ -27,15 +29,14 @@ jobs:
           # AGP 9.4 nutzt standardmäßig Build-Tools 36.0.0.
           "$SDKMANAGER" "platforms;android-37.0" "build-tools;36.0.0"
 
+      # Gradle-Version kommt aus dem Wrapper (gradle/wrapper/gradle-wrapper.properties).
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.6.0'
 
       - name: Unit tests
-        run: gradle :app:testDebugUnitTest --stacktrace
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       - name: Android Lint
-        run: gradle :app:lintDebug --stacktrace
+        run: ./gradlew :app:lintDebug --stacktrace
 
       - name: Upload lint report
         if: always()
@@ -46,7 +47,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace
+        run: ./gradlew :app:assembleDebug --stacktrace
 
       - name: Rename APK
         run: cp app/build/outputs/apk/debug/app-debug.apk Mercedes_OBD2_Monitor_v1.0.9-debug.apk
