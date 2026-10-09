@@ -5,7 +5,6 @@ import android.graphics.Color;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
-import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -101,7 +100,7 @@ public final class ObdSession {
 
     /** Wird beim Verbinden neu befüllt und parallel vom Polling gelesen. */
     private final List<ObdPid> activePids = new CopyOnWriteArrayList<>();
-    private final CsvLogger csv = new CsvLogger();
+    private final CsvLogger csv = new CsvLogger(this::append);
     private final Map<Integer, Double> latestValues = new ConcurrentHashMap<>();
     private final Map<Integer, Long> latestSequences = new ConcurrentHashMap<>();
     private final FuelTrimTest fuelTrimTest = new FuelTrimTest();
@@ -182,6 +181,7 @@ public final class ObdSession {
         }
         // Application-Context: ConnectivityManager hielt auf älteren Android-Versionen die Activity fest.
         connectivity = context.getApplicationContext().getSystemService(ConnectivityManager.class);
+        csv.setDirectory(CsvLogger.logDirectory(context.getApplicationContext()));
         final int session = sessionGeneration.incrementAndGet();
         userDisconnect = false;
         monitoring.set(false);
@@ -215,6 +215,7 @@ public final class ObdSession {
         if (reason != null) append(reason);
         append("Verbindung getrennt");
         closeClient();
+        csv.flush();
         setActive(false);
     }
 
@@ -292,6 +293,8 @@ public final class ObdSession {
 
             Elm327Client c = client;
             if (c == null || !c.isConnected()) {
+                // Während des Reconnects kommen keine Messwerte, die den Puffer leeren würden.
+                csv.flush();
                 reconnectAfterFailure(session, host, port);
                 continue;
             }
@@ -896,24 +899,27 @@ public final class ObdSession {
         final Context app = context.getApplicationContext();
         io.execute(() -> {
             try {
-                Uri uri = csv.export(app);
-                toast("CSV gespeichert: " + uri);
+                String where = csv.export(app);
+                toast("CSV exportiert: " + where);
             } catch (IOException e) {
                 toast("CSV-Export fehlgeschlagen: " + e.getMessage());
             }
         });
     }
 
-    /** „Log leeren“: CSV, Konsole, Antwortzeiten und Zähler zurücksetzen. Main-Thread. */
-    public void clearLog() {
-        csv.clear();
+    /**
+     * „Neues Log“: aktuelle CSV-Datei abschließen (sie bleibt im App-Speicher), Konsole,
+     * Antwortzeiten und Zähler zurücksetzen. Main-Thread.
+     */
+    public void startNewLog() {
+        csv.startNew();
         for (AtomicLong counter : new AtomicLong[] {samples, totalLatency, timeouts, noData,
                 ioErrors, parserErrors, totalTxBytes, totalRxBytes}) counter.set(0);
         latestValues.clear();
         latestSequences.clear();
         fuelTrimTest.cancel();
         state.console.setLength(0);
-        state.console.append("Log gelöscht.\n");
+        state.console.append("Neues Log begonnen. Die bisherige CSV-Datei bleibt im App-Speicher erhalten.\n");
         state.latencies.clear();
         state.fuelButton = FUEL_BUTTON;
         state.fuelStatus = FUEL_READY;

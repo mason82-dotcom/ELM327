@@ -155,9 +155,9 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
 
         LinearLayout logControls = row();
         Button export = button("CSV exportieren");
-        Button clear = button("Log leeren");
+        Button newLog = button("Neues Log");
         logControls.addView(export, weight());
-        logControls.addView(clear, weight());
+        logControls.addView(newLog, weight());
         root.addView(logControls);
 
         TextView termTitle = text("ELM327-Terminal (Read-Only)", 18, Color.WHITE);
@@ -186,7 +186,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         inspectionButton.setOnClickListener(v -> session.runInspectionCheck());
         send.setOnClickListener(v -> session.sendTerminal(terminalInput.getText().toString()));
         export.setOnClickListener(v -> session.exportCsv(this));
-        clear.setOnClickListener(v -> session.clearLog());
+        newLog.setOnClickListener(v -> session.startNewLog());
 
         setContentView(scroll);
     }

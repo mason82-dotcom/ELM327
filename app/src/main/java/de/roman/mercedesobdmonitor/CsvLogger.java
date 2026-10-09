@@ -6,54 +6,91 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.SystemClock;
 import android.provider.MediaStore;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Date;
-import java.util.List;
 import java.util.Locale;
 
+/**
+ * CSV-Log der Livewerte: fortlaufend in den App-Speicher geschrieben ({@link CsvLogWriter}),
+ * „CSV exportieren“ kopiert die aktuelle Datei nach Downloads/MercedesOBD2Monitor.
+ */
 public final class CsvLogger {
-    private final List<String> rows = new ArrayList<>();
-    private static final int MAX_ROWS = 100_000;
+    /** Meldung für die Konsole (Datei begonnen, angehalten, Fehler). */
+    public interface Notice {
+        void post(String message);
+    }
+
+    static final long MAX_BYTES = 200L * 1024 * 1024;
+    static final int KEEP_FILES = 20;
+    static final long FLUSH_INTERVAL_MS = 2000;
+
+    private final CsvLogWriter writer = new CsvLogWriter(MAX_BYTES, KEEP_FILES, FLUSH_INTERVAL_MS);
+    private final Notice notice;
     /** Nur unter dem Objekt-Lock verwenden (SimpleDateFormat ist nicht thread-safe). */
     private final SimpleDateFormat timestampFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.GERMANY);
 
-    public CsvLogger() {
-        clear();
+    public CsvLogger(Notice notice) {
+        this.notice = notice;
     }
 
-    public synchronized void clear() {
-        rows.clear();
-        rows.add("timestamp;pid;name;value;unit;latency_ms;raw");
+    /** App-eigener Ordner für die Logs (ohne Speicherberechtigung). */
+    public static File logDirectory(Context context) {
+        File external = context.getExternalFilesDir("logs");
+        return external != null ? external : new File(context.getFilesDir(), "logs");
     }
 
-    public synchronized void record(long epochMs, ObdPid pid, double value, long latencyMs, String raw) {
-        if (rows.size() >= MAX_ROWS) return;
-        String ts = timestampFormat.format(new Date(epochMs));
-        rows.add(csv(ts) + ";" + String.format(Locale.US, "%02X", pid.pid) + ";" + csv(pid.label) + ";"
-                + String.format(Locale.US, "%.6f", value) + ";" + csv(pid.unit) + ";" + latencyMs + ";" + csv(raw));
+    public void setDirectory(File dir) {
+        writer.setDirectory(dir);
     }
 
-    public synchronized int sampleCount() {
-        return Math.max(0, rows.size() - 1);
-    }
-
-    public Uri export(Context context) throws IOException {
-        final String fileName = "Mercedes_OBD2_Monitor_"
-                + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".csv";
-        byte[] bytes;
+    public void record(long epochMs, ObdPid pid, double value, long latencyMs, String raw) {
+        String ts;
         synchronized (this) {
-            StringBuilder sb = new StringBuilder(rows.size() * 80);
-            for (String row : rows) sb.append(row).append('\n');
-            bytes = sb.toString().getBytes(StandardCharsets.UTF_8);
+            ts = timestampFormat.format(new Date(epochMs));
         }
+        String row = CsvLogWriter.formatRow(ts, pid, value, latencyMs, raw);
+        switch (writer.append(row, epochMs, SystemClock.elapsedRealtime())) {
+            case STARTED -> notice.post("CSV-Log: " + writer.currentFile());
+            case LIMIT_REACHED -> notice.post("CSV-Log hat " + (MAX_BYTES / (1024 * 1024))
+                    + " MB erreicht – Aufzeichnung angehalten. „Neues Log“ beginnt eine neue Datei.");
+            case FAILED -> notice.post("CSV-Log-Fehler: " + writer.lastError()
+                    + " – Aufzeichnung angehalten. „Neues Log“ versucht es erneut.");
+            default -> { }
+        }
+    }
+
+    /** Puffer auf die Platte bringen (z. B. beim Trennen). */
+    public void flush() {
+        try {
+            writer.flush();
+        } catch (IOException e) {
+            notice.post("CSV-Log konnte nicht gespeichert werden: " + e.getMessage());
+        }
+    }
+
+    /** Aktuelle Datei abschließen; der nächste Messwert beginnt eine neue. Die alte bleibt erhalten. */
+    public void startNew() {
+        writer.close();
+    }
+
+    /**
+     * Kopiert die aktuelle Datei bis zum zuletzt vollständig geschriebenen Stand nach
+     * Downloads; die Aufzeichnung läuft dabei weiter.
+     * @return Speicherort zur Anzeige
+     */
+    public String export(Context context) throws IOException {
+        CsvLogWriter.Snapshot snap = writer.flush();
+        if (snap == null) throw new IOException("Noch keine Messwerte im Log");
+        final String fileName = snap.file.getName();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ContentResolver resolver = context.getContentResolver();
@@ -66,23 +103,37 @@ public final class CsvLogger {
             if (uri == null) throw new IOException("MediaStore konnte keine Datei anlegen");
             try (OutputStream os = resolver.openOutputStream(uri)) {
                 if (os == null) throw new IOException("CSV-Ausgabestrom konnte nicht geöffnet werden");
-                os.write(bytes);
+                copy(snap, os);
+            } catch (IOException e) {
+                resolver.delete(uri, null, null);
+                throw e;
             }
             ContentValues done = new ContentValues();
             done.put(MediaStore.Downloads.IS_PENDING, 0);
             resolver.update(uri, done, null, null);
-            return uri;
+            return Environment.DIRECTORY_DOWNLOADS + "/MercedesOBD2Monitor/" + fileName;
         }
 
         File dir = new File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "MercedesOBD2Monitor");
         if (!dir.exists() && !dir.mkdirs()) throw new IOException("Exportordner konnte nicht angelegt werden");
-        File file = new File(dir, fileName);
-        try (FileOutputStream fos = new FileOutputStream(file)) { fos.write(bytes); }
-        return Uri.fromFile(file);
+        File target = new File(dir, fileName);
+        try (OutputStream os = new FileOutputStream(target)) {
+            copy(snap, os);
+        }
+        return target.getAbsolutePath();
     }
 
-    private static String csv(String value) {
-        if (value == null) return "";
-        return "\"" + value.replace("\"", "\"\"").replace("\r", " ").replace("\n", " ") + "\"";
+    /** Kopiert genau snap.bytes Bytes – nur vollständige Zeilen, auch wenn parallel weitergeschrieben wird. */
+    private static void copy(CsvLogWriter.Snapshot snap, OutputStream os) throws IOException {
+        byte[] buf = new byte[64 * 1024];
+        long left = snap.bytes;
+        try (InputStream in = new FileInputStream(snap.file)) {
+            while (left > 0) {
+                int n = in.read(buf, 0, (int) Math.min(buf.length, left));
+                if (n < 0) break;
+                os.write(buf, 0, n);
+                left -= n;
+            }
+        }
     }
 }
