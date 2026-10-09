@@ -27,7 +27,7 @@ public final class Elm327Client implements Closeable {
     private final String host;
     private final int port;
     private final Network network;
-    private Socket socket;
+    private volatile Socket socket;
     private BufferedInputStream in;
     private BufferedOutputStream out;
     private long txBytes;
@@ -134,14 +134,18 @@ public final class Elm327Client implements Closeable {
     public synchronized long getTxBytes() { return txBytes; }
     public synchronized long getRxBytes() { return rxBytes; }
 
+    /**
+     * Bewusst ohne Lock: ein im I/O-Thread blockierendes read() hält den Monitor;
+     * das Schließen des Sockets bricht es sofort mit einer IOException ab, statt
+     * den aufrufenden (ggf. Main-)Thread bis zum Timeout warten zu lassen.
+     * in/out bleiben gesetzt – die Streams eines geschlossenen Sockets werfen IOException.
+     */
     @Override
-    public synchronized void close() {
-        if (socket != null) {
-            try { socket.close(); } catch (IOException ignored) { }
+    public void close() {
+        Socket s = socket;
+        if (s != null) {
+            try { s.close(); } catch (IOException ignored) { }
         }
-        socket = null;
-        in = null;
-        out = null;
     }
 
     private static String sanitize(String s) {

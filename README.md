@@ -85,6 +85,7 @@ Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen
 - Livewerte: Drehzahl, Geschwindigkeit, Kühlmittel, Motorlast, Drosselklappe, MAF, MAP, Ansaugluft, STFT/LTFT Bank 1 und 2, ECU-Spannung, Soll-Lambda und Umgebungsdruck
 - Überwachung von ELM-Antwortzeit, Timeouts, NO DATA, I/O- und Parserfehlern
 - Auto-Reconnect
+- Verbindung läuft als Foreground-Service weiter (Bildschirm aus, App im Hintergrund); Benachrichtigung mit Status und „Trennen“
 - DTC-Abfrage über Mode 03, 07 und 0A
 - integriertes ELM327-Terminal
 - CSV-Logging nach Downloads/MercedesOBD2Monitor
