@@ -15,6 +15,15 @@
     <!-- Android 17+: mandatory runtime permission for LAN access when targeting API 37+. -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
+    <!-- Verbindung läuft als Foreground-Service weiter (Bildschirm aus / App im Hintergrund).
+         Typ connectedDevice verlangt zusätzlich eine Netzwerk-/Geräteberechtigung wie
+         CHANGE_NETWORK_STATE (normale Berechtigung, ohne Rückfrage). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -29,12 +38,17 @@
             android:screenOrientation="portrait"
             tools:ignore="DiscouragedApi,LockedOrientationActivity">
             <!-- Ab Android 16 wird die feste Ausrichtung auf großen Displays ignoriert.
-                 configChanges verhindert, dass Drehen/Fenstergröße die Activity samt
-                 laufender ELM327-Verbindung neu erzeugt. -->
+                 configChanges verhindert, dass Drehen/Fenstergröße die Activity neu erzeugt
+                 (die Verbindung selbst läuft unabhängig davon im ObdService). -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".ObdService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
     </application>
 </manifest>

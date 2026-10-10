@@ -54,6 +54,20 @@ public final class Readiness {
 
     /** @return null, wenn keine gültige 41 01-Antwort enthalten ist */
     public static Readiness parse(String raw) {
+        return parse(raw, "4101", true);
+    }
+
+    /**
+     * PID 01 41 – Monitorstatus des aktuellen Fahrzyklus. Gleicher Aufbau wie 01 01, aber
+     * B/C melden „in diesem Fahrzyklus aktiviert“ statt „unterstützt“ und Byte A ist
+     * reserviert (MIL/DTC-Anzahl bleiben aus). „complete“ = in dieser Fahrt abgeschlossen.
+     * @return null, wenn keine gültige 41 41-Antwort enthalten ist
+     */
+    public static Readiness parseDriveCycle(String raw) {
+        return parse(raw, "4141", false);
+    }
+
+    private static Readiness parse(String raw, String marker, boolean statusByte) {
         if (raw == null) return null;
         int ecus = 0;
         boolean mil = false;
@@ -62,15 +76,17 @@ public final class Readiness {
         int bAvail = 0, bIncomplete = 0, cAvail = 0, dIncomplete = 0;
 
         for (String msg : frames(raw)) {
-            if (!msg.startsWith("4101") || msg.length() < 4 + 8) continue;
+            if (!msg.startsWith(marker) || msg.length() < 4 + 8) continue;
             try {
                 int a = Integer.parseInt(msg.substring(4, 6), 16);
                 int b = Integer.parseInt(msg.substring(6, 8), 16);
                 int c = Integer.parseInt(msg.substring(8, 10), 16);
                 int d = Integer.parseInt(msg.substring(10, 12), 16);
                 ecus++;
-                mil |= (a & 0x80) != 0;
-                count += a & 0x7F;
+                if (statusByte) {
+                    mil |= (a & 0x80) != 0;
+                    count += a & 0x7F;
+                }
                 ci |= (b & 0x08) != 0;
                 bAvail |= b & 0x07;
                 bIncomplete |= (b >> 4) & 0x07;
@@ -94,6 +110,14 @@ public final class Readiness {
             }
         }
         return new Readiness(mil, count, ci, list, ecus);
+    }
+
+    /** Kurzform für die Live-Anzeige, z. B. „6/8 fertig · offen: Katalysator, Tankentlüftung (EVAP)“. */
+    public String summary() {
+        List<String> open = new ArrayList<>();
+        for (Monitor m : monitors) if (!m.complete) open.add(m.name);
+        String s = (monitors.size() - open.size()) + "/" + monitors.size() + " fertig";
+        return open.isEmpty() ? s : s + " · offen: " + String.join(", ", open);
     }
 
     public int incompleteCount() {
