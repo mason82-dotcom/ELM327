@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * zeichnet sich daraus neu. Bewusst ohne gespeicherten Context.
  */
 public final class ObdSession {
-    public enum Op { DTC, MISFIRE, INSPECTION }
+    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS }
 
     /** UI-Callbacks; alle Aufrufe im Main-Thread. */
     public interface Listener {
@@ -74,6 +74,10 @@ public final class ObdSession {
         public boolean koeo;
         public String fuelButton = FUEL_BUTTON;
         public String fuelStatus = FUEL_READY;
+        public String warmupButton = WARMUP_BUTTON;
+        public String warmupStatus = WARMUP_READY;
+        /** Monitorstatus der laufenden Fahrt (01 41); null, solange nicht gelesen/unterstützt. */
+        public String driveCycleText;
         public final Set<Op> busy = EnumSet.noneOf(Op.class);
 
         public String console() {
@@ -83,6 +87,10 @@ public final class ObdSession {
 
     private static final String FUEL_BUTTON = "Fuel-Trim-Test";
     private static final String FUEL_READY = "Fuel-Trim-Test: bereit";
+    private static final String WARMUP_BUTTON = "Warmlauf-Check";
+    private static final String WARMUP_READY = "Warmlauf-Check: bereit";
+    /** 01 41 nur jeden n-ten Polling-Zyklus lesen (ändert sich langsam). */
+    private static final int DRIVE_CYCLE_EVERY = 20;
     private static final int CONSOLE_MAX = 18000;
     private static final int CONSOLE_KEEP = 14000;
     /** Entspricht der Breite des SparklineView. */
@@ -104,6 +112,9 @@ public final class ObdSession {
     private final Map<Integer, Double> latestValues = new ConcurrentHashMap<>();
     private final Map<Integer, Long> latestSequences = new ConcurrentHashMap<>();
     private final FuelTrimTest fuelTrimTest = new FuelTrimTest();
+    private final WarmupCheck warmupCheck = new WarmupCheck();
+    /** Steuergerät meldet PID 41 (Monitorstatus dieser Fahrt) als unterstützt. */
+    private volatile boolean driveCyclePid;
 
     private volatile Elm327Client client;
     private volatile boolean userDisconnect;
@@ -189,6 +200,8 @@ public final class ObdSession {
         latestSequences.clear();
         fuelTrimTest.cancel();
         closeClient();
+        state.driveCycleText = null;
+        if (listener != null) listener.onPassive(state);
         // Status vor „aktiv“ setzen, damit die Benachrichtigung nicht kurz „Getrennt“ zeigt.
         showStatus("Verbinde mit " + host + ":" + port + " …");
         setActive(true);
@@ -211,6 +224,7 @@ public final class ObdSession {
         latestSequences.clear();
         fuelTrimTest.cancel();
         setFuel(FUEL_BUTTON, FUEL_READY);
+        if (warmupCheck.isRunning()) finishWarmupCheck();
         showStatus("Getrennt");
         if (reason != null) append(reason);
         append("Verbindung getrennt");
@@ -276,6 +290,7 @@ public final class ObdSession {
             supported.addAll(ObdParser.supportedPids(p40.raw, 0x40));
         }
 
+        driveCyclePid = supported.contains(0x41);
         activePids.clear();
         for (ObdPid pid : ObdPid.defaultPids()) {
             if (supported.isEmpty() || supported.contains(pid.pid)) activePids.add(pid);
@@ -371,8 +386,45 @@ public final class ObdSession {
                 }
                 sleepQuiet(25);
             }
+            if (driveCyclePid && cycle % DRIVE_CYCLE_EVERY == 0 && monitoring.get() && !userDisconnect
+                    && !exclusiveRequest.get() && session == sessionGeneration.get()) {
+                Elm327Client current = client;
+                if (current != null && current.isConnected()) pollDriveCycle(session, current);
+            }
             updatePassiveDiagnostics();
             sleepQuiet(70);
+        }
+    }
+
+    /** 01 41 im langsamen Takt: welche Monitore in dieser Fahrt schon abgeschlossen sind. */
+    private void pollDriveCycle(int session, Elm327Client c) {
+        try {
+            Elm327Client.CommandResult r = command(session, "0141", 1800);
+            pollTimeouts.onResponse();
+            Readiness cycle = Readiness.parseDriveCycle(r.raw);
+            if (cycle == null || cycle.monitors.isEmpty()) return;
+            final String text = "Fahrzyklus (01 41): " + cycle.summary();
+            ui.post(() -> {
+                state.driveCycleText = text;
+                if (listener != null) listener.onPassive(state);
+            });
+        } catch (SocketTimeoutException e) {
+            timeouts.incrementAndGet();
+            boolean resynced = c.resync(1500);
+            if (pollTimeouts.onTimeout(resynced)) {
+                append("Timeout bei 0141 · Verbindung wird neu aufgebaut");
+                pollTimeouts.reset();
+                cancelFuelTrimForConnectionLoss("Timeout");
+                closeClientIfCurrent(c);
+            }
+            updateStats();
+        } catch (IOException e) {
+            if (userDisconnect || session != sessionGeneration.get()) return;
+            ioErrors.incrementAndGet();
+            append("I/O: " + e.getMessage());
+            cancelFuelTrimForConnectionLoss("Verbindungsfehler");
+            closeClientIfCurrent(c);
+            updateStats();
         }
     }
 
@@ -549,6 +601,10 @@ public final class ObdSession {
         runExclusiveDiagnosis(Op.MISFIRE, "Aussetzer-Analyse", this::readMisfires);
     }
 
+    public void runMonitorTests() {
+        runExclusiveDiagnosis(Op.MONITOR_TESTS, "Monitortests (Mode 06)", this::readMonitorTests);
+    }
+
     public void runInspectionCheck() {
         runExclusiveDiagnosis(Op.INSPECTION, "HU/AU-Vorab-Check", this::readInspection);
     }
@@ -646,8 +702,35 @@ public final class ObdSession {
         return report;
     }
 
+    /** Mode 06: alle Monitortests mit Grenzwerten. Einzelne Timeouts werden übersprungen. */
+    private String readMonitorTests(Elm327Client c) throws IOException {
+        if (Boolean.FALSE.equals(protocolIsCan)) {
+            return "Mode 06 wird nur für CAN (ISO 15765-4) ausgewertet. Erkanntes Protokoll: " + protocol;
+        }
+        try {
+            return Mode06Overview.report(Mode06Overview.read(new InspectionReader.Transport() {
+                @Override
+                public String send(String cmd, int timeoutMs) throws IOException {
+                    return diagCommand(c, cmd, timeoutMs).raw;
+                }
+
+                @Override
+                public boolean resync() {
+                    timeouts.incrementAndGet();
+                    boolean ok = c.resync(1500);
+                    append("Monitortests: Timeout · " + (ok ? "Prompt resynchronisiert, weiter" : "kein Prompt"));
+                    return ok;
+                }
+            }));
+        } catch (SocketTimeoutException e) {
+            // Der abbrechende Timeout wurde schon in resync() gezählt; runExclusiveDiagnosis zählt ihn erneut.
+            timeouts.decrementAndGet();
+            throw e;
+        }
+    }
+
     /**
-     * HU/AU-Vorab-Check: 01 01, 03/07/0A, 01 21/30/31, Freeze Frame.
+     * HU/AU-Vorab-Check: 01 01, 03/07/0A, 01 21/30/31, Freeze Frame, 01 41, 09 02/04/06/08.
      * Einzelne Timeouts werden per Resync überbrückt (siehe InspectionReader).
      */
     private String readInspection(Elm327Client c) throws IOException {
@@ -759,12 +842,14 @@ public final class ObdSession {
         FuelTrimTest.Stage stage = fuelTrimTest.getStage();
         final boolean showTest = fuelTrimTest.isRunning()
                 || stage == FuelTrimTest.Stage.DONE || stage == FuelTrimTest.Stage.FAILED;
+        final String warmupText = warmupCheck.tick(latestValues, SystemClock.elapsedRealtime());
 
         ui.post(() -> {
             state.operatingText = stateText;
             state.operatingColor = stateColor;
             state.voltageText = voltageText;
             state.koeo = koeo;
+            if (warmupText != null && warmupCheck.isRunning()) state.warmupStatus = warmupText;
 
             if (koeo) {
                 state.fuelStatus = "Fuel-Trim-Test: Motor aus · STFT/Soll-Lambda derzeit nicht bewerten";
@@ -795,6 +880,45 @@ public final class ObdSession {
         if (testUpdate.completed && testUpdate.report != null) {
             append("Fuel-Trim-Test abgeschlossen");
             showDialog("Fuel-Trim-Auswertung", testUpdate.report);
+        }
+    }
+
+    // ---------------------------------------------------------------- Warmlauf-Check
+
+    /** Startet den passiven Warmlauf-Check oder beendet ihn mit Bericht. Main-Thread. */
+    public void toggleWarmupCheck() {
+        if (warmupCheck.isRunning()) {
+            finishWarmupCheck();
+            return;
+        }
+        Elm327Client c = client;
+        if (c == null || !c.isConnected()) {
+            toast("Keine ELM327-Verbindung");
+            return;
+        }
+        if (!activePids.isEmpty() && !containsPid(0x05)) {
+            showDialog("Warmlauf-Check", "Das Steuergerät meldet keine Kühlmitteltemperatur (PID 05).");
+            return;
+        }
+        warmupCheck.start(SystemClock.elapsedRealtime());
+        state.warmupButton = "Warmlauf-Check beenden";
+        state.warmupStatus = "Warmlauf: Start …";
+        if (listener != null) listener.onPassive(state);
+        append("Warmlauf-Check gestartet");
+        showDialog("Warmlauf-Check gestartet", "Am aussagekräftigsten nach einem Kaltstart "
+                + "(Kühlmittel unter 50 °C): normal losfahren, nach dem Warmlauf mindestens 5 Minuten "
+                + "über 60 km/h. Die App wertet nur die ohnehin gelesenen Livewerte aus und läuft auch bei "
+                + "ausgeschaltetem Bildschirm weiter.\n\nZum Auswerten „Warmlauf-Check beenden“ tippen.");
+    }
+
+    private void finishWarmupCheck() {
+        String report = warmupCheck.finish(SystemClock.elapsedRealtime());
+        state.warmupButton = WARMUP_BUTTON;
+        state.warmupStatus = "Warmlauf-Check: ausgewertet";
+        if (listener != null) listener.onPassive(state);
+        if (report != null) {
+            append("Warmlauf-Check beendet");
+            showDialog("Warmlauf-Auswertung", report);
         }
     }
 

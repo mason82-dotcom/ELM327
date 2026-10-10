@@ -12,6 +12,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -43,12 +44,16 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private TextView operatingState;
     private TextView voltageState;
     private TextView fuelTestStatus;
+    private TextView warmupStatus;
+    private TextView driveCycleState;
     private TextView console;
     private LinearLayout pidBox;
     private Button dtcButton;
     private Button fuelTestButton;
     private Button misfireButton;
     private Button inspectionButton;
+    private Button monitorTestsButton;
+    private Button warmupButton;
     private SparklineView latencyGraph;
 
     private final Map<Integer, TextView> pidRows = new LinkedHashMap<>();
@@ -126,6 +131,10 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         voltageState = text("Spannungsbewertung: –", 13, Color.LTGRAY);
         root.addView(voltageState);
 
+        driveCycleState = text("", 13, Color.LTGRAY);
+        driveCycleState.setVisibility(View.GONE);
+        root.addView(driveCycleState);
+
         fuelTestStatus = text("Fuel-Trim-Test: bereit", 13, Color.LTGRAY);
         fuelTestStatus.setPadding(0, dp(3), 0, dp(4));
         root.addView(fuelTestStatus);
@@ -139,6 +148,17 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         diagControls.addView(misfireButton, weight());
         diagControls.addView(inspectionButton, weight());
         root.addView(diagControls);
+
+        LinearLayout moreControls = row();
+        monitorTestsButton = button("Monitortests (Mode 06)");
+        warmupButton = button("Warmlauf-Check");
+        moreControls.addView(monitorTestsButton, weight());
+        moreControls.addView(warmupButton, weight());
+        root.addView(moreControls);
+
+        warmupStatus = text("Warmlauf-Check: bereit", 13, Color.LTGRAY);
+        warmupStatus.setPadding(0, dp(3), 0, dp(4));
+        root.addView(warmupStatus);
 
         latencyGraph = new SparklineView(this);
         root.addView(latencyGraph, new LinearLayout.LayoutParams(-1, dp(135)));
@@ -184,6 +204,8 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         fuelTestButton.setOnClickListener(v -> session.toggleFuelTrimTest());
         misfireButton.setOnClickListener(v -> session.runMisfireAnalysis());
         inspectionButton.setOnClickListener(v -> session.runInspectionCheck());
+        monitorTestsButton.setOnClickListener(v -> session.runMonitorTests());
+        warmupButton.setOnClickListener(v -> session.toggleWarmupCheck());
         send.setOnClickListener(v -> session.sendTerminal(terminalInput.getText().toString()));
         export.setOnClickListener(v -> session.exportCsv(this));
         newLog.setOnClickListener(v -> session.startNewLog());
@@ -312,6 +334,10 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         operatingState.setText(s.operatingText);
         operatingState.setTextColor(s.operatingColor);
         voltageState.setText(s.voltageText);
+        warmupButton.setText(s.warmupButton);
+        warmupStatus.setText(s.warmupStatus);
+        driveCycleState.setText(s.driveCycleText == null ? "" : s.driveCycleText);
+        driveCycleState.setVisibility(s.driveCycleText == null ? View.GONE : View.VISIBLE);
         int liveColor = s.koeo ? Color.GRAY : Color.WHITE;
         for (int pid : new int[] {0x06, 0x08, 0x44}) {
             TextView v = pidRows.get(pid);
@@ -333,6 +359,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         switch (op) {
             case DTC -> { b = dtcButton; idle = "DTC"; working = "Lese DTC…"; }
             case MISFIRE -> { b = misfireButton; idle = "Aussetzer (Mode 06)"; working = "Lese Mode 06 …"; }
+            case MONITOR_TESTS -> { b = monitorTestsButton; idle = "Monitortests (Mode 06)"; working = "Lese Monitortests …"; }
             default -> { b = inspectionButton; idle = "HU/AU-Check"; working = "Lese Readiness …"; }
         }
         b.setEnabled(!busy);

@@ -87,6 +87,9 @@ Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen
 - Auto-Reconnect
 - Verbindung läuft als Foreground-Service weiter (Bildschirm aus, App im Hintergrund); Benachrichtigung mit Status und „Trennen“
 - DTC-Abfrage über Mode 03, 07 und 0A
+- Monitortests (Mode 06): alle Testergebnisse des Motorsteuergeräts (Kat, Lambdasonden, Sondenheizung, Tankentlüftung, Aussetzer …) mit den Grenzwerten des Steuergeräts; markiert Tests mit weniger als 10 % Reserve als „knapp“
+- HU/AU-Vorab-Check zusätzlich mit Monitorstatus der laufenden Fahrt (01 41, auch live), FIN, Software-Kennungen (CALID/CVN) und Monitor-Häufigkeit (IUPR, 09 08)
+- passiver Warmlauf-/Thermostat-Check (M272, typisch P0128): Warmlaufdauer und Temperaturabfall bei zügiger Fahrt
 - integriertes ELM327-Terminal
 - CSV-Log wird fortlaufend in den App-Speicher geschrieben (höchstens 2 s Verlust, wenn Android die App beendet; bis 200 MB je Datei, die letzten 20 Dateien bleiben); „CSV exportieren“ kopiert die aktuelle Datei (ohne Log seit App-Start die neueste vorhandene) nach Downloads/MercedesOBD2Monitor, „Neues Log“ beginnt eine neue Datei
 - kein automatisches Löschen von Fehlercodes
