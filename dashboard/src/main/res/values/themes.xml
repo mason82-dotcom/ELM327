@@ -1,0 +1,11 @@
+<resources>
+    <!-- Farben wie auf dem OpenNextion-Display (ObdDisplay.ino: BG, CARD, CYAN). -->
+    <style name="DashboardTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#0D1523</item>
+        <item name="android:navigationBarColor">#0D1523</item>
+        <item name="android:windowBackground">#0D1523</item>
+        <item name="android:colorAccent">#70C8FF</item>
+        <item name="android:colorBackground">#0D1523</item>
+    </style>
+</resources>

@@ -1,0 +1,10 @@
+<!-- Rundinstrument: Skalenbogen (Cyan), Warnbereich (Gelb), Zeiger. Sicherer Bereich 66 dp in der Mitte. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:strokeColor="#70C8FF" android:strokeWidth="6" android:strokeLineCap="round"
+        android:pathData="M31,68 A25,25 0 0 1 70,37"/>
+    <path android:strokeColor="#FFCC76" android:strokeWidth="6" android:strokeLineCap="round"
+        android:pathData="M74.5,42 A25,25 0 0 1 77,68"/>
+    <path android:fillColor="#ECF4FF" android:pathData="M52,61 L69,44 L71.5,46.5 L56,63.5 Z"/>
+    <path android:fillColor="#ECF4FF" android:pathData="M48,62 A6,6 0 1 0 60,62 A6,6 0 1 0 48,62"/>
+</vector>
