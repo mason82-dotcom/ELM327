@@ -122,14 +122,16 @@ public final class ObdService extends Service {
 
     private Notification buildNotification() {
         String status = lastStatus.isEmpty() ? "Verbinde …" : lastStatus;
-        Intent open = new Intent(this, MainActivity.class)
+        // Startbildschirm der jeweiligen App (:app oder :dashboard); der Dienst kennt keine Activity.
+        Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        Intent open = (launch != null ? launch : new Intent())
                 .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openIntent = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stopIntent = PendingIntent.getService(this, 1,
                 new Intent(this, ObdService.class).setAction(ACTION_DISCONNECT), PendingIntent.FLAG_IMMUTABLE);
 
         Notification.Builder b = new Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_launcher_monochrome)
+                .setSmallIcon(de.roman.mercedesobdmonitor.core.R.drawable.ic_launcher_monochrome)
                 .setContentTitle("OBD2-Verbindung aktiv")
                 .setContentText(status)
                 .setStyle(new Notification.BigTextStyle()

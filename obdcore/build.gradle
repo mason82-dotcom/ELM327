@@ -1,0 +1,37 @@
+plugins {
+    id 'com.android.library'
+}
+
+// Gemeinsamer, geprüfter OBD-Kern (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV,
+// Vordergrunddienst) für die Monitor-App (:app) und das Fahr-Dashboard (:dashboard).
+// Die Java-Pakete bleiben de.roman.mercedesobdmonitor, damit Historie und Tests unverändert bleiben.
+android {
+    namespace = 'de.roman.mercedesobdmonitor.core'
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 2
+        }
+    }
+    buildToolsVersion = '37.0.0'
+
+    defaultConfig {
+        minSdk = 26
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    lint {
+        disable += 'SetTextI18n'
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs += ['-Xlint:deprecation', '-Xlint:unchecked']
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}

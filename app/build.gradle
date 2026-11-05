@@ -43,5 +43,6 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 dependencies {
+    implementation project(':obdcore')
     testImplementation 'junit:junit:4.13.2'
 }

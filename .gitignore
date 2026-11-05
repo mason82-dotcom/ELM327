@@ -5,3 +5,6 @@ local.properties
 /app/build/
 *.iml
 .DS_Store
+
+# Build-Ausgaben aller Module
+build/
