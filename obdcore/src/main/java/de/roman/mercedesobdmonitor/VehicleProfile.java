@@ -49,7 +49,7 @@ public final class VehicleProfile {
      */
     public static final VehicleProfile C350_S204_M272_2008 = new VehicleProfile(
             "Mercedes-Benz C350 T-Modell (S204), M272 V6 3,5 l, Baujahr 2008",
-            "C350 T-Modell S204 · M272", 6, 2, 3, 7000, 550, 1000, true, true);
+            "C350 S204 · M272", 6, 2, 3, 7000, 550, 1000, true, true);
 
     public static final VehicleProfile GENERIC = new VehicleProfile(
             "Generisch OBD-II", "OBD-II", 6, 2, 3, 7000, 500, 1200, false, false);

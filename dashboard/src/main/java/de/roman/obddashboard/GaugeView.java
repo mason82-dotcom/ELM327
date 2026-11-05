@@ -119,12 +119,14 @@ final class GaugeView extends View {
         canvas.drawText(valueText(), cx, cy + size * 0.07f, big);
         small.setTextSize(Math.max(12f, size * 0.075f));
         canvas.drawText(unit, cx, cy + size * 0.18f, small);
-        small.setTextSize(Math.max(12f, size * 0.07f));
-        canvas.drawText(title.toUpperCase(java.util.Locale.GERMANY), cx, cy + r + stroke * 0.2f, small);
-        String state = stateText();
-        if (!state.isEmpty()) {
-            small.setColor(Double.isNaN(value) ? Palette.MUTED : Palette.zoneColor(scale.zone(value)));
-            canvas.drawText(state, cx, cy - size * 0.16f, small);
+        // Titel in der unteren Öffnung des Bogens: liegt immer innerhalb der View (vorher unten abgeschnitten).
+        small.setTextSize(Math.max(12f, size * 0.068f));
+        small.setColor(Palette.MUTED);
+        canvas.drawText(title.toUpperCase(java.util.Locale.GERMANY), cx, Math.min(cy + r * 0.78f, h - small.descent()), small);
+        // Zustand nur bei Warn-/Alarmbereich; ohne Messwert genügt „–“ (Vorlesetext nennt „kein Messwert“).
+        if (!Double.isNaN(value) && scale.zone(value) != GaugeScale.Zone.NORMAL) {
+            small.setColor(Palette.zoneColor(scale.zone(value)));
+            canvas.drawText(stateText(), cx, cy - size * 0.16f, small);
             small.setColor(Palette.MUTED);
         }
     }

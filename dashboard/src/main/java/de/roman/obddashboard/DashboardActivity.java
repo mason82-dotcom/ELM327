@@ -99,7 +99,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private final Map<Integer, TextView> valueRows = new LinkedHashMap<>();
     private final Map<Integer, Button> trendButtons = new HashMap<>();
     private final Map<ObdSession.Op, List<Button>> opButtons = new EnumMap<>(ObdSession.Op.class);
+    private final Map<ObdSession.Op, Boolean> busyOps = new EnumMap<>(ObdSession.Op.class);
     private TextView status, linkState, operating, idleState, busState, voltage, driveCycle, stats, console;
+    private TextView connectHint, wifiHint;
     private TextView dtcState, dtcDetails, mode06Text, inspectionText, trimStatus, warmupStatus, trimReport;
     private Button connectButton, fuelButton, warmupButton;
     private TrendView trendView;
@@ -302,10 +304,12 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         dtcState.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         card.addView(dtcState);
         page.addView(card, new LinearLayout.LayoutParams(-1, 0, 1f));
+        connectHint = text("Erst verbinden: Handy ins WLAN des ELM327-Adapters, dann oben „Verbinden“.", 13, Palette.WARN);
+        page.addView(connectHint);
         LinearLayout actions = row();
-        actions.addView(opButton(ObdSession.Op.DTC, "DTC LESEN", v -> session.readDtcs()), weighted());
+        actions.addView(opButton(ObdSession.Op.DTC, "LESEN", v -> session.readDtcs()), weighted());
         actions.addView(button("DETAILS", v -> show(Page.DTC_DETAILS)), weighted());
-        actions.addView(opButton(ObdSession.Op.INSPECTION, "HU/AU-VORCHECK", v -> { show(Page.INSPECTION); session.runInspectionCheck(); }), weighted());
+        actions.addView(opButton(ObdSession.Op.INSPECTION, "HU/AU", v -> { show(Page.INSPECTION); session.runInspectionCheck(); }), weighted());
         page.addView(actions);
         return page;
     }
@@ -326,6 +330,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         page.addView(linkState);
         busState = text(profile.busCheck(null), 13, Palette.MUTED);
         page.addView(busState);
+        wifiHint = text("", 13, Palette.WARN);
+        wifiHint.setVisibility(View.GONE);
+        page.addView(wifiHint);
         page.addView(text("Fahrzeug: " + profile.name + " · Bank 1 = Zyl. 1–" + profile.bank1Last + ", Bank 2 = Zyl. "
                 + (profile.bank1Last + 1) + "–" + profile.cylinders + " · Leerlauffenster " + profile.idleMinRpm + "–"
                 + profile.idleMaxRpm + " U/min", 13, Palette.MUTED));
@@ -523,8 +530,22 @@ public final class DashboardActivity extends Activity implements ObdSession.List
                 .putString("port", portInput.getText().toString().trim()).apply();
     }
 
+    /** Diagnose-Knöpfe nur mit Verbindung und nicht während ihrer eigenen Abfrage (statt Toast im Nachhinein). */
+    private void updateOpButtons() {
+        boolean connected = session.isActive();
+        for (Map.Entry<ObdSession.Op, List<Button>> e : opButtons.entrySet()) {
+            boolean busy = Boolean.TRUE.equals(busyOps.get(e.getKey()));
+            for (Button b : e.getValue()) {
+                b.setEnabled(connected && !busy);
+                b.setAlpha(connected && !busy ? 1f : 0.45f);
+            }
+        }
+        if (connectHint != null) connectHint.setVisibility(connected ? View.GONE : View.VISIBLE);
+    }
+
     private void updateConnectionUi() {
         boolean active = session.isActive();
+        updateOpButtons();
         if (busState != null) {
             Boolean can = active ? session.protocolIsCan() : null;
             busState.setText(profile.busCheck(can));
@@ -544,6 +565,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     public void render(ObdSession.State s) {
         status.setText(s.status);
+        updateWifiHint(s.status);
         linkState.setText(s.status);
         stats.setText(s.stats.isEmpty() ? "Keine Diagnosedaten" : s.stats);
         console.setText(tail(s.console(), 60));
@@ -565,6 +587,15 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         status.setText(text);
         linkState.setText(text);
         updateConnectionUi();
+        updateWifiHint(text);
+    }
+
+    /** Nach fehlgeschlagener Verbindung: der häufigste Grund ist das falsche WLAN (Handy im Heimnetz statt beim Adapter). */
+    private void updateWifiHint(String statusText) {
+        boolean failed = statusText != null && statusText.contains("fehlgeschlagen");
+        wifiHint.setVisibility(failed ? View.VISIBLE : View.GONE);
+        if (failed) wifiHint.setText("Tipp: Das Handy muss mit dem WLAN des ELM327-Adapters verbunden sein (Adresse "
+                + hostInput.getText().toString().trim() + "). Mobile Daten dürfen an bleiben.");
     }
 
     @Override
@@ -641,11 +672,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     public void onBusy(ObdSession.Op op, boolean busy) {
         router.onBusy(op, busy, SystemClock.elapsedRealtime());
-        List<Button> buttons = opButtons.get(op);
-        if (buttons != null) for (Button b : buttons) {
-            b.setEnabled(!busy);
-            b.setAlpha(busy ? 0.55f : 1f);
-        }
+        busyOps.put(op, busy);
+        updateOpButtons();
         if (op == ObdSession.Op.DTC && busy) dtcState.setText("Lese Fehlercodes 03 / 07 / 0A …");
         if (op == ObdSession.Op.MISFIRE && busy) mode06Text.setText("Lese Mode 06 (Aussetzer) …");
         if (op == ObdSession.Op.MONITOR_TESTS && busy) mode06Text.setText("Lese Mode-06-Monitortests …");
@@ -812,7 +840,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         b.setTypeface(Typeface.DEFAULT_BOLD);
         b.setMinHeight(dp(48));
         b.setMinimumHeight(dp(48));
-        b.setPadding(dp(12), 0, dp(12), 0);
+        b.setPadding(dp(8), 0, dp(8), 0);
+        b.setMaxLines(1);
+        b.setEllipsize(android.text.TextUtils.TruncateAt.END);
         b.setBackground(buttonBackground(Palette.BUTTON, false));
         b.setStateListAnimator(null);
         b.setOnClickListener(click);
