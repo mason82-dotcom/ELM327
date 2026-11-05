@@ -54,7 +54,17 @@ public final class ObdSession {
         void onBusy(Op op, boolean busy);
         void onDialog(String title, String message);
         void onToast(String message);
+        /** Neuer gültiger Messwert als Zahl (für Zeiger und Verlaufskurven); Main-Thread. */
+        default void onPidSample(int pid, double value) { }
+        /**
+         * Messwert nicht mehr gültig (NO DATA, Parser-/Linkfehler oder Verbindungsverlust). Der Text
+         * steht danach auf {@link #INVALID_TEXT}; ein alter Wert darf nicht weiter angezeigt werden.
+         */
+        default void onPidInvalid(int pid) { }
     }
+
+    /** Anzeige für einen nicht (mehr) gültigen Messwert ({@link LiveValues#INVALID}). */
+    public static final String INVALID_TEXT = LiveValues.INVALID;
 
     /** Für den Service: Sitzung aktiv (verbunden oder im Reconnect) plus Kurzstatus. Main-Thread. */
     public interface Observer {
@@ -226,6 +236,7 @@ public final class ObdSession {
         setFuel(FUEL_BUTTON, FUEL_READY);
         if (warmupCheck.isRunning()) finishWarmupCheck();
         showStatus("Getrennt");
+        invalidateAllLive();
         if (reason != null) append(reason);
         append("Verbindung getrennt");
         closeClient();
@@ -271,6 +282,7 @@ public final class ObdSession {
             ioErrors.incrementAndGet();
             append("Verbindungsfehler: " + e.getMessage());
             showStatus("Verbindung fehlgeschlagen");
+            invalidateAllLive();
             closeClient();
             updateStats();
             setActive(false);
@@ -298,6 +310,35 @@ public final class ObdSession {
         append("Aktive Live-PIDs: " + activePids.size());
     }
 
+    /** Einen Messwert ungültig machen: kein alter Wert bleibt in Anzeige, Diagnosen oder Grafiken stehen. */
+    private void invalidatePid(ObdPid pid) {
+        latestValues.remove(pid.pid);
+        latestSequences.remove(pid.pid);
+        ui.post(() -> markInvalid(pid.pid));
+    }
+
+    /** Alle Live-Werte ungültig (Verbindungsverlust, Trennen, Verbindungsfehler). */
+    private void invalidateAllLive() {
+        latestValues.clear();
+        latestSequences.clear();
+        ui.post(() -> {
+            for (Integer pid : LiveValues.markAllInvalid(state.pidTexts)) notifyInvalid(pid);
+        });
+    }
+
+    /** Main-Thread. */
+    private void markInvalid(int pid) {
+        if (LiveValues.markInvalid(state.pidTexts, pid)) notifyInvalid(pid);
+    }
+
+    /** Main-Thread. */
+    private void notifyInvalid(int pid) {
+        if (listener != null) {
+            listener.onPidValue(pid, INVALID_TEXT);
+            listener.onPidInvalid(pid);
+        }
+    }
+
     private void monitorLoop(int session, String host, int port) {
         int pollCycle = 0;
         while (monitoring.get() && !userDisconnect && session == sessionGeneration.get()) {
@@ -310,6 +351,7 @@ public final class ObdSession {
             if (c == null || !c.isConnected()) {
                 // Während des Reconnects kommen keine Messwerte, die den Puffer leeren würden.
                 csv.flush();
+                invalidateAllLive();
                 reconnectAfterFailure(session, host, port);
                 continue;
             }
@@ -327,15 +369,18 @@ public final class ObdSession {
                     pollTimeouts.onResponse();
                     if (ObdParser.isLinkError(r.raw)) {
                         ioErrors.incrementAndGet();
+                        invalidatePid(pid);
                         continue;
                     }
                     if (ObdParser.isNoData(r.raw)) {
                         noData.incrementAndGet();
+                        invalidatePid(pid);
                         continue;
                     }
                     Double value = pid.parse(r.raw);
                     if (value == null) {
                         parserErrors.incrementAndGet();
+                        invalidatePid(pid);
                         continue;
                     }
                     samples.incrementAndGet();
@@ -346,12 +391,15 @@ public final class ObdSession {
                     csv.record(System.currentTimeMillis(), pid, value, r.elapsedMs, r.raw);
                     final String text = pid.format(value);
                     final long latency = r.elapsedMs;
+                    final double sample = value;
                     ui.post(() -> {
+                        if (session != sessionGeneration.get()) return;
                         state.pidTexts.put(pid.pid, text);
                         if (state.latencies.size() >= LATENCY_POINTS) state.latencies.removeFirst();
                         state.latencies.addLast(latency);
                         if (listener != null) {
                             listener.onPidValue(pid.pid, text);
+                            listener.onPidSample(pid.pid, sample);
                             listener.onLatency(latency);
                         }
                     });
