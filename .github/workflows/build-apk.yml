@@ -1,4 +1,4 @@
-name: Build Mercedes OBD2 Monitor APK
+name: Build Mercedes OBD2 Monitor and OBD Dashboard APKs
 
 on:
   workflow_dispatch:
@@ -26,33 +26,44 @@ jobs:
         run: |
           SDKMANAGER="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          # AGP 9.4 nutzt standardmäßig Build-Tools 36.0.0.
-          "$SDKMANAGER" "platforms;android-37.0" "build-tools;36.0.0"
+          # Android 17 QPR2 (SDK 37.2) und Build-Tools 37.0.0, wie in den build.gradle-Dateien festgelegt.
+          "$SDKMANAGER" "platforms;android-37.2" "build-tools;37.0.0"
 
       # Gradle-Version kommt aus dem Wrapper (gradle/wrapper/gradle-wrapper.properties).
       - uses: gradle/actions/setup-gradle@v4
 
+      # Die geprüfte OBD-Logik und ihre Tests liegen in :obdcore; :app und :dashboard haben eigene Tests.
       - name: Unit tests
-        run: ./gradlew :app:testDebugUnitTest --stacktrace
+        run: ./gradlew :obdcore:testDebugUnitTest :app:testDebugUnitTest :dashboard:testDebugUnitTest --stacktrace
 
       - name: Android Lint
-        run: ./gradlew :app:lintDebug --stacktrace
+        run: ./gradlew :obdcore:lintDebug :app:lintDebug :dashboard:lintDebug --stacktrace
 
       - name: Upload lint report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lint-report
-          path: app/build/reports/lint-results-debug.html
+          path: |
+            obdcore/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.html
+            dashboard/build/reports/lint-results-debug.html
           if-no-files-found: ignore
 
-      - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+      - name: Build debug APKs
+        run: ./gradlew :app:assembleDebug :dashboard:assembleDebug --stacktrace
 
-      - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk Mercedes_OBD2_Monitor_v1.0.9-debug.apk
+      - name: Rename APKs
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Mercedes_OBD2_Monitor_v1.0.9-debug.apk
+          cp dashboard/build/outputs/apk/debug/dashboard-debug.apk OBD_Dashboard_v0.1.0-debug.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: Mercedes_OBD2_Monitor_v1.0.9-debug
           path: Mercedes_OBD2_Monitor_v1.0.9-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OBD_Dashboard_v0.1.0-debug
+          path: OBD_Dashboard_v0.1.0-debug.apk
