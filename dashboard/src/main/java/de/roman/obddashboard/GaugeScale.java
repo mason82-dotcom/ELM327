@@ -36,8 +36,13 @@ public final class GaugeScale {
         return Zone.NORMAL;
     }
 
-    // Skalen der M272/C350-Anzeigen. Drehzahl: Begrenzer ca. 6500 U/min (Hinweis, keine Herstellerangabe).
-    public static final GaugeScale RPM = new GaugeScale(0, 7000, 5500, 6300);
+    /** Drehzahlskala bis zur Profilgrenze; Warn-/Alarmbereich als Orientierung, keine Herstellerangabe. */
+    public static GaugeScale rpm(int max) {
+        return new GaugeScale(0, max, max * 0.785, max * 0.9);
+    }
+
+    // Skalen für das aktive Profil (C350 S204, M272): Drehzahl bis 7000 → gelb ab ca. 5500, rot ab 6300 U/min.
+    public static final GaugeScale RPM = rpm(de.roman.mercedesobdmonitor.VehicleProfile.ACTIVE.chartMaxRpm);
     public static final GaugeScale COOLANT = new GaugeScale(-20, 130, 108, 115);
     public static final GaugeScale SPEED = new GaugeScale(0, 260, Double.NaN, Double.NaN);
 }

@@ -29,6 +29,7 @@ import android.widget.Toast;
 import de.roman.mercedesobdmonitor.ObdPid;
 import de.roman.mercedesobdmonitor.ObdService;
 import de.roman.mercedesobdmonitor.ObdSession;
+import de.roman.mercedesobdmonitor.VehicleProfile;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -70,7 +71,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     }
 
     private static final TrendSpec[] TRENDS = {
-            new TrendSpec(0x0C, "Drehzahl", "U/min", 0, 7000),
+            new TrendSpec(0x0C, "Drehzahl", "U/min", 0, VehicleProfile.ACTIVE.chartMaxRpm),
             new TrendSpec(0x0D, "Tempo", "km/h", 0, 260),
             new TrendSpec(0x05, "Kühlmittel", "°C", -20, 130),
             new TrendSpec(0x04, "Last", "%", 0, 100),
@@ -81,6 +82,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     };
 
     private final ObdSession session = ObdSession.get();
+    private final VehicleProfile profile = VehicleProfile.ACTIVE;
+    private double lastRpm = Double.NaN, lastSpeed = Double.NaN;
     private final ResultRouter router = new ResultRouter();
     /** Verlauf je PID; überlebt den Neuaufbau der Oberfläche beim Drehen. */
     private final Map<Integer, TrendBuffer> trends = new HashMap<>();
@@ -96,7 +99,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private final Map<Integer, TextView> valueRows = new LinkedHashMap<>();
     private final Map<Integer, Button> trendButtons = new HashMap<>();
     private final Map<ObdSession.Op, List<Button>> opButtons = new EnumMap<>(ObdSession.Op.class);
-    private TextView status, linkState, operating, voltage, driveCycle, stats, console;
+    private TextView status, linkState, operating, idleState, busState, voltage, driveCycle, stats, console;
     private TextView dtcState, dtcDetails, mode06Text, inspectionText, trimStatus, warmupStatus, trimReport;
     private Button connectButton, fuelButton, warmupButton;
     private TrendView trendView;
@@ -167,7 +170,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         head.setPadding(dp(14), dp(8), dp(10), dp(6));
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
-        TextView title = text("OBD DIAG  /  READ-ONLY", 13, Palette.CYAN);
+        TextView title = text(profile.shortName.toUpperCase(java.util.Locale.GERMANY) + "  /  READ-ONLY", 13, Palette.CYAN);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setLetterSpacing(0.08f);
         titles.addView(title);
@@ -251,8 +254,12 @@ public final class DashboardActivity extends Activity implements ObdSession.List
 
         LinearLayout foot = row();
         foot.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout states = column();
         operating = text("Betriebszustand: –", 15, Palette.MUTED);
-        foot.addView(operating, new LinearLayout.LayoutParams(0, -2, 1f));
+        idleState = text("", 13, Palette.MUTED);
+        states.addView(operating);
+        states.addView(idleState);
+        foot.addView(states, new LinearLayout.LayoutParams(0, -2, 1f));
         foot.addView(button("ALLE WERTE", v -> show(Page.VALUES)), new LinearLayout.LayoutParams(dp(150), dp(52)));
         page.addView(foot);
         TextView note = text("Keine Codierung · kein Löschen von Fehlercodes · keine Stellglieder", 12, Palette.TEAL);
@@ -317,6 +324,11 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         page.addView(settings);
         linkState = text("ELM327: getrennt", 15, Palette.LIGHT);
         page.addView(linkState);
+        busState = text(profile.busCheck(null), 13, Palette.MUTED);
+        page.addView(busState);
+        page.addView(text("Fahrzeug: " + profile.name + " · Bank 1 = Zyl. 1–" + profile.bank1Last + ", Bank 2 = Zyl. "
+                + (profile.bank1Last + 1) + "–" + profile.cylinders + " · Leerlauffenster " + profile.idleMinRpm + "–"
+                + profile.idleMaxRpm + " U/min", 13, Palette.MUTED));
         stats = text("Keine Diagnosedaten", 13, Palette.MUTED);
         page.addView(stats);
         LinearLayout logActions = row();
@@ -513,6 +525,11 @@ public final class DashboardActivity extends Activity implements ObdSession.List
 
     private void updateConnectionUi() {
         boolean active = session.isActive();
+        if (busState != null) {
+            Boolean can = active ? session.protocolIsCan() : null;
+            busState.setText(profile.busCheck(can));
+            busState.setTextColor(can != null && profile.expectCan && !can ? Palette.WARN : Palette.MUTED);
+        }
         connectButton.setText(active ? "Trennen" : "Verbinden");
         connectButton.setBackground(buttonBackground(active ? Palette.TAB : Palette.BUTTON, false));
         hostInput.setEnabled(!active);
@@ -565,6 +582,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
 
     @Override
     public void onPidSample(int pid, double value) {
+        if (pid == 0x0C) lastRpm = value;
+        if (pid == 0x0D) lastSpeed = value;
+        if (pid == 0x0C || pid == 0x0D) updateIdle();
         GaugeView g = gauges.get(pid);
         if (g != null) g.setValue(value);
         TrendBuffer t = trends.get(pid);
@@ -576,6 +596,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
 
     @Override
     public void onPidInvalid(int pid) {
+        if (pid == 0x0C) lastRpm = Double.NaN;
+        if (pid == 0x0D) lastSpeed = Double.NaN;
+        if (pid == 0x0C || pid == 0x0D) updateIdle();
         GaugeView g = gauges.get(pid);
         if (g != null) g.setInvalid();
         TrendBuffer t = trends.get(pid);
@@ -583,6 +606,13 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             t.addGap();
             if (pid == trendPid && trendView != null) trendView.invalidate();
         }
+    }
+
+    private void updateIdle() {
+        if (idleState == null) return;
+        String t = profile.idleText(lastRpm, lastSpeed);
+        idleState.setText(t);
+        idleState.setTextColor(t.startsWith("Leerlauf plausibel") ? Palette.OK : Palette.WARN);
     }
 
     @Override

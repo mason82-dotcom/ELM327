@@ -185,6 +185,11 @@ public final class ObdSession {
         observer = o;
     }
 
+    /** Erkannter Bus nach ATDPN: true = CAN, false = kein CAN, null = noch unbekannt. */
+    public Boolean protocolIsCan() {
+        return protocolIsCan;
+    }
+
     public boolean isActive() {
         return active;
     }
