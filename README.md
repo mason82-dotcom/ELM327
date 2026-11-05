@@ -2,6 +2,18 @@
 
 Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen einem Mercedes C350 W204/M272 und einem ELM327-WiFi-Dongle.
 
+## Neu: OBD Dashboard (Modul `:dashboard`, 0.1.0)
+
+Zweite App im selben Repository: die Oberfläche des **OpenNextion-ELM327-Displays** (Reiter LIVE / GRAPH / DTC / INFO) als Android-App, gedacht für die Halterung im Auto.
+
+- **LIVE:** Rundinstrumente für Drehzahl, Kühlmittel und Tempo mit Warn-/Alarmbereich (zusätzlich als Text), Kacheln für STFT/LTFT Bank 1/2 und Steuergerätespannung, KOEO/KOER.
+- **GRAPH:** Verlauf von Drehzahl, Tempo, Kühlmittel, Last und den vier Kraftstoffkorrekturen (240 Werte); ungültige Messungen erscheinen als Lücke.
+- **DTC:** 03/07/0A nur auf Knopfdruck, Ergebnis auf der Seite DETAILS; HU/AU-Vorcheck.
+- **Unterseiten:** alle Werte, Mode 06 (Aussetzer und Monitortests), Fuel-Trim-Test und Warmlauf-Check.
+- Quer- und Hochformat, Bildschirm bleibt während einer Sitzung an, Paket `de.roman.obddashboard` (parallel zur Monitor-App installierbar).
+
+Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
+
 ## Version 1.0.9
 
 - HU/AU-Check: die von der ECU gemeldete DTC-Anzahl (01 01) führt zu „nicht bereit“, auch wenn Mode 03 keine Codes liefert
@@ -97,20 +109,29 @@ Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen
 ## Android
 
 - Zielgerät: OnePlus 13R / Android 16
-- minSdk 26
-- compileSdk / targetSdk 37
+- minSdk 26 (Android 8.0)
+- compileSdk 37.2 (Android 17 QPR2), targetSdk 37
+- Build-Tools 37.0.0, Android Gradle Plugin 9.5.1, Gradle 9.8.2
 - Java 17
 
 ## Build
 
-GitHub Actions baut bei jedem Push auf `main` eine Debug-APK. Das Artifact heißt:
+GitHub Actions testet und lintet alle drei Module und baut bei jedem Push auf `main` zwei Debug-APKs:
 
-`Mercedes_OBD2_Monitor_v1.0.9-debug`
+- `Mercedes_OBD2_Monitor_v1.0.9-debug` (Modul `:app`)
+- `OBD_Dashboard_v0.1.0-debug` (Modul `:dashboard`)
+
+| Modul | Inhalt |
+|---|---|
+| `:obdcore` | Android-Bibliothek: ELM327-Client, Read-only-Allowlist (`CommandSafety`), Parser, DTC/Mode 06/Readiness/HU-AU, Fuel-Trim- und Warmlauf-Test, CSV-Log, `ObdService` – mit allen Unit-Tests |
+| `:app` | Mercedes OBD2 Monitor (Werkstatt-Ansicht, Terminal, Konsole) |
+| `:dashboard` | OBD Dashboard (Fahr-Anzeige nach OpenNextion-Vorbild) |
 
 Der komplette Android-Quellcode liegt direkt im Repository.
 
 Lokal bauen (Gradle kommt über den Wrapper, benötigt wird nur JDK 17+ und das Android SDK):
 
 ```
-./gradlew :app:testDebugUnitTest :app:assembleDebug
+./gradlew :obdcore:testDebugUnitTest :app:testDebugUnitTest :dashboard:testDebugUnitTest \
+          :app:assembleDebug :dashboard:assembleDebug
 ```
