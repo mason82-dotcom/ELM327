@@ -12,6 +12,8 @@ Zweite App im selben Repository: die Oberfläche des **OpenNextion-ELM327-Displa
 - **Unterseiten:** alle Werte, Mode 06 (Aussetzer und Monitortests), Fuel-Trim-Test und Warmlauf-Check.
 - Quer- und Hochformat, Bildschirm bleibt während einer Sitzung an, Paket `de.roman.obddashboard` (parallel zur Monitor-App installierbar).
 
+Zum Testen ohne Fahrzeug: Android-17.2-Emulator mit ELM327-Laborsimulator und scrcpy im Browser, siehe [tools/android-emulator](tools/android-emulator/README.md); Bauen ohne Android Studio mit `tools/android-sdk/gradle.sh`.
+
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
 ## Version 1.0.9

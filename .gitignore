@@ -8,3 +8,6 @@ local.properties
 
 # Build-Ausgaben aller Module
 build/
+
+# Lokale Emulator-Einstellungen
+tools/android-emulator/.env
