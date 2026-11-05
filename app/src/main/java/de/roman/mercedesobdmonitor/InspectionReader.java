@@ -1,7 +1,6 @@
 package de.roman.mercedesobdmonitor;
 
 import java.io.IOException;
-import java.net.SocketTimeoutException;
 import java.util.Locale;
 import java.util.function.IntPredicate;
 
@@ -15,7 +14,7 @@ import java.util.function.IntPredicate;
  * Check abgebrochen – dann ist ein Reconnect nötig.
  */
 public final class InspectionReader {
-    /** Zugriff auf den Adapter. Implementiert in MainActivity bzw. im Test. */
+    /** Zugriff auf den Adapter. Implementiert in ObdSession bzw. im Test. */
     public interface Transport {
         String send(String cmd, int timeoutMs) throws IOException;
 
@@ -23,21 +22,16 @@ public final class InspectionReader {
         boolean resync();
     }
 
-    private final Transport transport;
+    private final TolerantQuery queries;
     private final Boolean isCan;
-    /** Ab so vielen resynchronisierten Timeouts in Folge wird abgebrochen (Adapter/Bus gestört). */
-    public static final int MAX_CONSECUTIVE_TIMEOUTS = 3;
-
-    private int consecutiveTimeouts;
-    private int timeoutCount;
 
     public InspectionReader(Transport transport, Boolean isCan) {
-        this.transport = transport;
+        this.queries = new TolerantQuery(transport);
         this.isCan = isCan;
     }
 
     public int timeoutCount() {
-        return timeoutCount;
+        return queries.timeoutCount();
     }
 
     /**
@@ -79,6 +73,27 @@ public final class InspectionReader {
                 if (v != null) in.freezeFrame.add(pid.label + ": " + pid.format(v));
             }
         }
+
+        // Zusatzinformationen: „NO DATA“ = nicht unterstützt (still), Timeout = nicht verfügbar.
+        String cycle = query("0141", 2500);
+        if (cycle == null) in.unavailable.add("Fahrzyklus-Monitore (01 41)");
+        else in.driveCycle = Readiness.parseDriveCycle(cycle);
+
+        String vin = query("0902", 3000);
+        if (vin == null) in.unavailable.add("FIN (09 02)");
+        else in.vin = VehicleInfo.vin(vin, isCan);
+
+        String cal = query("0904", 3000);
+        if (cal == null) in.unavailable.add("Kalibrierungs-IDs (09 04)");
+        else in.calibrationIds = VehicleInfo.calibrationIds(cal, isCan);
+
+        String cvn = query("0906", 3000);
+        if (cvn == null) in.unavailable.add("CVN (09 06)");
+        else in.cvns = VehicleInfo.cvns(cvn, isCan);
+
+        String iupr = query("0908", 3000);
+        if (iupr == null) in.unavailable.add("Monitor-Häufigkeit (09 08)");
+        else in.iupr = VehicleInfo.iupr(iupr, isCan);
         return in;
     }
 
@@ -106,24 +121,7 @@ public final class InspectionReader {
         return v;
     }
 
-    /**
-     * @return Rohantwort oder null bei überbrücktem Timeout
-     * @throws IOException wenn der Adapter nicht mehr synchron ist oder die Verbindung weg ist
-     */
     private String query(String cmd, int timeoutMs) throws IOException {
-        try {
-            String raw = transport.send(cmd, timeoutMs);
-            consecutiveTimeouts = 0;
-            return raw;
-        } catch (SocketTimeoutException e) {
-            timeoutCount++;
-            consecutiveTimeouts++;
-            boolean resynced = transport.resync();
-            if (!resynced || consecutiveTimeouts >= MAX_CONSECUTIVE_TIMEOUTS) {
-                throw new SocketTimeoutException("Timeout bei " + cmd
-                        + (resynced ? " (wiederholt)" : " – Adapter nicht mehr synchron"));
-            }
-            return null;
-        }
+        return queries.query(cmd, timeoutMs);
     }
 }

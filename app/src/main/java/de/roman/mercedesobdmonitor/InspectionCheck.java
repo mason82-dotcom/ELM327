@@ -2,6 +2,7 @@ package de.roman.mercedesobdmonitor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * HU/AU-Vorab-Check aus rein lesenden OBD-Daten. Keine amtliche Prüfung – die
@@ -26,6 +27,12 @@ public final class InspectionCheck {
         public Integer kmWithMil;           // PID 21
         public String freezeFrameDtc;       // aus 0202 00
         public List<String> freezeFrame = new ArrayList<>(); // formatierte Zeilen
+        /** Zusatzinformationen ohne Einfluss auf das Urteil. */
+        public Readiness driveCycle;        // 01 41
+        public String vin;                  // 09 02
+        public List<String> calibrationIds = new ArrayList<>(); // 09 04
+        public List<String> cvns = new ArrayList<>();           // 09 06
+        public VehicleInfo.IuprData iupr;   // 09 08
     }
 
     /**
@@ -65,7 +72,9 @@ public final class InspectionCheck {
             case NOT_READY -> "❌ Vorab-Einschätzung: nicht bereit";
             case UNCERTAIN -> "⚠️ Vorab-Einschätzung: noch nicht bereit / unklar";
         }).append('\n');
-        sb.append("Keine amtliche Prüfung; maßgeblich ist die Prüfstelle.\n\n");
+        sb.append("Keine amtliche Prüfung; maßgeblich ist die Prüfstelle.\n");
+        if (in.vin != null) sb.append("FIN: ").append(in.vin).append('\n');
+        sb.append('\n');
 
         Readiness r = in.readiness;
         if (r == null) {
@@ -80,6 +89,10 @@ public final class InspectionCheck {
                         .append(m.complete ? "" : " – nicht abgeschlossen").append('\n');
             }
             if (r.monitors.isEmpty()) sb.append("  (keine Monitore gemeldet)\n");
+        }
+
+        if (in.driveCycle != null && !in.driveCycle.monitors.isEmpty()) {
+            sb.append("\nIn dieser Fahrt (01 41): ").append(in.driveCycle.summary()).append('\n');
         }
 
         sb.append("\nFehlercodes:\n");
@@ -97,9 +110,30 @@ public final class InspectionCheck {
             if (in.kmWithMil != null) sb.append("  Strecke mit MIL an: ").append(in.kmWithMil).append(" km\n");
         }
 
+        if (in.iupr != null && !in.iupr.monitors.isEmpty()) {
+            sb.append("\nMonitor-Häufigkeit (IUPR, 09 08):\n");
+            sb.append("  Fahrten mit Prüfbedingungen: ").append(in.iupr.generalDenominator)
+                    .append(" · Zündzyklen: ").append(in.iupr.ignitionCycles).append('\n');
+            for (VehicleInfo.Iupr m : in.iupr.monitors) {
+                if (m.completions == 0 && m.conditions == 0) continue; // nicht verbaut/unterstützt
+                Double ratio = m.ratio();
+                sb.append("  ").append(m.name).append(": ").append(m.completions).append(" von ")
+                        .append(m.conditions).append(ratio == null ? "" : String.format(Locale.GERMANY,
+                                " (%.2f)", ratio)).append('\n');
+            }
+        }
+
         if (in.freezeFrameDtc != null) {
             sb.append("\nFreeze Frame (auslösender Code ").append(in.freezeFrameDtc).append("):\n");
             for (String line : in.freezeFrame) sb.append("  ").append(line).append('\n');
+        }
+
+        if (!in.calibrationIds.isEmpty() || !in.cvns.isEmpty()) {
+            sb.append("\nSteuergeräte-Software:\n");
+            if (!in.calibrationIds.isEmpty()) {
+                sb.append("  CALID: ").append(String.join(", ", in.calibrationIds)).append('\n');
+            }
+            if (!in.cvns.isEmpty()) sb.append("  CVN: ").append(String.join(", ", in.cvns)).append('\n');
         }
 
         if (!in.unavailable.isEmpty()) {
@@ -137,6 +171,16 @@ public final class InspectionCheck {
             out.add(r.incompleteCount() + " Monitor(e) nicht abgeschlossen. Typisch nach Löschen der "
                     + "Fehlercodes oder Batterie-Abklemmen. Gemischter Fahrzyklus (Kaltstart, Stadt, "
                     + "gleichmäßige Landstraße 80–100 km/h, Leerlaufphasen) über mehrere Tage.");
+        }
+        if (in.iupr != null) {
+            for (VehicleInfo.Iupr m : in.iupr.monitors) {
+                Double ratio = m.ratio();
+                if (ratio != null && m.conditions >= 10 && ratio < VehicleInfo.RARE_RATIO) {
+                    out.add(m.name + " läuft im Alltag selten (" + m.completions + " von " + m.conditions
+                            + " passenden Fahrten). Das erklärt eine offene Readiness; der Monitor braucht "
+                            + "seine speziellen Bedingungen (z. B. längere gleichmäßige Fahrt, Leerlauf nach Warmlauf).");
+                }
+            }
         }
         if (recentReset(in)) {
             out.add("Diagnosespeicher wurde vor kurzem zurückgesetzt (" + describeClear(in) + "). "
