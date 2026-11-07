@@ -25,6 +25,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import de.roman.mercedesobdmonitor.EngineAnalysis;
 import de.roman.mercedesobdmonitor.ObdPid;
 import de.roman.mercedesobdmonitor.ObdService;
 import de.roman.mercedesobdmonitor.ObdSession;
@@ -51,12 +52,12 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private static final int REQ_NET = 41;
     private static final int TREND_POINTS = 240;
 
-    private enum Page { LIVE, GRAPH, DTC, INFO, VALUES, MODE06, INSPECTION, TRIM, DTC_DETAILS }
+    private enum Page { LIVE, GRAPH, DTC, INFO, VALUES, MODE06, INSPECTION, TRIM, DTC_DETAILS, ANALYSIS }
 
     /** Reiter, unter dem eine Unterseite hervorgehoben wird. */
     private static Page tabOf(Page p) {
         switch (p) {
-            case VALUES: case MODE06: case TRIM: return Page.LIVE;
+            case VALUES: case MODE06: case TRIM: case ANALYSIS: return Page.LIVE;
             case INSPECTION: case DTC_DETAILS: return Page.DTC;
             default: return p;
         }
@@ -201,6 +202,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         pages.put(Page.INSPECTION, buildInspection());
         pages.put(Page.TRIM, buildTrim());
         pages.put(Page.DTC_DETAILS, buildDtcDetails());
+        pages.put(Page.ANALYSIS, buildAnalysis());
         for (View p : pages.values()) content.addView(p, new FrameLayout.LayoutParams(-1, -1));
 
         // Untere Reiter wie am Display
@@ -387,8 +389,102 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         LinearLayout actions = row();
         actions.addView(button("MODE 06", v -> show(Page.MODE06)), weighted());
         actions.addView(button("TRIM-TEST", v -> show(Page.TRIM)), weighted());
+        actions.addView(button("ANALYSE", v -> show(Page.ANALYSIS)), weighted());
         page.addView(actions);
         return page;
+    }
+
+    // ------------------------------------------------------------------ Analyse (C350/M272)
+
+    private TextView analysisText, atfText, profileText;
+    /** Kat-Tendenz je Bank aus der Nachkat-Sonde; überlebt das Drehen. */
+    private final EngineAnalysis.CatTendency catBank1 = new EngineAnalysis.CatTendency();
+    private final EngineAnalysis.CatTendency catBank2 = new EngineAnalysis.CatTendency();
+
+    private View buildAnalysis() {
+        LinearLayout page = column();
+        page.setPadding(dp(12), dp(4), dp(12), dp(4));
+        page.addView(backRow("ANALYSE / NUR LESEN", Page.VALUES));
+        page.addView(text("Aus Standardwerten berechnet · Schwellen sind Richtwerte, keine Herstellerangaben", 13, Palette.WARN));
+        analysisText = resultText("Werte erscheinen, sobald verbunden.");
+        analysisText.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
+        atfText = resultText(results.containsKey(ResultRouter.Target.ATF) ? results.get(ResultRouter.Target.ATF)
+                : "ATF-Temperatur der 7G-Tronic: auf Knopfdruck (Getriebesteuergerät, ADR-001).");
+        profileText = resultText(results.containsKey(ResultRouter.Target.PROFILE) ? results.get(ResultRouter.Target.PROFILE)
+                : "Fahrzeugprofil: welche Werte Motor und Getriebe melden – einmal am Fahrzeug lesen.");
+        LinearLayout content = column();
+        content.addView(analysisText);
+        content.addView(atfText);
+        content.addView(profileText);
+        page.addView(scrollCard(content), new LinearLayout.LayoutParams(-1, 0, 1f));
+        LinearLayout actions = row();
+        actions.addView(opButton(ObdSession.Op.ATF, "ATF LESEN", v -> session.runAtfTemperature()), weighted());
+        actions.addView(opButton(ObdSession.Op.PROFILE, "FAHRZEUGPROFIL", v -> session.runVehicleProfile()), weighted());
+        page.addView(actions);
+        updateAnalysis();
+        return page;
+    }
+
+    private Double sample(int pid) {
+        return lastSamples.get(pid);
+    }
+
+    private Integer fuelStatus() {
+        Double v = lastSamples.get(0x03);
+        return v == null ? null : (int) Math.round(v);
+    }
+
+    /** Wide-band lambda of a bank: voltage-type PID (24/28) first, current-type (34/38) as fallback. */
+    private Double lambdaBank(int bank) {
+        Double v = sample(bank == 1 ? 0x24 : 0x28);
+        return v != null ? v : sample(bank == 1 ? 0x34 : 0x38);
+    }
+
+    private static String num(Double v, String fmt) {
+        return v == null ? ObdSession.INVALID_TEXT : String.format(java.util.Locale.GERMANY, fmt, v);
+    }
+
+    private boolean analysisPending;
+
+    /** Coalesces the many per-PID callbacks into at most one analysis rebuild every 500 ms. */
+    private void requestAnalysisUpdate() {
+        if (page != Page.ANALYSIS || analysisPending) return;
+        analysisPending = true;
+        status.postDelayed(() -> {
+            analysisPending = false;
+            if (page == Page.ANALYSIS) updateAnalysis();
+        }, 500);
+    }
+
+    private void updateAnalysis() {
+        if (analysisText == null) return;
+        Double rpm = sample(0x0C), speed = sample(0x0D), maf = sample(0x10), lambdaCmd = sample(0x44);
+        Integer status = fuelStatus();
+        Double lph = EngineAnalysis.fuelRateLitersPerHour(maf, lambdaCmd, status, sample(0x45), rpm);
+        Double l100 = EngineAnalysis.fuelPer100Km(lph, speed);
+        Double eta = EngineAnalysis.volumetricEfficiency(maf, sample(0x0B), sample(0x0F), rpm);
+        Double dev1 = EngineAnalysis.lambdaDeviation(lambdaBank(1), lambdaCmd, status);
+        Double dev2 = EngineAnalysis.lambdaDeviation(lambdaBank(2), lambdaCmd, status);
+        Double pedal = EngineAnalysis.pedalRatio(sample(0x49), sample(0x4A));
+        Double track = EngineAnalysis.throttleTracking(sample(0x4C), sample(0x45));
+        StringBuilder sb = new StringBuilder();
+        sb.append("VERBRAUCH (aus Luftmasse)\n  ").append(num(lph, "%.1f l/h"));
+        if (l100 != null) sb.append(" · ").append(num(l100, "%.1f l/100 km"));
+        sb.append("\n  Annahme Dichte 0,745 kg/l; Schubabschaltung = 0\n\n");
+        sb.append("LUFTMASSE / LIEFERGRAD\n  ").append(num(eta == null ? null : eta * 100, "%.0f %%"))
+                .append(" – ").append(EngineAnalysis.volumetricVerdict(eta)).append("\n\n");
+        sb.append("KRAFTSTOFFSYSTEM\n  ").append(status == null ? ObdSession.INVALID_TEXT : ObdPid.fuelSystemText(status)).append("\n\n");
+        sb.append("LAMBDA-REGELUNG\n  Bank 1 Δλ ").append(num(dev1, "%.3f")).append(" · Bank 2 Δλ ").append(num(dev2, "%.3f"))
+                .append("\n  ").append(EngineAnalysis.lambdaVerdict(dev1, dev2)).append("\n\n");
+        sb.append("KAT-TENDENZ (Sonde nach Kat)\n  Bank 1: ").append(catBank1.verdict())
+                .append("\n  Bank 2: ").append(catBank2.verdict()).append("\n\n");
+        sb.append("ZÜNDWINKEL\n  ").append(num(sample(0x0E), "%.1f ° v. OT"))
+                .append(" – nur bei gleicher Drehzahl/Last vergleichbar, kein Klopfen je Zylinder\n\n");
+        sb.append("E-GAS\n  Pedalgeber D/E ").append(num(pedal, "%.2f")).append(" · Drosselklappe Ist−Soll ")
+                .append(num(track, "%+.1f %%")).append("\n  stationär > 5 % Abweichung: Drosselklappe prüfen (Richtwert)\n\n");
+        sb.append("BORDNETZ\n  ").append(num(sample(0x42), "%.2f V")).append(" – ")
+                .append(EngineAnalysis.voltageVerdict(sample(0x42), rpm));
+        analysisText.setText(sb.toString());
     }
 
     private View buildMode06() {
@@ -494,6 +590,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         }
         saveSettings();
         if (!session.connect(this, host, port)) return;
+        // New connection, possibly another car: the catalyst tendency starts from scratch.
+        catBank1.reset();
+        catBank2.reset();
         startForegroundService(new Intent(this, ObdService.class).setAction(ObdService.ACTION_START));
     }
 
@@ -629,6 +728,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     public void onPidSample(int pid, double value) {
         lastSamples.put(pid, value);
+        if (pid == 0x15) catBank1.add(value, fuelStatus(), sample(0x05));
+        if (pid == 0x19) catBank2.add(value, fuelStatus(), sample(0x05));
+        requestAnalysisUpdate();
         if (pid == 0x0C) lastRpm = value;
         if (pid == 0x0D) lastSpeed = value;
         if (pid == 0x0C || pid == 0x0D) updateIdle();
@@ -644,6 +746,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     public void onPidInvalid(int pid) {
         lastSamples.remove(pid);
+        requestAnalysisUpdate();
         if (pid == 0x0C) lastRpm = Double.NaN;
         if (pid == 0x0D) lastSpeed = Double.NaN;
         if (pid == 0x0C || pid == 0x0D) updateIdle();
@@ -721,6 +824,11 @@ public final class DashboardActivity extends Activity implements ObdSession.List
                 refreshResults();
                 show(target == ResultRouter.Target.INSPECTION ? Page.INSPECTION : Page.MODE06);
                 break;
+            case PROFILE: case ATF:
+                results.put(target, message);
+                refreshResults();
+                show(Page.ANALYSIS);
+                break;
             case TRIM:
                 results.put(target, text);
                 refreshResults();
@@ -747,6 +855,10 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         if (i != null) inspectionText.setText(i);
         String t = results.get(ResultRouter.Target.TRIM);
         if (t != null) trimReport.setText(t);
+        String atf = results.get(ResultRouter.Target.ATF);
+        if (atf != null && atfText != null) atfText.setText(atf);
+        String prof = results.get(ResultRouter.Target.PROFILE);
+        if (prof != null && profileText != null) profileText.setText(prof);
     }
 
     private void dialog(String title, String message) {
@@ -813,7 +925,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         return t;
     }
 
-    private View scrollCard(TextView content) {
+    private View scrollCard(View content) {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(content);
         scroll.setBackground(cardBackground());

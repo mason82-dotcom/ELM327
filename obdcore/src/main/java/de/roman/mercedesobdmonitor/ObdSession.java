@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * zeichnet sich daraus neu. Bewusst ohne gespeicherten Context.
  */
 public final class ObdSession {
-    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS }
+    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS, PROFILE, ATF }
 
     /** UI-Callbacks; alle Aufrufe im Main-Thread. */
     public interface Listener {
@@ -330,7 +330,7 @@ public final class ObdSession {
         driveCyclePid = supported.contains(0x41);
         activePids.clear();
         for (ObdPid pid : ObdPid.defaultPids()) {
-            if (supported.isEmpty() || supported.contains(pid.pid)) activePids.add(pid);
+            if (supported.isEmpty() ? ObdPid.isCore(pid.pid) : supported.contains(pid.pid)) activePids.add(pid);
         }
         append("Aktive Live-PIDs: " + activePids.size());
     }
@@ -696,6 +696,71 @@ public final class ObdSession {
 
     public void runInspectionCheck() {
         runExclusiveDiagnosis(Op.INSPECTION, "HU/AU-Vorab-Check", this::readInspection);
+    }
+
+    /** Fahrzeugprofil: Unterstützungs-Bitmaps 01/06/09 je Steuergerät (nur Lesen). */
+    public void runVehicleProfile() {
+        runExclusiveDiagnosis(Op.PROFILE, "Fahrzeugprofil", this::readVehicleProfile);
+    }
+
+    /** ATF-Temperatur der 7G-Tronic auf Knopfdruck (ADR-001). */
+    public void runAtfTemperature() {
+        runExclusiveDiagnosis(Op.ATF, "ATF-Temperatur (7G-Tronic)", this::readAtfTemperature);
+    }
+
+    private String readVehicleProfile(Elm327Client c) throws IOException {
+        if (!LinkPolicy.isCan11Bit(protocolNumber)) {
+            return "Das Fahrzeugprofil trennt die Steuergeräte über 11-bit-CAN-Kennungen (7E8/7E9); erkanntes Protokoll: "
+                    + protocol + ". Die unterstützten Werte zeigt die Werte-Seite.";
+        }
+        VehicleScan.Result r = new VehicleScan.Result();
+        boolean done = false;
+        // Headers on, so engine (7E8) and transmission (7E9) answers can be told apart; the live loop needs ATH0.
+        diagCommand(c, "ATH1", 1500);
+        try {
+            scanBitmaps(c, r, "01", 0x41, r.mode01, 0xA0);
+            scanBitmaps(c, r, "06", 0x46, r.mode06, 0xE0);
+            String raw = diagCommand(c, "0900", 3000).raw;
+            r.raw.put("0900", raw);
+            r.merge(r.mode09, VehicleScan.supportedByEcu(raw, 0x49, 0x00));
+            diagCommand(c, "ATH0", 1500);
+            done = true;
+        } finally {
+            // Without a confirmed ATH0 the live parser would see headers: reconnect re-initialises the adapter.
+            if (!done) closeClientIfCurrent(c);
+        }
+        return VehicleScan.report(r);
+    }
+
+    private void scanBitmaps(Elm327Client c, VehicleScan.Result r, String mode, int responseService,
+                             java.util.Map<String, java.util.TreeSet<Integer>> target, int lastBase) throws IOException {
+        for (int base = 0x00; base <= lastBase; base += 0x20) {
+            String cmd = mode + String.format(java.util.Locale.US, "%02X", base);
+            String raw = diagCommand(c, cmd, 3000).raw;
+            r.raw.put(cmd, raw);
+            java.util.Map<String, java.util.TreeSet<Integer>> part = VehicleScan.supportedByEcu(raw, responseService, base);
+            r.merge(target, part);
+            if (!VehicleScan.anyHasNext(part, base)) break;
+        }
+    }
+
+    private String readAtfTemperature(Elm327Client c) throws IOException {
+        if (!LinkPolicy.isCan11Bit(protocolNumber)) {
+            return "Die ATF-Temperatur wird nur über CAN mit 11-bit-Kennungen (ISO 15765-4) gelesen. Erkanntes Protokoll: "
+                    + protocol;
+        }
+        boolean restored = false;
+        try {
+            diagCommand(c, CommandSafety.ATF_HEADER, 1500);
+            AtfTemperature.Reading reading = AtfTemperature.parse(diagCommand(c, CommandSafety.ATF_REQUEST, 3000).raw);
+            diagCommand(c, CommandSafety.OBD_HEADER, 1500);
+            restored = true;
+            return reading.text();
+        } finally {
+            // ADR-001: the header must never stay on the transmission ECU. If restoring failed, drop the
+            // connection: the reconnect init sends ATSH7DF on 11-bit CAN (LinkPolicy.reconnectInit).
+            if (!restored || !CommandSafety.DEFAULT_HEADER.equals(c.header())) closeClientIfCurrent(c);
+        }
     }
 
     private interface Diagnosis {
@@ -1078,8 +1143,10 @@ public final class ObdSession {
         final String cmd = input == null ? "" : input.trim();
         final int session = sessionGeneration.get();
         if (cmd.isEmpty()) return;
-        if (!CommandSafety.isAllowed(cmd)) {
-            String reason = CommandSafety.blockedReason(cmd);
+        if (!CommandSafety.isAllowedInTerminal(cmd)) {
+            String reason = CommandSafety.isAllowed(cmd)
+                    ? "nur über „ATF-Temperatur“ (ADR-001, mit Header-Wiederherstellung)"
+                    : CommandSafety.blockedReason(cmd);
             append("BLOCKIERT > " + cmd + " · " + reason);
             toast("Read-Only-Schutz: " + reason);
             return;

@@ -79,6 +79,26 @@ public final class VehicleInfo {
         return out;
     }
 
+    /**
+     * Steuergerätenamen aus 09 0A: 20 ASCII-Zeichen je Steuergerät, z. B. „ECM\0-EngineControl“.
+     * In der EU nicht vorgeschrieben – leere Liste, wenn das Fahrzeug nichts liefert.
+     */
+    public static List<String> ecuNames(String raw, Boolean isCan) {
+        List<String> out = new ArrayList<>();
+        for (byte[] p : payloads(raw, 0x0A, isCan)) {
+            for (int i = 0; i + 20 <= p.length; i += 20) {
+                StringBuilder sb = new StringBuilder();
+                for (int k = i; k < i + 20; k++) {
+                    int c = p[k] & 0xFF;
+                    sb.append(c >= 0x20 && c < 0x7F ? (char) c : ' ');
+                }
+                String name = sb.toString().trim().replaceAll(" +-", "-").replaceAll("\\s+", " ");
+                if (!name.isEmpty()) out.add(name);
+            }
+        }
+        return out;
+    }
+
     /** CVN aus 09 06, 4 Byte je Prüfsumme, alle Steuergeräte. */
     public static List<String> cvns(String raw, Boolean isCan) {
         List<String> out = new ArrayList<>();

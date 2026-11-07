@@ -16,6 +16,23 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.1.0 (Monitor) / 0.2.0 (Dashboard): C350-Diagnosefunktionen
+
+Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles bleibt read-only.
+
+- **Weitere Standard-PIDs**, nur gepollt, wenn das Fahrzeug sie meldet: Kraftstoffsystem-Status (01 03), Zündwinkel (0E),
+  absolute Last (43), Drosselklappe relativ/B/Soll (45/47/4C), Fahrpedal D/E (49/4A), Außentemperatur (46), Laufzeit (1F),
+  Lambdasonden vor/nach Kat (14/15/18/19), Breitband-Lambda (24/28/34/38), modellierte Kat-Temperatur (3C/3D).
+- **Analyse-Seite im Dashboard** (LIVE → ANALYSE): Momentanverbrauch aus MAF und Soll-Lambda (l/h, l/100 km, Schub = 0),
+  Liefergrad (HFM/Falschluft-Hinweis), Lambda-Regelgüte je Bank, Kat-Tendenz aus der Nachkat-Sonde, Zündwinkel,
+  E-Gas-Plausibilität (Pedalgeber, Soll/Ist Drosselklappe), Bordnetz. Alle Schwellen sind Richtwerte und als solche bezeichnet.
+- **Fahrzeugprofil** (Knopf in beiden Apps): Unterstützungs-Bitmaps 01/06/09 je Steuergerät (Motor 7E8, Getriebe 7E9)
+  mit Rohantworten zur Dokumentation des Fahrzeugs; nur bei 11-bit-CAN.
+- **ATF-Temperatur der 7G-Tronic** auf Knopfdruck, eng begrenzte Ausnahme nach [ADR-001](docs/adr-001-atf-temperatur.md):
+  nur `ATSH7E1` → `2130` → `ATSH7DF`, nie im Terminal, Header-Wiederherstellung samt Reconnect mit `ATSH7DF`.
+  Formel Byte 11 − 50 ist am C350 noch nicht bestätigt; die Rohantwort wird immer angezeigt.
+- **Steuergerätenamen** (09 0A) im HU/AU-Check.
+
 ## Version 1.0.9
 
 - HU/AU-Check: die von der ECU gemeldete DTC-Anzahl (01 01) führt zu „nicht bereit“, auch wenn Mode 03 keine Codes liefert

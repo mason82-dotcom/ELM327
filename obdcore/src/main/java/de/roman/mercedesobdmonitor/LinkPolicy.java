@@ -28,7 +28,10 @@ public final class LinkPolicy {
         return "ATSP0";
     }
 
-    /** Vollständige Adapter-Initialisierung nach einem Reconnect (ohne ATZ). */
+    /**
+     * Vollständige Adapter-Initialisierung nach einem Reconnect (ohne ATZ). Ein WLAN-Adapter behält seinen
+     * Header über TCP-Reconnects; bei 11-bit-CAN wird er deshalb ausdrücklich auf 7DF gesetzt (ADR-001).
+     */
     public static List<String> reconnectInit(String dpn) {
         List<String> cmds = new ArrayList<>();
         cmds.add("ATE0");
@@ -37,8 +40,15 @@ public final class LinkPolicy {
         cmds.add("ATH0");
         cmds.add("ATAT1");
         cmds.add(protocolSelect(dpn));
+        if (isCan11Bit(dpn)) cmds.add(CommandSafety.OBD_HEADER);
         cmds.add("ATST64");
         return cmds;
+    }
+
+    /** ISO 15765-4 mit 11-bit-Kennungen (ATDPN 6 oder 8, optional mit „A“). */
+    public static boolean isCan11Bit(String dpn) {
+        String sp = protocolSelect(dpn);
+        return "ATSP6".equals(sp) || "ATSP8".equals(sp);
     }
 
     /**

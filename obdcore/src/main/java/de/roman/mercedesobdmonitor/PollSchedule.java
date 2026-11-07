@@ -21,6 +21,8 @@ public final class PollSchedule {
         return switch (pid) {
             case 0x0C, 0x10, 0x06, 0x08, 0x44 -> true;
             case 0x0D, 0x04, 0x11, 0x0B -> (cycle % 2) == 0;
+            // Analyses (consumption, lambda quality, catalyst tendency, E-gas) need these at medium rate.
+            case 0x03, 0x0E, 0x15, 0x19, 0x24, 0x28, 0x34, 0x38, 0x14, 0x18, 0x45, 0x49, 0x4A -> (cycle % 2) == 1;
             default -> (cycle % 5) == 0;
         };
     }

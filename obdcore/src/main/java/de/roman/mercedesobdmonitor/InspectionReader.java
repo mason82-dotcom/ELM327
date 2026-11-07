@@ -66,7 +66,7 @@ public final class InspectionReader {
         in.freezeFrameDtc = ffDtc == null ? null : InspectionCheck.freezeFrameDtc(ffDtc);
         if (in.freezeFrameDtc != null) {
             for (ObdPid pid : ObdPid.defaultPids()) {
-                if (!freezeFramePid.test(pid.pid)) continue;
+                if (!ObdPid.isCore(pid.pid) || !freezeFramePid.test(pid.pid)) continue;
                 String raw = query(String.format(Locale.US, "02%02X00", pid.pid), 2500);
                 if (raw == null || ObdParser.isNoData(raw)) continue;
                 Double v = pid.parseFreezeFrame(raw);
@@ -90,6 +90,11 @@ public final class InspectionReader {
         String cvn = query("0906", 3000);
         if (cvn == null) in.unavailable.add("CVN (09 06)");
         else in.cvns = VehicleInfo.cvns(cvn, isCan);
+
+        // 09 0A (ECU name) is optional in the EU: NO DATA is not "unavailable", only a timeout is.
+        String names = query("090A", 3000);
+        if (names == null) in.unavailable.add("Steuergerätename (09 0A)");
+        else in.ecuNames = VehicleInfo.ecuNames(names, isCan);
 
         String iupr = query("0908", 3000);
         if (iupr == null) in.unavailable.add("Monitor-Häufigkeit (09 08)");

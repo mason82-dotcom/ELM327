@@ -25,6 +25,17 @@ public final class CommandSafety {
             "AT@1", "AT@2"
     );
 
+    /**
+     * ADR-001 (docs/adr-001-atf-temperatur.md): the ONLY manufacturer-specific read and the ONLY header changes.
+     * Exact strings, no patterns: header to the transmission ECU, KWP2000 ReadDataByLocalIdentifier 0x30
+     * (ATF temperature) and back to the functional OBD header. Any other header, service or identifier
+     * stays blocked. The session restores the header in a finally block (ObdSession#readAtfTemperature).
+     */
+    public static final String ATF_HEADER = "ATSH7E1";
+    public static final String ATF_REQUEST = "2130";
+    public static final String OBD_HEADER = "ATSH7DF";
+    private static final Set<String> ADR001_EXACT = Set.of(ATF_HEADER, ATF_REQUEST, OBD_HEADER);
+
     private static final Pattern SAFE_TIMEOUT = Pattern.compile("^ATST[0-9A-F]{2}$");
     // Feste Auswahl der Standard-OBD-Protokolle 1–9 (reiner Adapterbefehl, kein Fahrzeug-Request).
     // A–C (benutzerdefinierte CAN-Parameter) bleiben gesperrt.
@@ -49,6 +60,7 @@ public final class CommandSafety {
         // Reject command stacking / embedded line breaks before any other test.
         if (cmd.indexOf('\r') >= 0 || cmd.indexOf('\n') >= 0 || cmd.indexOf(';') >= 0) return false;
 
+        if (ADR001_EXACT.contains(cmd)) return true;
         if (SAFE_AT_EXACT.contains(cmd) || SAFE_TIMEOUT.matcher(cmd).matches()
                 || SAFE_PROTOCOL.matcher(cmd).matches()) return true;
 
@@ -63,14 +75,62 @@ public final class CommandSafety {
         return "0A".equals(cmd);                        // permanent DTCs
     }
 
+    /** Header der Grundeinstellung nach ATZ (funktionale OBD-Adresse). */
+    public static final String DEFAULT_HEADER = "7DF";
+
+    /**
+     * Zustandsabhängige Freigabe (ADR-001): {@code 2130} nur, solange der Header auf das Getriebe (7E1) zeigt;
+     * bei Header 7E1 ist außer {@code 2130} nur der Rückweg ({@code ATSH7DF} oder {@code ATZ}) erlaubt. So kann
+     * keine normale OBD-Abfrage versehentlich an das Getriebe gehen und die Herstelleranfrage nie an alle.
+     */
+    public static boolean isAllowed(String command, String currentHeader) {
+        if (!isAllowed(command)) return false;
+        String cmd = normalize(command);
+        boolean transmission = "7E1".equals(currentHeader);
+        if (ATF_REQUEST.equals(cmd)) return transmission;
+        // On the transmission header, or when the adapter state is unknown (header command without a
+        // confirmed answer), only the way back to the standard header is open.
+        if (!DEFAULT_HEADER.equals(currentHeader)) return OBD_HEADER.equals(cmd) || "ATZ".equals(cmd);
+        return true;
+    }
+
+    /** Header-Zustand, solange ein Header-Befehl unbestätigt ist (z. B. nach Zeitüberschreitung). */
+    public static final String UNKNOWN_HEADER = "?";
+
+    /** Ob dieser Befehl den Header ändern kann. */
+    public static boolean changesHeader(String command) {
+        String cmd = normalize(command);
+        return ATF_HEADER.equals(cmd) || OBD_HEADER.equals(cmd) || "ATZ".equals(cmd);
+    }
+
+    /**
+     * Freigabe für das Terminal: wie {@link #isAllowed(String)}, aber ohne die ADR-001-Sequenz – sie läuft nur
+     * als exklusive Diagnose mit Header-Wiederherstellung („ATF-Temperatur“).
+     */
+    public static boolean isAllowedInTerminal(String command) {
+        return isAllowed(command) && !ADR001_EXACT.contains(normalize(command));
+    }
+
+    /** Header nach erfolgreich gesendetem Befehl. */
+    public static String headerAfter(String command, String currentHeader) {
+        String cmd = normalize(command);
+        if (ATF_HEADER.equals(cmd)) return "7E1";
+        if (OBD_HEADER.equals(cmd) || "ATZ".equals(cmd)) return DEFAULT_HEADER;
+        return currentHeader;
+    }
+
     public static String blockedReason(String command) {
         String cmd = normalize(command);
+        if (ATF_REQUEST.equals(cmd)) {
+            return "21 30 (ATF-Temperatur) ist nur an das Getriebesteuergerät (Header 7E1) erlaubt.";
+        }
         if ("04".equals(cmd)) {
             return "Mode 04 (Fehlercodes löschen / ECU-Reset der Emissionsdiagnose) ist gesperrt.";
         }
         if (cmd.startsWith("ATSH") || cmd.startsWith("ATCRA") || cmd.startsWith("ATCEA")
                 || cmd.startsWith("ATTA") || cmd.startsWith("ATCP")) {
-            return "Änderungen an CAN-Headern/Adressierung sind im Read-Only-Modus gesperrt.";
+            return "Änderungen an CAN-Headern/Adressierung sind im Read-Only-Modus gesperrt "
+                    + "(einzige Ausnahme: ATF-Temperatur nach ADR-001).";
         }
         return "Befehl ist nicht in der Read-Only-Whitelist freigegeben.";
     }
