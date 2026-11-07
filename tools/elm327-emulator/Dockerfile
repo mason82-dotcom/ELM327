@@ -1,6 +1,8 @@
 # ELM327 emulator (Ircama/ELM327-emulator, CC BY-NC-SA 4.0) as a TCP service for testing the apps without a car.
 FROM python:3.13-slim
 RUN pip install --no-cache-dir ELM327-emulator==4.0.0
+# Fault scenario driver (service elm327-faults); not used by the normal emulator.
+COPY faults.sh /opt/faults.sh
 USER nobody
 # elm.log is written to the working directory; the container root file system is read-only.
 WORKDIR /tmp

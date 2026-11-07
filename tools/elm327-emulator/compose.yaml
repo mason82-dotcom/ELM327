@@ -25,3 +25,23 @@ services:
       interval: 60s
       timeout: 10s
       retries: 3
+
+  # Same emulator with a fault cycle (NO DATA, timeout, CAN ERROR, engine off, silent adapter) on port 35001.
+  # Phases: docker logs -f elm327-faults | grep PHASE
+  elm327-faults:
+    image: elm327-emulator:4.0.0
+    container_name: elm327-faults
+    restart: unless-stopped
+    command: ["sh", "-c", "while :; do sh /opt/faults.sh | python -m elm -n 35000 -i 0.0.0.0 -s car -b /dev/stdout; echo 'ELM327-emulator ended, restarting'; sleep 0.5; done"]
+    environment:
+      HOME: /tmp
+    ports:
+      - "${ELM_BIND:-192.168.178.50}:${ELM_FAULTS_PORT:-35001}:35000"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
