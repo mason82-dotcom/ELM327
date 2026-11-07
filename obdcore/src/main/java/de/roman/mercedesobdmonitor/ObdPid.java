@@ -84,6 +84,9 @@ public final class ObdPid {
 
     public String format(double value) {
         if (formula == Formula.FUEL_SYSTEM) return fuelSystemText((int) value);
+        // Rohwert FFFF = Messbereichsende; am C350 Schubabschaltung (Log 07.11.2026), nicht „λ 2,000“
+        if (formula == Formula.EQUIV_RATIO && EngineAnalysis.isLambdaSaturated(value)) return "Schub (FFFF)";
+        if (formula == Formula.WIDEBAND_LAMBDA && EngineAnalysis.isLambdaSaturated(value)) return "> 2 λ (Schub/Messbereich)";
         return String.format(Locale.GERMANY, "% ." + decimals + "f %s", value, unit).trim();
     }
 

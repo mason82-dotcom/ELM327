@@ -16,6 +16,19 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.1.1 (Monitor) / 0.3.0 (Dashboard): Erkenntnisse aus dem ersten C350-Log
+
+Auswertung der ersten zwei Fahrten am C350 (07.11.2026), Details in [docs/c350-log-20261107.md](docs/c350-log-20261107.md).
+
+- **Schub richtig erkannt:** Soll-Lambda `FFFF` (λ 1,99997) zeigt am ME9.7 die Schubabschaltung an; die geschlossene
+  Drosselklappe meldet 0,8–1,6 % statt < 1 %. Verbrauch im Schub ist jetzt 0 l/h, die Anzeige lautet „Schub (FFFF)“
+  bzw. bei Breitband-λ „> 2 λ (Schub/Messbereich)“ statt „2,000 λ“.
+- **Trim-Karte** (Dashboard → ANALYSE): Gesamtkorrektur STFT+LTFT je Bank getrennt nach Leerlauf, Teillast und hoher Last,
+  nur geregelt und warm. Unterscheidet ein bankspezifisches Muster von Falschluft (Leerlauf hoch, fällt mit Last).
+  Am C350 zeigt sie Bank 1 lastunabhängig etwa 6–8 % fetter korrigiert als Bank 2 (Richtwert, keine Diagnose).
+- **Regressionstest mit echten Rohantworten** (`C350LogTest`, Auszug des Logs als Testressource).
+- Offen: Antworten zweier Steuergeräte auf dieselbe PID (Motor + Getriebe) – der Absender ist mit ATH0 unbekannt.
+
 ## Version 1.1.0 (Monitor) / 0.2.0 (Dashboard): C350-Diagnosefunktionen
 
 Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles bleibt read-only.
@@ -137,8 +150,8 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
 
 GitHub Actions testet und lintet alle drei Module und baut bei jedem Push auf `main` zwei Debug-APKs:
 
-- `Mercedes_OBD2_Monitor_v1.1.0-debug` (Modul `:app`)
-- `OBD_Dashboard_v0.2.0-debug` (Modul `:dashboard`)
+- `Mercedes_OBD2_Monitor_v1.1.1-debug` (Modul `:app`)
+- `OBD_Dashboard_v0.3.0-debug` (Modul `:dashboard`)
 
 | Modul | Inhalt |
 |---|---|

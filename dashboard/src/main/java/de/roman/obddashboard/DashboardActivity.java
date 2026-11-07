@@ -400,6 +400,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     /** Kat-Tendenz je Bank aus der Nachkat-Sonde; überlebt das Drehen. */
     private final EngineAnalysis.CatTendency catBank1 = new EngineAnalysis.CatTendency();
     private final EngineAnalysis.CatTendency catBank2 = new EngineAnalysis.CatTendency();
+    /** Gesamttrim je Bank und Lastbereich (geregelt, warm); überlebt das Drehen. */
+    private final EngineAnalysis.TrimMap trimMap = new EngineAnalysis.TrimMap();
 
     private View buildAnalysis() {
         LinearLayout page = column();
@@ -470,12 +472,14 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         StringBuilder sb = new StringBuilder();
         sb.append("VERBRAUCH (aus Luftmasse)\n  ").append(num(lph, "%.1f l/h"));
         if (l100 != null) sb.append(" · ").append(num(l100, "%.1f l/100 km"));
-        sb.append("\n  Annahme Dichte 0,745 kg/l; Schubabschaltung = 0\n\n");
+        sb.append("\n  Annahme Dichte 0,745 kg/l; Schubabschaltung (λ-Soll FFFF oder Klappe zu) = 0\n\n");
         sb.append("LUFTMASSE / LIEFERGRAD\n  ").append(num(eta == null ? null : eta * 100, "%.0f %%"))
                 .append(" – ").append(EngineAnalysis.volumetricVerdict(eta)).append("\n\n");
         sb.append("KRAFTSTOFFSYSTEM\n  ").append(status == null ? ObdSession.INVALID_TEXT : ObdPid.fuelSystemText(status)).append("\n\n");
         sb.append("LAMBDA-REGELUNG\n  Bank 1 Δλ ").append(num(dev1, "%.3f")).append(" · Bank 2 Δλ ").append(num(dev2, "%.3f"))
                 .append("\n  ").append(EngineAnalysis.lambdaVerdict(dev1, dev2)).append("\n\n");
+        sb.append("TRIM-KARTE (STFT+LTFT, geregelt und warm)\n  ").append(trimMap.table().replace("\n", "\n  "))
+                .append("\n  ").append(trimMap.verdict()).append("\n\n");
         sb.append("KAT-TENDENZ (Sonde nach Kat)\n  Bank 1: ").append(catBank1.verdict())
                 .append("\n  Bank 2: ").append(catBank2.verdict()).append("\n\n");
         sb.append("ZÜNDWINKEL\n  ").append(num(sample(0x0E), "%.1f ° v. OT"))
@@ -593,6 +597,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         // New connection, possibly another car: the catalyst tendency starts from scratch.
         catBank1.reset();
         catBank2.reset();
+        trimMap.reset();
         startForegroundService(new Intent(this, ObdService.class).setAction(ObdService.ACTION_START));
     }
 
@@ -730,6 +735,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         lastSamples.put(pid, value);
         if (pid == 0x15) catBank1.add(value, fuelStatus(), sample(0x05));
         if (pid == 0x19) catBank2.add(value, fuelStatus(), sample(0x05));
+        // STFT Bank 2 is polled right after Bank 1: one trim-map sample per polling round.
+        if (pid == 0x08) trimMap.add(sample(0x06), sample(0x07), sample(0x08), sample(0x09), fuelStatus(),
+                sample(0x05), sample(0x0C), sample(0x0D), sample(0x04));
         requestAnalysisUpdate();
         if (pid == 0x0C) lastRpm = value;
         if (pid == 0x0D) lastSpeed = value;
