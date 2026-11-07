@@ -11,7 +11,8 @@ cd ~/Projekte/ELM327/tools/elm327-emulator
 docker compose up -d --build
 ```
 
-Adresse für die Apps: **`192.168.178.50:35000`** (in der App Verbindung „WLAN/TCP“ wählen). Nur an die LAN-Adresse
+In beiden Apps als ELM327-Adresse **`192.168.178.50`** und Port **`35000`** eintragen (statt 192.168.0.10 des echten
+WLAN-Adapters); das Handy bleibt dabei im Heimnetz-WLAN. Nur an die LAN-Adresse
 gebunden; andere Adresse oder Port mit `ELM_BIND` / `ELM_PORT` in einer `.env` neben `compose.yaml`.
 
 ## Was er liefert
