@@ -32,6 +32,22 @@ docker logs -f elm327-emulator          # jede Anfrage der App erscheint im Prot
 docker inspect -f '{{.State.Health.Status}}' elm327-emulator
 ```
 
+## Prüfung „kein alter Wert“ (vor jeder Freigabe, etwa 3 Minuten)
+
+Sicherheitsregel beider Apps: Ein Wert, der nicht frisch gelesen wurde, zeigt „–“ – nie den letzten Wert.
+
+1. App mit `192.168.178.50:35000` verbinden, LIVE zeigt Drehzahl, Tempo, Kühlmittel.
+2. `docker stop elm327-emulator` – innerhalb weniger Sekunden zeigen **alle** Werte „–“, Zeiger ohne Wert,
+   Verlauf mit Lücke; Fuel-Trim-/Warmlauf-Test brechen ab statt mit alten Werten zu rechnen.
+3. `docker start elm327-emulator` – die App verbindet neu, Werte erscheinen wieder; der Verlauf verbindet die
+   Zeit des Ausfalls **nicht** mit einer Linie.
+4. Handy drehen und App kurz in den Hintergrund legen: keine alten Werte, keine geschlossenen Lücken.
+
+Automatisch getestet sind die Bausteine: Einstufung jeder Antwort (`PollOutcomeTest`) und das Alterslimit von
+15 s (`LiveValuesTest`). Die Freshness-Sperre im Poll-Loop selbst (Zeitüberschreitung einzelner PIDs, Sitzungswechsel)
+hängt an Android und ist **nicht** automatisch getestet; der Emulator kann einzelne Zeitüberschreitungen nicht
+gezielt erzeugen. Schritt 2 oben prüft den Fall „keine Antwort mehr“ insgesamt.
+
 ## Bekannte Schwäche des Emulators
 
 ELM327-emulator 4.0.0 beendet sich, wenn ein Client die Verbindung hart trennt, während der Emulator ein Zeichen

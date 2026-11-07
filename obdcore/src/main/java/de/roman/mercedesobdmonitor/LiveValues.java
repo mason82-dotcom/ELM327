@@ -6,7 +6,7 @@ import java.util.Map;
 
 /**
  * Regeln für angezeigte Live-Werte (Android-frei, damit testbar): ein Messwert, der nicht frisch
- * gelesen werden konnte (NO DATA, Parser-/Linkfehler, Verbindungsverlust), wird durch
+ * gelesen werden konnte (NO DATA, Parser-/Linkfehler, Zeitüberschreitung, Verbindungsverlust, zu alt), wird durch
  * {@link #INVALID} ersetzt und nie mit seinem letzten Wert weiter angezeigt. Entspricht dem auf
  * dem OpenNextion-Display validierten Verhalten („-- rpm“ nach Sitzungsverlust).
  */
@@ -28,6 +28,21 @@ public final class LiveValues {
             if (markInvalid(texts, pid)) changed.add(pid);
         }
         return changed;
+    }
+
+    /**
+     * Höchstalter eines angezeigten Messwerts. Langsame PIDs werden jede 5. Runde (Fuel-Trim-Test: jede 10.)
+     * gelesen, eine Runde dauert etwa 1 s; Diagnosen pausieren das Polling. Älter als das gilt als nicht frisch.
+     */
+    public static final long MAX_AGE_MS = 15_000;
+
+    /** PIDs, deren letzter frischer Wert älter als {@code maxAgeMs} ist (Zeit in ms, monoton). */
+    public static List<Integer> expired(Map<Integer, Long> freshAt, long nowMs, long maxAgeMs) {
+        List<Integer> out = new ArrayList<>();
+        for (Map.Entry<Integer, Long> e : freshAt.entrySet()) {
+            if (nowMs - e.getValue() > maxAgeMs) out.add(e.getKey());
+        }
+        return out;
     }
 
     public static boolean isValid(String text) {
