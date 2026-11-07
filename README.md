@@ -16,6 +16,19 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.2.0 (Monitor) / 0.4.0 (Dashboard): Werte vom Motorsteuergerät
+
+Am C350 beantworten Motor (7E8) und Getriebe (7E9) dieselben PIDs (01 0C/0D/04/05/42/49). Ohne Header galt die
+zuerst eintreffende Antwort; je Abfrage lagen die Werte bis 194 U/min bzw. 1,1 V auseinander.
+
+- Auf 11-bit-CAN läuft das Live-Polling jetzt mit CAN-Header (`ATH1`); der Parser wertet die Antwort von 7E8 und
+  nimmt ein anderes Steuergerät nur, wenn der Motor nicht antwortet. Single-Frame-PCI begrenzt die Nutzdaten.
+- Diagnosen (DTC, Mode 06, HU/AU-Check, Freeze Frame, Fahrzeugprofil, ATF) laufen weiter mit `ATH0` und stellen
+  danach den Live-Zustand wieder her; Reconnect und Terminal (`ATZ`, `ATH0`) ebenso.
+- Andere Protokolle (29-bit-CAN, K-Line) bleiben bei `ATH0`.
+- Das CSV-Log enthält auf 11-bit-CAN die Rohantworten mit Absender (z. B. `7E804410C0EE7`).
+- **Am Fahrzeug zu prüfen:** Livewerte, DTC-Scan und HU/AU-Check einmal am C350 laufen lassen.
+
 ## Version 1.1.2 (Monitor) / 0.3.1 (Dashboard): Review-Korrekturen
 
 - Schub: ein gültiges Soll-Lambda hat Vorrang vor der Drosselklappen-Regel; `FFFF` zählt nur bei Status 4 (oder unbekanntem Status) als Schub
@@ -34,7 +47,7 @@ Auswertung der ersten zwei Fahrten am C350 (07.11.2026), Details in [docs/c350-l
   nur geregelt und warm. Unterscheidet ein bankspezifisches Muster von Falschluft (Leerlauf hoch, fällt mit Last).
   Am C350 zeigt sie Bank 1 lastunabhängig etwa 6–8 % fetter korrigiert als Bank 2 (Richtwert, keine Diagnose).
 - **Regressionstest mit echten Rohantworten** (`C350LogTest`, Auszug des Logs als Testressource).
-- Offen: Antworten zweier Steuergeräte auf dieselbe PID (Motor + Getriebe) – der Absender ist mit ATH0 unbekannt.
+- Antworten zweier Steuergeräte auf dieselbe PID (Motor + Getriebe): gelöst in 1.2.0.
 
 ## Version 1.1.0 (Monitor) / 0.2.0 (Dashboard): C350-Diagnosefunktionen
 
@@ -157,8 +170,8 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
 
 GitHub Actions testet und lintet alle drei Module und baut bei jedem Push auf `main` zwei Debug-APKs:
 
-- `Mercedes_OBD2_Monitor_v1.1.2-debug` (Modul `:app`)
-- `OBD_Dashboard_v0.3.1-debug` (Modul `:dashboard`)
+- `Mercedes_OBD2_Monitor_v1.2.0-debug` (Modul `:app`)
+- `OBD_Dashboard_v0.4.0-debug` (Modul `:dashboard`)
 
 | Modul | Inhalt |
 |---|---|
