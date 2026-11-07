@@ -113,7 +113,7 @@ Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, R
 - Zielgerät: OnePlus 13R / Android 16
 - minSdk 26 (Android 8.0)
 - compileSdk 37.2 (Android 17 QPR2), targetSdk 37
-- Build-Tools 37.0.0, Android Gradle Plugin 9.5.1, Gradle 9.8.2
+- Build-Tools 37.0.0, Android Gradle Plugin 9.5.1, Gradle 9.9.0
 - Java 17
 
 ## Build
