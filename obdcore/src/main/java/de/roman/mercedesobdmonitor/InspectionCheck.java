@@ -32,6 +32,7 @@ public final class InspectionCheck {
         public String vin;                  // 09 02
         public List<String> calibrationIds = new ArrayList<>(); // 09 04
         public List<String> cvns = new ArrayList<>();           // 09 06
+        public List<String> ecuNames = new ArrayList<>();       // 09 0A
         public VehicleInfo.IuprData iupr;   // 09 08
     }
 
@@ -128,8 +129,9 @@ public final class InspectionCheck {
             for (String line : in.freezeFrame) sb.append("  ").append(line).append('\n');
         }
 
-        if (!in.calibrationIds.isEmpty() || !in.cvns.isEmpty()) {
+        if (!in.calibrationIds.isEmpty() || !in.cvns.isEmpty() || !in.ecuNames.isEmpty()) {
             sb.append("\nSteuergeräte-Software:\n");
+            if (!in.ecuNames.isEmpty()) sb.append("  Steuergeräte: ").append(String.join(", ", in.ecuNames)).append('\n');
             if (!in.calibrationIds.isEmpty()) {
                 sb.append("  CALID: ").append(String.join(", ", in.calibrationIds)).append('\n');
             }

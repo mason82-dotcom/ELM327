@@ -91,6 +91,11 @@ public final class InspectionReader {
         if (cvn == null) in.unavailable.add("CVN (09 06)");
         else in.cvns = VehicleInfo.cvns(cvn, isCan);
 
+        // 09 0A (ECU name) is optional in the EU: NO DATA is not "unavailable", only a timeout is.
+        String names = query("090A", 3000);
+        if (names == null) in.unavailable.add("Steuergerätename (09 0A)");
+        else in.ecuNames = VehicleInfo.ecuNames(names, isCan);
+
         String iupr = query("0908", 3000);
         if (iupr == null) in.unavailable.add("Monitor-Häufigkeit (09 08)");
         else in.iupr = VehicleInfo.iupr(iupr, isCan);

@@ -40,6 +40,7 @@ public final class Elm327Client implements Closeable {
     }
 
     public long connect(int timeoutMs) throws IOException {
+        header = CommandSafety.DEFAULT_HEADER; // a new ELM327 session starts with the default header
         close();
         long start = SystemClock.elapsedRealtime();
         socket = network != null ? network.getSocketFactory().createSocket() : new Socket();
@@ -51,12 +52,21 @@ public final class Elm327Client implements Closeable {
         return SystemClock.elapsedRealtime() - start;
     }
 
+    /** Aktueller CAN-Header des Adapters (ADR-001); nach ATZ und jeder neuen Verbindung „7DF“. */
+    private volatile String header = CommandSafety.DEFAULT_HEADER;
+
+    public synchronized String header() {
+        return header;
+    }
+
     public synchronized CommandResult sendCommand(String command, int timeoutMs) throws IOException {
         ensureConnected();
         String cmd = CommandSafety.normalize(command);
         if (cmd.isEmpty()) throw new IllegalArgumentException("Leerer ELM327-Befehl");
-        if (!CommandSafety.isAllowed(cmd)) {
-            throw new IOException("Read-Only-Schutz: " + CommandSafety.blockedReason(cmd));
+        if (!CommandSafety.isAllowed(cmd, header)) {
+            throw new IOException("Read-Only-Schutz: " + (CommandSafety.isAllowed(cmd)
+                    ? "Befehl passt nicht zum aktuellen Header " + header + " (ADR-001)"
+                    : CommandSafety.blockedReason(cmd)));
         }
         drainAvailable();
         byte[] data = (cmd + "\r").getBytes(StandardCharsets.US_ASCII);
@@ -81,6 +91,8 @@ public final class Elm327Client implements Closeable {
         }
         long elapsed = SystemClock.elapsedRealtime() - start;
         String raw = new String(buf.toByteArray(), StandardCharsets.US_ASCII).trim();
+        // Header state follows only confirmed commands; after a timeout the session drops the connection anyway.
+        header = CommandSafety.headerAfter(cmd, header);
         return new CommandResult(raw, elapsed);
     }
 

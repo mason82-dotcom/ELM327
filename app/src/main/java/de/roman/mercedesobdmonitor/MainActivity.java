@@ -54,6 +54,8 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private Button inspectionButton;
     private Button monitorTestsButton;
     private Button warmupButton;
+    private Button profileButton;
+    private Button atfButton;
     private SparklineView latencyGraph;
 
     private final Map<Integer, TextView> pidRows = new LinkedHashMap<>();
@@ -156,6 +158,13 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         moreControls.addView(warmupButton, weight());
         root.addView(moreControls);
 
+        LinearLayout c350Controls = row();
+        profileButton = button("Fahrzeugprofil");
+        atfButton = button("ATF-Temperatur");
+        c350Controls.addView(profileButton, weight());
+        c350Controls.addView(atfButton, weight());
+        root.addView(c350Controls);
+
         warmupStatus = text("Warmlauf-Check: bereit", 13, Color.LTGRAY);
         warmupStatus.setPadding(0, dp(3), 0, dp(4));
         root.addView(warmupStatus);
@@ -205,6 +214,8 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         misfireButton.setOnClickListener(v -> session.runMisfireAnalysis());
         inspectionButton.setOnClickListener(v -> session.runInspectionCheck());
         monitorTestsButton.setOnClickListener(v -> session.runMonitorTests());
+        profileButton.setOnClickListener(v -> session.runVehicleProfile());
+        atfButton.setOnClickListener(v -> session.runAtfTemperature());
         warmupButton.setOnClickListener(v -> session.toggleWarmupCheck());
         send.setOnClickListener(v -> session.sendTerminal(terminalInput.getText().toString()));
         export.setOnClickListener(v -> session.exportCsv(this));
@@ -360,7 +371,10 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
             case DTC -> { b = dtcButton; idle = "DTC"; working = "Lese DTC…"; }
             case MISFIRE -> { b = misfireButton; idle = "Aussetzer (Mode 06)"; working = "Lese Mode 06 …"; }
             case MONITOR_TESTS -> { b = monitorTestsButton; idle = "Monitortests (Mode 06)"; working = "Lese Monitortests …"; }
-            default -> { b = inspectionButton; idle = "HU/AU-Check"; working = "Lese Readiness …"; }
+            case PROFILE -> { b = profileButton; idle = "Fahrzeugprofil"; working = "Lese Profil …"; }
+            case ATF -> { b = atfButton; idle = "ATF-Temperatur"; working = "Lese Getriebe …"; }
+            case INSPECTION -> { b = inspectionButton; idle = "HU/AU-Check"; working = "Lese Readiness …"; }
+            default -> { return; }
         }
         b.setEnabled(!busy);
         b.setText(busy ? working : idle);
