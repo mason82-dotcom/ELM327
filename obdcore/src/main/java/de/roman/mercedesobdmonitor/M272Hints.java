@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Werkstatthinweise für den Mercedes M272 (C350 W204). Keine Diagnose, sondern
+ * Werkstatthinweise für den Mercedes M272 (C350 S204, T-Modell). Keine Diagnose, sondern
  * typische Ursachen als Prüfreihenfolge. Zylinderzuordnung M272:
  * Bank 1 = Zylinder 1–3, Bank 2 = Zylinder 4–6.
  */
@@ -17,7 +17,7 @@ public final class M272Hints {
         String cam = "M272: Nockenwellenversteller-Magnete und Sensoren zuerst prüfen (Öl im Stecker/"
                 + "Kabelbaum ist ein bekanntes M272-Thema). Bleibt der Fehler, Steuertrieb prüfen: "
                 + "Kettenlängung, Spann- und Gleitschienen; bei frühen M272 das Ausgleichswellenrad. "
-                + "W204 (ab 2007) liegen meist nach der Serienänderung – Motornummer gegenprüfen.";
+                + "Baureihe 204 (W204/S204, ab 2007) liegen meist nach der Serienänderung – Motornummer gegenprüfen.";
         for (String c : new String[] {"P0016", "P0017", "P0018", "P0019"}) HINTS.put(c, cam);
 
         String vvt = "M272: Nockenwellenversteller-Magnet der betroffenen Bank (Öl/Schmutz, "

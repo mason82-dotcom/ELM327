@@ -1,6 +1,6 @@
 # ELM327 – Mercedes OBD2 Monitor
 
-Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen einem Mercedes C350 W204/M272 und einem ELM327-WiFi-Dongle.
+Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen einem Mercedes C350 T-Modell S204/M272 (Baujahr 2008) und einem ELM327-WiFi-Dongle.
 
 ## OBD Dashboard (Modul `:dashboard`)
 
@@ -170,8 +170,8 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
 
 GitHub Actions testet und lintet alle drei Module und baut bei jedem Push auf `main` zwei Debug-APKs:
 
-- `Mercedes_OBD2_Monitor_v1.2.0-debug` (Modul `:app`)
-- `OBD_Dashboard_v0.4.0-debug` (Modul `:dashboard`)
+- `Mercedes_OBD2_Monitor_v1.2.1-debug` (Modul `:app`)
+- `OBD_Dashboard_v0.4.1-debug` (Modul `:dashboard`)
 
 | Modul | Inhalt |
 |---|---|

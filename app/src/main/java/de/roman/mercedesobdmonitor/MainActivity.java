@@ -95,7 +95,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         title.setTypeface(null, Typeface.BOLD);
         root.addView(title);
 
-        TextView sub = text("C350 W204 / M272 · ELM327 WiFi", 14, Color.LTGRAY);
+        TextView sub = text("C350 S204 / M272 · ELM327 WiFi", 14, Color.LTGRAY);
         root.addView(sub);
 
         TextView safety = text("🔒 READ-ONLY · Keine Codierung · Kein Löschen · Keine Stellgliedbefehle", 13,
