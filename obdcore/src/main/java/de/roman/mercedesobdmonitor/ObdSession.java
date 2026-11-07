@@ -383,25 +383,22 @@ public final class ObdSession {
                         || session != sessionGeneration.get()) break;
                 if (!PollSchedule.shouldPoll(pid.pid, cycle, fuelTrimTest.isRunning())) continue;
 
+                // Freshness guard: a polled PID keeps a value only if THIS poll produced one. Every other way
+                // out of the try block (NO DATA, link/parser error, timeout, I/O error, session change, a future
+                // new branch) leaves it at "–" – the timeout branch once forgot this (review of #4).
+                boolean fresh = false;
                 try {
                     int timeoutMs = firstRequestAfterInit ? LinkPolicy.FIRST_REQUEST_TIMEOUT_MS : 1800;
                     Elm327Client.CommandResult r = command(session, pid.command(), timeoutMs);
                     firstRequestAfterInit = false;
                     pollTimeouts.onResponse();
-                    if (ObdParser.isLinkError(r.raw)) {
-                        ioErrors.incrementAndGet();
-                        invalidatePid(pid);
-                        continue;
-                    }
-                    if (ObdParser.isNoData(r.raw)) {
-                        noData.incrementAndGet();
-                        invalidatePid(pid);
-                        continue;
-                    }
-                    Double value = pid.parse(r.raw);
-                    if (value == null) {
-                        parserErrors.incrementAndGet();
-                        invalidatePid(pid);
+                    boolean linkError = ObdParser.isLinkError(r.raw);
+                    Double value = linkError || ObdParser.isNoData(r.raw) ? null : pid.parse(r.raw);
+                    PollOutcome outcome = PollOutcome.of(r.raw, value);
+                    if (!outcome.isValue()) {
+                        if (outcome == PollOutcome.LINK_ERROR) ioErrors.incrementAndGet();
+                        else if (outcome == PollOutcome.NO_DATA) noData.incrementAndGet();
+                        else parserErrors.incrementAndGet();
                         continue;
                     }
                     samples.incrementAndGet();
@@ -409,6 +406,7 @@ public final class ObdSession {
                     if (session != sessionGeneration.get()) break;
                     latestValues.put(pid.pid, value);
                     latestSequences.put(pid.pid, telemetrySequence.incrementAndGet());
+                    fresh = true;
                     csv.record(System.currentTimeMillis(), pid, value, r.elapsedMs, r.raw);
                     final String text = pid.format(value);
                     final long latency = r.elapsedMs;
@@ -428,9 +426,6 @@ public final class ObdSession {
                 } catch (SocketTimeoutException e) {
                     timeouts.incrementAndGet();
                     firstRequestAfterInit = false;
-                    // No answer is not a value: the PID must not keep showing its last reading, also when the
-                    // other PIDs keep answering and no reconnect follows (review of #4).
-                    invalidatePid(pid);
                     // Auf den verspäteten '>'-Prompt warten; erst bei wiederholtem
                     // Timeout oder fehlgeschlagener Resynchronisation neu verbinden.
                     boolean resynced = c.resync(1500);
@@ -455,6 +450,8 @@ public final class ObdSession {
                     closeClientIfCurrent(c);
                     updateStats();
                     break;
+                } finally {
+                    if (!fresh) invalidatePid(pid);
                 }
                 sleepQuiet(25);
             }
