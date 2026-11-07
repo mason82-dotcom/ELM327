@@ -126,6 +126,8 @@ public final class ObdSession {
     private final CsvLogger csv = new CsvLogger(this::append);
     private final Map<Integer, Double> latestValues = new ConcurrentHashMap<>();
     private final Map<Integer, Long> latestSequences = new ConcurrentHashMap<>();
+    /** Zeitpunkt (elapsedRealtime) des letzten frischen Werts je PID; Grundlage des Alterslimits. */
+    private final Map<Integer, Long> latestAt = new ConcurrentHashMap<>();
     private final FuelTrimTest fuelTrimTest = new FuelTrimTest();
     private final WarmupCheck warmupCheck = new WarmupCheck();
     /** Steuergerät meldet PID 41 (Monitorstatus dieser Fahrt) als unterstützt. */
@@ -226,6 +228,7 @@ public final class ObdSession {
         monitoring.set(false);
         latestValues.clear();
         latestSequences.clear();
+        latestAt.clear();
         fuelTrimTest.cancel();
         closeClient();
         state.driveCycleText = null;
@@ -251,6 +254,7 @@ public final class ObdSession {
         protocolIsCan = null;
         latestValues.clear();
         latestSequences.clear();
+        latestAt.clear();
         fuelTrimTest.cancel();
         setFuel(FUEL_BUTTON, FUEL_READY);
         if (warmupCheck.isRunning()) finishWarmupCheck();
@@ -331,17 +335,26 @@ public final class ObdSession {
         append("Aktive Live-PIDs: " + activePids.size());
     }
 
-    /** Einen Messwert ungültig machen: kein alter Wert bleibt in Anzeige, Diagnosen oder Grafiken stehen. */
-    private void invalidatePid(ObdPid pid) {
-        latestValues.remove(pid.pid);
-        latestSequences.remove(pid.pid);
-        ui.post(() -> markInvalid(pid.pid));
+    /**
+     * Einen Messwert ungültig machen: kein alter Wert bleibt in Anzeige, Diagnosen oder Grafiken stehen.
+     * Nur für die laufende Sitzung – ein abgelöster Poll-Thread darf den frischen Wert einer neuen Sitzung
+     * nicht löschen (Review von #6).
+     */
+    private void invalidatePid(int session, int pid) {
+        if (session != sessionGeneration.get()) return;
+        latestValues.remove(pid);
+        latestSequences.remove(pid);
+        latestAt.remove(pid);
+        ui.post(() -> {
+            if (session == sessionGeneration.get()) markInvalid(pid);
+        });
     }
 
     /** Alle Live-Werte ungültig (Verbindungsverlust, Trennen, Verbindungsfehler). */
     private void invalidateAllLive() {
         latestValues.clear();
         latestSequences.clear();
+        latestAt.clear();
         ui.post(() -> {
             for (Integer pid : LiveValues.markAllInvalid(state.pidTexts)) notifyInvalid(pid);
         });
@@ -363,6 +376,10 @@ public final class ObdSession {
     private void monitorLoop(int session, String host, int port) {
         int pollCycle = 0;
         while (monitoring.get() && !userDisconnect && session == sessionGeneration.get()) {
+            // Age limit on every path (slow PIDs, paused polling during diagnoses, any future branch).
+            for (Integer old : LiveValues.expired(latestAt, SystemClock.elapsedRealtime(), LiveValues.MAX_AGE_MS)) {
+                invalidatePid(session, old);
+            }
             if (exclusiveRequest.get()) {
                 sleepQuiet(40);
                 continue;
@@ -392,21 +409,20 @@ public final class ObdSession {
                     Elm327Client.CommandResult r = command(session, pid.command(), timeoutMs);
                     firstRequestAfterInit = false;
                     pollTimeouts.onResponse();
-                    boolean linkError = ObdParser.isLinkError(r.raw);
-                    Double value = linkError || ObdParser.isNoData(r.raw) ? null : pid.parse(r.raw);
-                    PollOutcome outcome = PollOutcome.of(r.raw, value);
-                    if (!outcome.isValue()) {
-                        if (outcome == PollOutcome.LINK_ERROR) ioErrors.incrementAndGet();
-                        else if (outcome == PollOutcome.NO_DATA) noData.incrementAndGet();
+                    PollOutcome.Result result = PollOutcome.classify(pid, r.raw);
+                    if (!result.outcome.isValue()) {
+                        if (result.outcome == PollOutcome.LINK_ERROR) ioErrors.incrementAndGet();
+                        else if (result.outcome == PollOutcome.NO_DATA) noData.incrementAndGet();
                         else parserErrors.incrementAndGet();
                         continue;
                     }
+                    final double value = result.value;
                     samples.incrementAndGet();
                     totalLatency.addAndGet(r.elapsedMs);
                     if (session != sessionGeneration.get()) break;
                     latestValues.put(pid.pid, value);
                     latestSequences.put(pid.pid, telemetrySequence.incrementAndGet());
-                    fresh = true;
+                    latestAt.put(pid.pid, SystemClock.elapsedRealtime());
                     csv.record(System.currentTimeMillis(), pid, value, r.elapsedMs, r.raw);
                     final String text = pid.format(value);
                     final long latency = r.elapsedMs;
@@ -422,10 +438,13 @@ public final class ObdSession {
                             listener.onLatency(latency);
                         }
                     });
+                    fresh = true;
                     updateStats();
                 } catch (SocketTimeoutException e) {
                     timeouts.incrementAndGet();
                     firstRequestAfterInit = false;
+                    // No answer is not a value: "–" at once, not only after the resync wait below.
+                    invalidatePid(session, pid.pid);
                     // Auf den verspäteten '>'-Prompt warten; erst bei wiederholtem
                     // Timeout oder fehlgeschlagener Resynchronisation neu verbinden.
                     boolean resynced = c.resync(1500);
@@ -451,7 +470,7 @@ public final class ObdSession {
                     updateStats();
                     break;
                 } finally {
-                    if (!fresh) invalidatePid(pid);
+                    if (!fresh) invalidatePid(session, pid.pid);
                 }
                 sleepQuiet(25);
             }
@@ -519,6 +538,7 @@ public final class ObdSession {
             firstRequestAfterInit = true;
             latestValues.clear();
             latestSequences.clear();
+            latestAt.clear();
             showStatus("Wieder verbunden · " + protocol);
             append("Auto-Reconnect erfolgreich");
         } catch (Exception e) {
@@ -1043,6 +1063,7 @@ public final class ObdSession {
         fuelTrimTest.cancel();
         latestValues.clear();
         latestSequences.clear();
+        latestAt.clear();
         setFuel(FUEL_BUTTON, "Fuel-Trim-Test: abgebrochen · " + reason);
         append("Fuel-Trim-Test wegen " + reason + " abgebrochen");
     }
@@ -1110,6 +1131,7 @@ public final class ObdSession {
                 ioErrors, parserErrors, totalTxBytes, totalRxBytes}) counter.set(0);
         latestValues.clear();
         latestSequences.clear();
+        latestAt.clear();
         fuelTrimTest.cancel();
         state.console.setLength(0);
         state.console.append("Neues Log begonnen. Die bisherige CSV-Datei bleibt im App-Speicher erhalten.\n");

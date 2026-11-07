@@ -43,8 +43,10 @@ Sicherheitsregel beider Apps: Ein Wert, der nicht frisch gelesen wurde, zeigt �
    Zeit des Ausfalls **nicht** mit einer Linie.
 4. Handy drehen und App kurz in den Hintergrund legen: keine alten Werte, keine geschlossenen Lücken.
 
-Einzelne PIDs mit Zeitüberschreitung (der Fall aus dem Review von #4) deckt der Unit-Test `PollOutcomeTest`
-und die Freshness-Sperre im Poll-Loop ab; der Emulator kann sie nicht gezielt erzeugen.
+Automatisch getestet sind die Bausteine: Einstufung jeder Antwort (`PollOutcomeTest`) und das Alterslimit von
+15 s (`LiveValuesTest`). Die Freshness-Sperre im Poll-Loop selbst (Zeitüberschreitung einzelner PIDs, Sitzungswechsel)
+hängt an Android und ist **nicht** automatisch getestet; der Emulator kann einzelne Zeitüberschreitungen nicht
+gezielt erzeugen. Schritt 2 oben prüft den Fall „keine Antwort mehr“ insgesamt.
 
 ## Bekannte Schwäche des Emulators
 

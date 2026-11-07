@@ -45,4 +45,16 @@ public class LiveValuesTest {
         assertFalse(LiveValues.isValid(null));
         assertFalse(LiveValues.isValid(LiveValues.INVALID));
     }
+
+    @Test
+    public void valuesOlderThanTheAgeLimitExpire() {
+        java.util.Map<Integer, Long> at = new java.util.HashMap<>();
+        at.put(0x0C, 100_000L);                       // fresh
+        at.put(0x05, 100_000L - LiveValues.MAX_AGE_MS); // exactly at the limit: still valid
+        at.put(0x42, 100_000L - LiveValues.MAX_AGE_MS - 1); // older: expired
+        java.util.List<Integer> old = LiveValues.expired(at, 100_000L, LiveValues.MAX_AGE_MS);
+        org.junit.Assert.assertEquals(java.util.Collections.singletonList(0x42), old);
+        // Slow PIDs (every 10th cycle at about 1 s) and short diagnoses stay below the limit.
+        org.junit.Assert.assertTrue(LiveValues.MAX_AGE_MS >= 10 * 1000);
+    }
 }
