@@ -1,0 +1,26 @@
+# ELM327 emulator for the Monitor and Dashboard apps: a phone on the home Wi-Fi connects to
+# ${ELM_BIND}:35000 like to a Wi-Fi ELM327 adapter. No car, no adapter, no VNC.
+name: elm327-emulator
+services:
+  elm327:
+    build: .
+    image: elm327-emulator:4.0.0
+    container_name: elm327-emulator
+    restart: unless-stopped
+    environment:
+      HOME: /tmp
+    ports:
+      - "${ELM_BIND:-192.168.178.50}:${ELM_PORT:-35000}:35000"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "2" }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',35000),3); s.sendall(b'ATZ\\r'); import time; time.sleep(0.5); assert b'ELM327' in s.recv(256)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
