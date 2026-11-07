@@ -53,8 +53,23 @@ public final class ObdSession {
         void onFuelTest(String button, String status);
         void onBusy(Op op, boolean busy);
         void onDialog(String title, String message);
+        /**
+         * Ergebnis einer Diagnose ({@code op} hat es erzeugt). Standard: wie ein Dialog, damit bestehende
+         * Oberflächen unverändert bleiben; das Dashboard ordnet es damit eindeutig seiner Seite zu.
+         */
+        default void onResult(Op op, String title, String message) { onDialog(title, message); }
         void onToast(String message);
+        /** Neuer gültiger Messwert als Zahl (für Zeiger und Verlaufskurven); Main-Thread. */
+        default void onPidSample(int pid, double value) { }
+        /**
+         * Messwert nicht mehr gültig (NO DATA, Parser-/Linkfehler oder Verbindungsverlust). Der Text
+         * steht danach auf {@link #INVALID_TEXT}; ein alter Wert darf nicht weiter angezeigt werden.
+         */
+        default void onPidInvalid(int pid) { }
     }
+
+    /** Anzeige für einen nicht (mehr) gültigen Messwert ({@link LiveValues#INVALID}). */
+    public static final String INVALID_TEXT = LiveValues.INVALID;
 
     /** Für den Service: Sitzung aktiv (verbunden oder im Reconnect) plus Kurzstatus. Main-Thread. */
     public interface Observer {
@@ -144,7 +159,12 @@ public final class ObdSession {
 
     // Nur Main-Thread.
     private final State state = new State();
-    private final List<String[]> pendingDialogs = new ArrayList<>();
+    /** Dialog oder Diagnose-Ergebnis, das ohne angebundene UI eintraf ({@code op} null = Dialog). */
+    private static final class Pending {
+        final Op op; final String title; final String message;
+        Pending(Op op, String title, String message) { this.op = op; this.title = title; this.message = message; }
+    }
+    private final List<Pending> pendingDialogs = new ArrayList<>();
     private Listener listener;
     private Observer observer;
 
@@ -162,7 +182,10 @@ public final class ObdSession {
         listener = l;
         if (l == null) return;
         l.render(state);
-        for (String[] d : pendingDialogs) l.onDialog(d[0], d[1]);
+        for (Pending d : pendingDialogs) {
+            if (d.op != null) l.onResult(d.op, d.title, d.message);
+            else l.onDialog(d.title, d.message);
+        }
         pendingDialogs.clear();
     }
 
@@ -173,6 +196,11 @@ public final class ObdSession {
 
     public void setObserver(Observer o) {
         observer = o;
+    }
+
+    /** Erkannter Bus nach ATDPN: true = CAN, false = kein CAN, null = noch unbekannt. */
+    public Boolean protocolIsCan() {
+        return protocolIsCan;
     }
 
     public boolean isActive() {
@@ -220,12 +248,14 @@ public final class ObdSession {
         sessionGeneration.incrementAndGet();
         userDisconnect = true;
         monitoring.set(false);
+        protocolIsCan = null;
         latestValues.clear();
         latestSequences.clear();
         fuelTrimTest.cancel();
         setFuel(FUEL_BUTTON, FUEL_READY);
         if (warmupCheck.isRunning()) finishWarmupCheck();
         showStatus("Getrennt");
+        invalidateAllLive();
         if (reason != null) append(reason);
         append("Verbindung getrennt");
         closeClient();
@@ -236,6 +266,8 @@ public final class ObdSession {
     private void connectAndStart(int session, String host, int port) {
         try {
             if (session != sessionGeneration.get()) return;
+            // Protocol of a previous adapter/car must not be shown or used for this connection.
+            protocolIsCan = null;
             showStatus("Verbinde mit " + host + ":" + port + " …");
             long connectMs = connectWithFallback(host, port, session);
             append("TCP verbunden in " + connectMs + " ms");
@@ -271,6 +303,7 @@ public final class ObdSession {
             ioErrors.incrementAndGet();
             append("Verbindungsfehler: " + e.getMessage());
             showStatus("Verbindung fehlgeschlagen");
+            invalidateAllLive();
             closeClient();
             updateStats();
             setActive(false);
@@ -298,6 +331,35 @@ public final class ObdSession {
         append("Aktive Live-PIDs: " + activePids.size());
     }
 
+    /** Einen Messwert ungültig machen: kein alter Wert bleibt in Anzeige, Diagnosen oder Grafiken stehen. */
+    private void invalidatePid(ObdPid pid) {
+        latestValues.remove(pid.pid);
+        latestSequences.remove(pid.pid);
+        ui.post(() -> markInvalid(pid.pid));
+    }
+
+    /** Alle Live-Werte ungültig (Verbindungsverlust, Trennen, Verbindungsfehler). */
+    private void invalidateAllLive() {
+        latestValues.clear();
+        latestSequences.clear();
+        ui.post(() -> {
+            for (Integer pid : LiveValues.markAllInvalid(state.pidTexts)) notifyInvalid(pid);
+        });
+    }
+
+    /** Main-Thread. */
+    private void markInvalid(int pid) {
+        if (LiveValues.markInvalid(state.pidTexts, pid)) notifyInvalid(pid);
+    }
+
+    /** Main-Thread. */
+    private void notifyInvalid(int pid) {
+        if (listener != null) {
+            listener.onPidValue(pid, INVALID_TEXT);
+            listener.onPidInvalid(pid);
+        }
+    }
+
     private void monitorLoop(int session, String host, int port) {
         int pollCycle = 0;
         while (monitoring.get() && !userDisconnect && session == sessionGeneration.get()) {
@@ -310,6 +372,7 @@ public final class ObdSession {
             if (c == null || !c.isConnected()) {
                 // Während des Reconnects kommen keine Messwerte, die den Puffer leeren würden.
                 csv.flush();
+                invalidateAllLive();
                 reconnectAfterFailure(session, host, port);
                 continue;
             }
@@ -327,15 +390,18 @@ public final class ObdSession {
                     pollTimeouts.onResponse();
                     if (ObdParser.isLinkError(r.raw)) {
                         ioErrors.incrementAndGet();
+                        invalidatePid(pid);
                         continue;
                     }
                     if (ObdParser.isNoData(r.raw)) {
                         noData.incrementAndGet();
+                        invalidatePid(pid);
                         continue;
                     }
                     Double value = pid.parse(r.raw);
                     if (value == null) {
                         parserErrors.incrementAndGet();
+                        invalidatePid(pid);
                         continue;
                     }
                     samples.incrementAndGet();
@@ -346,12 +412,15 @@ public final class ObdSession {
                     csv.record(System.currentTimeMillis(), pid, value, r.elapsedMs, r.raw);
                     final String text = pid.format(value);
                     final long latency = r.elapsedMs;
+                    final double sample = value;
                     ui.post(() -> {
+                        if (session != sessionGeneration.get()) return;
                         state.pidTexts.put(pid.pid, text);
                         if (state.latencies.size() >= LATENCY_POINTS) state.latencies.removeFirst();
                         state.latencies.addLast(latency);
                         if (listener != null) {
                             listener.onPidValue(pid.pid, text);
+                            listener.onPidSample(pid.pid, sample);
                             listener.onLatency(latency);
                         }
                     });
@@ -359,6 +428,9 @@ public final class ObdSession {
                 } catch (SocketTimeoutException e) {
                     timeouts.incrementAndGet();
                     firstRequestAfterInit = false;
+                    // No answer is not a value: the PID must not keep showing its last reading, also when the
+                    // other PIDs keep answering and no reconnect follows (review of #4).
+                    invalidatePid(pid);
                     // Auf den verspäteten '>'-Prompt warten; erst bei wiederholtem
                     // Timeout oder fehlgeschlagener Resynchronisation neu verbinden.
                     boolean resynced = c.resync(1500);
@@ -527,7 +599,7 @@ public final class ObdSession {
 
             setBusy(Op.DTC, false);
             showStatus(statusAfterDiagnosis("DTC-Scan beendet · Reconnect läuft …"));
-            showDialog("OBD-II Fehlercodes", report);
+            showResult(Op.DTC, "OBD-II Fehlercodes", report);
         });
     }
 
@@ -659,7 +731,7 @@ public final class ObdSession {
             setBusy(op, false);
             showStatus(statusAfterDiagnosis(title + " beendet · Reconnect läuft …"));
             updateStats();
-            showDialog(title, report);
+            showResult(op, title, report);
         });
     }
 
@@ -1240,11 +1312,21 @@ public final class ObdSession {
 
     /** Dialoge, die ohne sichtbare UI eintreffen, werden beim nächsten Anbinden gezeigt. */
     private void showDialog(String title, String message) {
+        deliver(null, title, message);
+    }
+
+    /** Ergebnis einer Diagnose, eindeutig mit der Operation, die es erzeugt hat. */
+    private void showResult(Op op, String title, String message) {
+        deliver(op, title, message);
+    }
+
+    private void deliver(Op op, String title, String message) {
         ui.post(() -> {
             if (listener != null) {
-                listener.onDialog(title, message);
+                if (op != null) listener.onResult(op, title, message);
+                else listener.onDialog(title, message);
             } else if (pendingDialogs.size() < MAX_PENDING_DIALOGS) {
-                pendingDialogs.add(new String[] {title, message});
+                pendingDialogs.add(new Pending(op, title, message));
             }
         });
     }

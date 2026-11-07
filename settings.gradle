@@ -15,4 +15,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "MercedesOBD2Monitor"
+include ':obdcore'
 include ':app'
+include ':dashboard'
