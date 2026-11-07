@@ -179,4 +179,27 @@ public class C350FeaturesTest {
         assertTrue(VehicleInfo.ecuNames("NO DATA", true).isEmpty());
         assertNotNull(VehicleInfo.ecuNames(null, true));
     }
+
+    @Test
+    public void profileAcceptsEmulatorAnswers() {
+        // exact answers of the brix emulator (ATH1, ATS0)
+        assertTrue(VehicleScan.supportedByEcu("SEARCHING...\r7E8064100BE3FA813\r", 0x41, 0x00).get("7E8").contains(0x0C));
+        // Mode 06 without the base echo, PCI 05 proves the length
+        TreeSet<Integer> m6 = VehicleScan.supportedByEcu("7E80546C0000001", 0x46, 0x00).get("7E8");
+        assertTrue(m6.contains(0x01));
+        assertTrue(m6.contains(0x02));
+        assertTrue(m6.contains(0x20));
+        TreeSet<Integer> m6b = VehicleScan.supportedByEcu("7E8054680008001", 0x46, 0x20).get("7E8");
+        assertTrue(m6b.contains(0x21));
+        assertTrue(m6b.contains(0x31));
+        assertTrue(m6b.contains(0x40));
+        // standard form with echo still works
+        assertTrue(VehicleScan.supportedByEcu("7E8064600C0000001", 0x46, 0x00).get("7E8").contains(0x02));
+    }
+
+    @Test
+    public void ecuNameFromEmulatorMultiFrame() {
+        String raw = "17490A0145434D\r002D456E67696E\r65436F6E74726F\r6C000000000000\r";
+        assertEquals(java.util.List.of("ECM-EngineControl"), VehicleInfo.ecuNames(raw, true));
+    }
 }

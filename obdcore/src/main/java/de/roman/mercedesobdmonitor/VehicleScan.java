@@ -19,10 +19,14 @@ import java.util.regex.Pattern;
 public final class VehicleScan {
     private VehicleScan() { }
 
-    /** Antwortservice + Basis-PID + 4 Byte Bitmap, mit optionalem 11-bit-Header und PCI-Längenbyte davor. */
+    /**
+     * Antwortservice + Basis-PID + 4 Byte Bitmap, mit optionalem 11-bit-Header und PCI-Längenbyte davor.
+     * Manche Steuergeräte/Emulatoren lassen bei Mode 06 das Echo der Basis weg ({@code 7E8 05 46 C0000001});
+     * das wird nur akzeptiert, wenn das PCI-Byte die Länge eindeutig belegt (5 = Service + 4 Byte).
+     */
     private static Pattern bitmapPattern(int responseService, int base) {
         return Pattern.compile(String.format(Locale.US,
-                "^(?:(7E[8-9A-F]|[0-9A-F]{3})[0-9A-F]{2})?%02X%02X([0-9A-F]{8})", responseService, base));
+                "^(?:(7E[8-9A-F]|[0-9A-F]{3})([0-9A-F]{2}))?%02X(?:(%02X)([0-9A-F]{8})|([0-9A-F]{8}))", responseService, base));
     }
 
     /**
@@ -40,7 +44,12 @@ public final class VehicleScan {
             Matcher m = p.matcher(hex);
             if (!m.find()) continue;
             String ecu = m.group(1) == null ? "?" : m.group(1);
-            long mask = Long.parseLong(m.group(2), 16);
+            String bitmap;
+            if (m.group(3) != null && !"05".equals(m.group(2))) bitmap = m.group(4);
+            else if (m.group(5) != null && "05".equals(m.group(2))) bitmap = m.group(5);
+            else if (m.group(3) != null && "05".equals(m.group(2))) bitmap = hex.substring(m.start(3), m.start(3) + 8);
+            else continue;
+            long mask = Long.parseLong(bitmap, 16);
             TreeSet<Integer> set = out.computeIfAbsent(ecu, k -> new TreeSet<>());
             for (int bit = 0; bit < 32; bit++) {
                 if ((mask & (1L << (31 - bit))) != 0) set.add(base + bit + 1);
