@@ -48,6 +48,37 @@ Automatisch getestet sind die Bausteine: Einstufung jeder Antwort (`PollOutcomeT
 hängt an Android und ist **nicht** automatisch getestet; der Emulator kann einzelne Zeitüberschreitungen nicht
 gezielt erzeugen. Schritt 2 oben prüft den Fall „keine Antwort mehr“ insgesamt.
 
+## Fehlerszenario (Port 35001)
+
+Zweiter Dienst `elm327-faults` mit demselben Emulator, der in einem festen Zyklus (etwa 95 s) Fehler einspielt.
+In der App als Port **35001** statt 35000 eintragen; die aktuelle Phase steht im Log:
+
+```bash
+docker logs -f elm327-faults | grep PHASE
+```
+
+| Phase | Dauer | Emulator | Erwartung in der App |
+|---|---|---|---|
+| NORMAL | 20 s | alle Werte | alle Werte sichtbar |
+| RPM_NO_DATA | 15 s | 01 0C → NO DATA | nur Drehzahl „–“, Rest bleibt |
+| RPM_TIMEOUT | 15 s | 01 0C antwortet erst nach 3 s | Drehzahl sofort „–“, Rest bleibt; die verspätete Antwort darf **nicht** als anderer Wert erscheinen |
+| RPM_CAN_ERROR | 10 s | 01 0C → CAN ERROR | Drehzahl „–“ |
+| ENGINE_OFF | 15 s | Ircama-Szenario `engineoff` (Zündung an, Motor aus) | alle Motorwerte „–“ |
+| ADAPTER_SILENT | 20 s | Emulator antwortet nicht | alle Werte „–“, Verlauf mit Lücke, App verbindet neu |
+
+Dauern lassen sich mit `FAULT_NORMAL`, `FAULT_NO_DATA`, `FAULT_TIMEOUT`, `FAULT_CAN_ERROR`, `FAULT_ENGINE_OFF`,
+`FAULT_SILENT` (Sekunden) im `environment` des Dienstes ändern. Gesteuert wird über die Standardeingabe des
+Batch-Modus (`faults.sh`), ohne Änderung am Emulator.
+
+Automatische Gegenprobe, ob das Szenario selbst stimmt (fragt wie die App ab, Python-Standardbibliothek):
+
+```bash
+python3 tools/elm327-emulator/check_faults.py            # 192.168.178.50 35001, ein Zyklus (110 s)
+```
+
+Erwartet: sechsmal `OK`, Exit-Code 0. Die Zeile `OTHER` sind verspätete Antworten, die nach einer
+Zeitüberschreitung als Antwort auf die nächste Frage eintreffen – genau so verhält sich ein echter Adapter.
+
 ## Bekannte Schwäche des Emulators
 
 ELM327-emulator 4.0.0 beendet sich, wenn ein Client die Verbindung hart trennt, während der Emulator ein Zeichen
