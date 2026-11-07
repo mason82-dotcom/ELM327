@@ -47,7 +47,9 @@ public class C350FeaturesTest {
         // enrichment λ 0.85 burns more fuel
         assertTrue(EngineAnalysis.fuelRateLitersPerHour(10.0, 0.85, 4, 60.0, 4000.0) > 3.287);
         // overrun fuel cut: status 4, throttle closed, rpm above idle → 0
-        assertEquals(0.0, EngineAnalysis.fuelRateLitersPerHour(12.0, 1.0, 4, 0.0, 2500.0), 0);
+        // Schub: ohne Soll-Lambda über Status 4 + Klappe zu, mit Soll-Lambda nur bei FFFF (C350-Log 07.11.2026)
+        assertEquals(0.0, EngineAnalysis.fuelRateLitersPerHour(12.0, null, 4, 0.0, 2500.0), 0);
+        assertEquals(0.0, EngineAnalysis.fuelRateLitersPerHour(12.0, 1.99997, 4, 0.0, 2500.0), 0);
         assertNull(EngineAnalysis.fuelRateLitersPerHour(null, 1.0, 2, 5.0, 800.0));
         assertEquals(6.574, EngineAnalysis.fuelPer100Km(3.287, 50.0), 0.001);
         assertNull("standing: no l/100 km", EngineAnalysis.fuelPer100Km(1.0, 0.0));
