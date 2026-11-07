@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class ObdParser {
@@ -12,6 +13,11 @@ public final class ObdParser {
     private static final Pattern NON_HEX = Pattern.compile("[^0-9A-F]");
     private static final Pattern ISO_TP_LENGTH = Pattern.compile("[0-9A-F]{3}");
     private static final Pattern ISO_TP_SEGMENT = Pattern.compile("[0-9A-F]:[0-9A-F]*");
+    /** 11-bit-Antwortkennung 7E8–7EF + Single-Frame-PCI 01–07 (ATH1, ATS0), z. B. „7E803410C0EE7“. */
+    private static final Pattern CAN_SINGLE_FRAME = Pattern.compile("^(7E[89A-F])0([1-7])([0-9A-F]*)$");
+
+    /** Antwortkennung des Motorsteuergeräts (ME9.7 beim M272). */
+    public static final String ENGINE_ECU = "7E8";
 
     private ObdParser() { }
 
@@ -22,7 +28,7 @@ public final class ObdParser {
     public static byte[] mode01Data(String raw, int pid, int minBytes) {
         if (raw == null) return null;
         String marker = String.format(Locale.US, "41%02X", pid & 0xFF);
-        for (String line : normalizedLines(raw)) {
+        for (String line : payloadLines(raw)) {
             int pos = line.indexOf(marker);
             if (pos < 0) continue;
             String hex = hexOnly(line.substring(pos + marker.length()));
@@ -45,7 +51,7 @@ public final class ObdParser {
     public static byte[] mode02Data(String raw, int pid, int minBytes) {
         if (raw == null) return null;
         String marker = String.format(Locale.US, "42%02X", pid & 0xFF);
-        for (String line : normalizedLines(raw)) {
+        for (String line : payloadLines(raw)) {
             String hex = hexOnly(line);
             if (!hex.startsWith(marker)) continue;
             String body = hex.substring(marker.length());
@@ -65,7 +71,7 @@ public final class ObdParser {
     /** Rohantwort → zusammengesetzte CAN-Nachrichten (ISO-TP-Segmente verbunden, nur Hex). */
     public static List<String> canMessages(String raw) {
         if (raw == null) return new ArrayList<>();
-        return assembleCanMessages(normalizedLines(raw));
+        return assembleCanMessages(payloadLines(raw));
     }
 
     public static Set<Integer> supportedPids(String raw, int basePid) {
@@ -77,7 +83,7 @@ public final class ObdParser {
         String marker = String.format(Locale.US, "41%02X", basePid & 0xFF);
         long unionMask = 0L;
 
-        for (String line : normalizedLines(raw)) {
+        for (String line : payloadLines(raw)) {
             int pos = line.indexOf(marker);
             if (pos < 0) continue;
             String hex = hexOnly(line.substring(pos + marker.length()));
@@ -296,6 +302,39 @@ public final class ObdParser {
         int d3 = (b >> 4) & 0x0F;
         int d4 = b & 0x0F;
         return String.format(Locale.US, "%c%d%X%X%X", f, d1, d2, d3, d4);
+    }
+
+    /**
+     * Absender und Nutzdaten einer Single-Frame-Zeile mit 11-bit-Header (ATH1), sonst null. Ohne Header
+     * (ATH0) beginnt eine Antwort mit dem Service-Byte (4x/7F) oder einer ISO-TP-Kennung, nie mit „7E“.
+     * Nutzdaten werden auf die PCI-Länge gekürzt (Padding fällt weg).
+     */
+    static String[] splitCanHeader(String line) {
+        Matcher m = CAN_SINGLE_FRAME.matcher(line);
+        if (!m.matches()) return null;
+        int len = Integer.parseInt(m.group(2));
+        String data = m.group(3);
+        if (data.length() < len * 2) return null;
+        return new String[] {m.group(1), data.substring(0, len * 2)};
+    }
+
+    /**
+     * Antwortzeilen ohne CAN-Header; mit Header (Live-Polling auf 11-bit-CAN) stehen die Antworten des
+     * Motorsteuergeräts (7E8) vorn, danach die übrigen in Empfangsreihenfolge. Am C350 beantworten Motor
+     * und Getriebe u. a. 01 0C/0D/04/05/42/49 (Log 07.11.2026, bis 1,1 V Unterschied bei 01 42); ohne Header
+     * hätte die zuerst eintreffende Antwort gegolten.
+     */
+    static List<String> payloadLines(String raw) {
+        List<String> engine = new ArrayList<>();
+        List<String> other = new ArrayList<>();
+        for (String line : normalizedLines(raw)) {
+            String[] split = splitCanHeader(line);
+            if (split == null) other.add(line);
+            else if (ENGINE_ECU.equals(split[0])) engine.add(split[1]);
+            else other.add(split[1]);
+        }
+        engine.addAll(other);
+        return engine;
     }
 
     static List<String> normalizedLines(String raw) {

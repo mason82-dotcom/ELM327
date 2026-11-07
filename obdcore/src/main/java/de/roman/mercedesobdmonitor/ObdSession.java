@@ -294,6 +294,12 @@ public final class ObdSession {
             protocol = describeProtocol(dp, dpn);
             protocolIsCan = ObdParser.isCanProtocol(dpn);
             protocolNumber = dpn;
+            // 11-bit-CAN: headers on, so the engine's answer (7E8) wins over the transmission's (7E9).
+            String headers = LinkPolicy.liveHeaders(dpn);
+            if (!"ATH0".equals(headers)) {
+                command(session, headers, 1500);
+                append("Live-Polling mit CAN-Header: Werte vom Motorsteuergerät (7E8) bevorzugt");
+            }
             pollTimeouts.reset();
             showStatus("Verbunden · " + elmId + " · " + protocol);
             append("Adapter: " + elmId);
@@ -586,6 +592,7 @@ public final class ObdSession {
                 StringBuilder sb = new StringBuilder();
                 List<String> allCodes = new ArrayList<>();
                 synchronized (c) {
+                    enterDiagnosis(c);
                     sb.append("Generische OBD-II-Fehlercodes\n\n");
                     sb.append(readDtcMode(c, "Gespeichert", "03", 0x43, allCodes));
                     sleepQuiet(180);
@@ -598,6 +605,7 @@ public final class ObdSession {
                     if (c.isConnected()) {
                         try {
                             c.sendCommand("0100", 2200);
+                            leaveDiagnosis(c);
                         } catch (IOException probeError) {
                             append("DTC-Nachtest: Verbindung wird neu aufgebaut – " + probeError.getMessage());
                             closeClientIfCurrent(c);
@@ -715,7 +723,8 @@ public final class ObdSession {
         }
         VehicleScan.Result r = new VehicleScan.Result();
         boolean done = false;
-        // Headers on, so engine (7E8) and transmission (7E9) answers can be told apart; the live loop needs ATH0.
+        // Headers on, so engine (7E8) and transmission (7E9) answers can be told apart. The profile parser reads
+        // headers itself; afterwards the diagnosis state (ATH0) is restored, leaveDiagnosis() then the live state.
         diagCommand(c, "ATH1", 1500);
         try {
             scanBitmaps(c, r, "01", 0x41, r.mode01, 0xA0);
@@ -726,7 +735,7 @@ public final class ObdSession {
             diagCommand(c, "ATH0", 1500);
             done = true;
         } finally {
-            // Without a confirmed ATH0 the live parser would see headers: reconnect re-initialises the adapter.
+            // Without a confirmed ATH0 the adapter state is unknown: reconnect re-initialises it.
             if (!done) closeClientIfCurrent(c);
         }
         return VehicleScan.report(r);
@@ -792,7 +801,13 @@ public final class ObdSession {
             String report;
             try {
                 synchronized (c) {
-                    report = job.run(c);
+                    enterDiagnosis(c);
+                    try {
+                        report = job.run(c);
+                    } finally {
+                        // also after a parser error; an I/O error here drops the connection like any other
+                        if (c.isConnected()) leaveDiagnosis(c);
+                    }
                 }
                 append(title + " abgeschlossen");
             } catch (SocketTimeoutException e) {
@@ -815,6 +830,22 @@ public final class ObdSession {
             updateStats();
             showResult(op, title, report);
         });
+    }
+
+    /** Diagnose-Parser erwarten Antworten ohne Header; das Live-Polling auf 11-bit-CAN läuft mit ATH1. */
+    private void enterDiagnosis(Elm327Client c) throws IOException {
+        if (!LinkPolicy.DIAG_HEADERS.equals(LinkPolicy.liveHeaders(protocolNumber))) {
+            c.sendCommand(LinkPolicy.DIAG_HEADERS, 1500);
+        }
+    }
+
+    /**
+     * Header-Zustand des Live-Pollings wiederherstellen. Schlägt das fehl, fliegt eine IOException und die
+     * Verbindung wird verworfen; der Reconnect stellt den Zustand über {@link LinkPolicy#reconnectInit} her.
+     */
+    private void leaveDiagnosis(Elm327Client c) throws IOException {
+        String live = LinkPolicy.liveHeaders(protocolNumber);
+        if (!LinkPolicy.DIAG_HEADERS.equals(live)) c.sendCommand(live, 1500);
     }
 
     private String statusAfterDiagnosis(String reconnecting) {

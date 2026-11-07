@@ -29,6 +29,18 @@ public final class LinkPolicy {
     }
 
     /**
+     * Header-Anzeige im Live-Polling: auf 11-bit-CAN an (ATH1), damit die Antwort des Motorsteuergeräts (7E8)
+     * von der des Getriebes (7E9) unterschieden wird (C350-Log 07.11.2026); sonst aus. Diagnosen laufen immer
+     * mit ATH0 ({@link #DIAG_HEADERS}) und stellen danach diesen Zustand wieder her.
+     */
+    public static String liveHeaders(String dpn) {
+        return isCan11Bit(dpn) ? "ATH1" : "ATH0";
+    }
+
+    /** Header-Anzeige für Diagnosen (DTC, Mode 06, HU/AU-Check, Freeze Frame …): deren Parser erwarten ATH0. */
+    public static final String DIAG_HEADERS = "ATH0";
+
+    /**
      * Vollständige Adapter-Initialisierung nach einem Reconnect (ohne ATZ). Ein WLAN-Adapter behält seinen
      * Header über TCP-Reconnects; bei 11-bit-CAN wird er deshalb ausdrücklich auf 7DF gesetzt (ADR-001).
      */
@@ -37,7 +49,7 @@ public final class LinkPolicy {
         cmds.add("ATE0");
         cmds.add("ATL0");
         cmds.add("ATS0");
-        cmds.add("ATH0");
+        cmds.add(liveHeaders(dpn));
         cmds.add("ATAT1");
         cmds.add(protocolSelect(dpn));
         if (isCan11Bit(dpn)) cmds.add(CommandSafety.OBD_HEADER);
@@ -66,7 +78,9 @@ public final class LinkPolicy {
             case "ATE1" -> out.add("ATE0");
             case "ATL1" -> out.add("ATL0");
             case "ATS1" -> out.add("ATS0");
-            case "ATH1" -> out.add("ATH0");
+            case "ATH0", "ATH1" -> {
+                if (!cmd.equals(liveHeaders(dpn))) out.add(liveHeaders(dpn));
+            }
             case "ATAT0", "ATAT2" -> out.add("ATAT1");
             default -> {
                 if (cmd.startsWith("ATST") && !"ATST64".equals(cmd)) out.add("ATST64");

@@ -24,6 +24,17 @@ public class LinkPolicyTest {
         assertEquals("ATSP0", LinkPolicy.protocolSelect("NO DATA"));
     }
 
+    @Test public void liveHeadersOnlyOn11BitCan() {
+        assertEquals("ATH1", LinkPolicy.liveHeaders("A6"));
+        assertEquals("ATH1", LinkPolicy.liveHeaders("8"));
+        assertEquals("ATH0", LinkPolicy.liveHeaders("7"));     // 29-bit
+        assertEquals("ATH0", LinkPolicy.liveHeaders("3"));     // ISO 9141
+        assertEquals("ATH0", LinkPolicy.liveHeaders(null));
+        assertTrue(LinkPolicy.reconnectInit("A6").contains("ATH1"));
+        assertFalse(LinkPolicy.reconnectInit("A6").contains("ATH0"));
+        assertTrue(LinkPolicy.reconnectInit("3").contains("ATH0"));
+    }
+
     @Test public void reconnectInitRestoresFullAdapterSetup() {
         List<String> init = LinkPolicy.reconnectInit("A6");
         assertTrue(init.contains("ATAT1"));
@@ -55,7 +66,11 @@ public class LinkPolicyTest {
     }
 
     @Test public void terminalFormatChangesAreReverted() {
-        assertEquals(List.of("ATH0"), LinkPolicy.restoreAfterTerminal("ath1", "A6"));
+        // Legacy-Protokoll: Live-Polling ohne Header
+        assertEquals(List.of("ATH0"), LinkPolicy.restoreAfterTerminal("ath1", "A3"));
+        // 11-bit-CAN: Live-Polling mit Header (Motor 7E8 vs. Getriebe 7E9)
+        assertEquals(List.of("ATH1"), LinkPolicy.restoreAfterTerminal("ATH0", "A6"));
+        assertTrue(LinkPolicy.restoreAfterTerminal("ATH1", "A6").isEmpty());
         assertEquals(List.of("ATE0"), LinkPolicy.restoreAfterTerminal("AT E1", "A6"));
         assertEquals(List.of("ATS0"), LinkPolicy.restoreAfterTerminal("ATS1", "A6"));
         assertEquals(List.of("ATL0"), LinkPolicy.restoreAfterTerminal("ATL1", "A6"));
@@ -68,7 +83,7 @@ public class LinkPolicyTest {
     }
 
     @Test public void harmlessOrIntentionalTerminalCommandsNeedNoRestore() {
-        for (String cmd : new String[] {"ATI", "ATRV", "ATDPN", "ATH0", "ATE0", "ATST64", "ATAT1",
+        for (String cmd : new String[] {"ATI", "ATRV", "ATDPN", "ATH1", "ATE0", "ATST64", "ATAT1",
                 "ATSP6", "ATSP0", "0100", "03"}) {
             assertTrue(cmd, LinkPolicy.restoreAfterTerminal(cmd, "A6").isEmpty());
         }
