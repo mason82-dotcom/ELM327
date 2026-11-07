@@ -198,8 +198,9 @@ public class C350FeaturesTest {
     }
 
     @Test
-    public void ecuNameFromEmulatorMultiFrame() {
-        String raw = "17490A0145434D\r002D456E67696E\r65436F6E74726F\r6C000000000000\r";
+    public void ecuNameFromIsoTpMultiFrame() {
+        // ELM327 form with ATH0/ATS0: length line, then segment counters
+        String raw = "017\r0: 490A0145434D\r1: 002D456E67696E\r2: 65436F6E74726F\r3: 6C000000000000\r";
         assertEquals(java.util.List.of("ECM-EngineControl"), VehicleInfo.ecuNames(raw, true));
     }
 }
