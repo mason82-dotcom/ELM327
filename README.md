@@ -2,7 +2,7 @@
 
 Android-App zur Überprüfung und Überwachung der OBD-II-Schnittstelle zwischen einem Mercedes C350 W204/M272 und einem ELM327-WiFi-Dongle.
 
-## Neu: OBD Dashboard (Modul `:dashboard`, 0.1.0)
+## OBD Dashboard (Modul `:dashboard`)
 
 Zweite App im selben Repository: die Oberfläche des **OpenNextion-ELM327-Displays** (Reiter LIVE / GRAPH / DTC / INFO) als Android-App, gedacht für die Halterung im Auto.
 
@@ -137,8 +137,8 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
 
 GitHub Actions testet und lintet alle drei Module und baut bei jedem Push auf `main` zwei Debug-APKs:
 
-- `Mercedes_OBD2_Monitor_v1.0.9-debug` (Modul `:app`)
-- `OBD_Dashboard_v0.1.0-debug` (Modul `:dashboard`)
+- `Mercedes_OBD2_Monitor_v1.1.0-debug` (Modul `:app`)
+- `OBD_Dashboard_v0.2.0-debug` (Modul `:dashboard`)
 
 | Modul | Inhalt |
 |---|---|
