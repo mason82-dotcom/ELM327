@@ -30,11 +30,36 @@ public final class EngineAnalysis {
     public static Double fuelRateLitersPerHour(Double mafGs, Double lambdaCommanded, Integer fuelStatus,
                                                Double throttleRelPercent, Double rpm) {
         if (mafGs == null || mafGs < 0) return null;
-        if (fuelStatus != null && fuelStatus == FUEL_STATUS_OPEN_LOAD && throttleRelPercent != null
-                && throttleRelPercent < 1.0 && rpm != null && rpm > 1100) return 0.0;
-        double lambda = lambdaCommanded == null || lambdaCommanded <= 0.5 || lambdaCommanded > 2.0 ? 1.0 : lambdaCommanded;
+        if (isOverrun(lambdaCommanded, fuelStatus, throttleRelPercent, rpm)) return 0.0;
+        double lambda = lambdaCommanded == null || lambdaCommanded <= 0.5 || lambdaCommanded >= LAMBDA_SATURATED ? 1.0 : lambdaCommanded;
         double fuelGs = mafGs / (STOICH_AFR * lambda);
         return fuelGs * 3600.0 / FUEL_DENSITY_G_PER_L;
+    }
+
+    /**
+     * Rohwert FFFF eines λ-PIDs (01 44: 1,99997; Breitband 01 24–2B/34–3B: 1,99997): Messbereichsende. Am C350
+     * (Log 07.11.2026) meldet das ME9.7 so beim Soll-Lambda die Schubabschaltung und die Breitbandsonden im Schub.
+     */
+    public static final double LAMBDA_SATURATED = 1.999;
+    /**
+     * Relative Drosselklappe (01 45), bis zu der sie als geschlossen gilt. Am C350 meldet die geschlossene Klappe
+     * 0,8–1,6 % (Rohwert 02–04, Log 07.11.2026) – die frühere Schwelle 1 % erkannte den Schub fast nie.
+     */
+    public static final double THROTTLE_CLOSED_REL = 3.0;
+
+    /** true bei Messbereichsende (Rohwert FFFF), siehe {@link #LAMBDA_SATURATED}. */
+    public static boolean isLambdaSaturated(Double lambda) {
+        return lambda != null && lambda >= LAMBDA_SATURATED;
+    }
+
+    /**
+     * Schubabschaltung: Soll-Lambda am Messbereichsende (FFFF) oder Status „offen wegen Last/Schub“ bei
+     * geschlossener Drosselklappe und Drehzahl über Leerlauf.
+     */
+    public static boolean isOverrun(Double lambdaCommanded, Integer fuelStatus, Double throttleRelPercent, Double rpm) {
+        if (isLambdaSaturated(lambdaCommanded)) return true;
+        return fuelStatus != null && fuelStatus == FUEL_STATUS_OPEN_LOAD && throttleRelPercent != null
+                && throttleRelPercent < THROTTLE_CLOSED_REL && rpm != null && rpm > 1100;
     }
 
     /** l/100 km; erst ab 5 km/h sinnvoll, darunter null (Stand: l/h zählt). */
@@ -165,6 +190,138 @@ public final class EngineAnalysis {
             if (sd > 0.20) return base + "Kat glättet kaum (Richtwert; Mode 06 Kat-Monitor prüfen)";
             if (sd > 0.10) return base + "Kat-Speicher nimmt ab (Richtwert)";
             return base + "Kat glättet gut";
+        }
+    }
+
+    // ------------------------------------------------------------------ Trim-Karte je Bank
+
+    /**
+     * Passive Trim-Karte: Gesamtkorrektur (STFT + LTFT) je Bank, getrennt nach Leerlauf, Teillast und hoher
+     * Last – nur im geregelten, betriebswarmen Betrieb. Das Muster über die Last unterscheidet Falschluft
+     * (Korrektur im Leerlauf hoch, fällt mit Last) von einer bankspezifischen oder lastunabhängigen Ursache.
+     * Schwellen wie im Fuel-Trim-Test (Bankdifferenz ≥ 5 %, Orientierungsgrenze ±10 %). Anlass: Log C350
+     * 07.11.2026 – Bank 1 durchgehend etwa +11 %, Bank 2 etwa +4 %, über alle Lastbereiche.
+     */
+    public static final class TrimMap {
+        public enum Band { IDLE, PART, HIGH }
+        public static final int MIN_SAMPLES = 20;
+        /** Berechnete Last (01 04), ab der „hohe Last“ gilt. */
+        public static final double HIGH_LOAD = 50.0;
+        private final double[] sum1 = new double[3], sum2 = new double[3];
+        private final int[] count = new int[3];
+
+        /** Band einer Probe; null, wenn nicht eindeutig (z. B. fehlende Werte). */
+        public static Band band(Double rpm, Double speed, Double load) {
+            if (rpm == null || load == null) return null;
+            if (speed != null && speed < 3 && rpm < 1000) return Band.IDLE;
+            if (speed == null) return null;
+            return load >= HIGH_LOAD ? Band.HIGH : Band.PART;
+        }
+
+        /** Probe aufnehmen; nur geregelt (Status 2), Kühlmittel ≥ 70 °C, alle vier Trims vorhanden. */
+        public void add(Double stft1, Double ltft1, Double stft2, Double ltft2, Integer fuelStatus, Double coolantC,
+                        Double rpm, Double speed, Double load) {
+            if (stft1 == null || ltft1 == null || stft2 == null || ltft2 == null) return;
+            if (fuelStatus == null || fuelStatus != 2 || coolantC == null || coolantC < 70) return;
+            Band b = band(rpm, speed, load);
+            if (b == null) return;
+            sum1[b.ordinal()] += stft1 + ltft1;
+            sum2[b.ordinal()] += stft2 + ltft2;
+            count[b.ordinal()]++;
+        }
+
+        public void reset() {
+            java.util.Arrays.fill(sum1, 0);
+            java.util.Arrays.fill(sum2, 0);
+            java.util.Arrays.fill(count, 0);
+        }
+
+        public int samples(Band b) {
+            return count[b.ordinal()];
+        }
+
+        /** Mittlere Gesamtkorrektur der Bank (1/2) im Band; null unter {@link #MIN_SAMPLES} Proben. */
+        public Double mean(int bank, Band b) {
+            int n = count[b.ordinal()];
+            if (n < MIN_SAMPLES) return null;
+            return (bank == 1 ? sum1 : sum2)[b.ordinal()] / n;
+        }
+
+        /** Tabelle je Band, z. B. „Leerlauf  B1 +10,2 % · B2 +3,1 % (n 160)“. */
+        public String table() {
+            StringBuilder sb = new StringBuilder();
+            String[] names = {"Leerlauf", "Teillast", "hohe Last"};
+            for (Band b : Band.values()) {
+                Double m1 = mean(1, b), m2 = mean(2, b);
+                sb.append(names[b.ordinal()]).append(": ");
+                if (m1 == null) {
+                    sb.append(String.format(Locale.GERMANY, "sammelt (%d/%d)", count[b.ordinal()], MIN_SAMPLES));
+                } else {
+                    sb.append(String.format(Locale.GERMANY, "B1 %+.1f %% · B2 %+.1f %% (n %d)", m1, m2, count[b.ordinal()]));
+                }
+                if (b != Band.HIGH) sb.append('\n');
+            }
+            return sb.toString();
+        }
+
+        public String verdict() {
+            int bands = 0;
+            for (Band b : Band.values()) if (mean(1, b) != null) bands++;
+            if (bands == 0) return "sammelt Werte (nur geregelt und warm)";
+            StringBuilder sb = new StringBuilder();
+            Double i1 = mean(1, Band.IDLE), i2 = mean(2, Band.IDLE);
+            Double loaded1 = loaded(1), loaded2 = loaded(2);
+            // Bankdifferenz: in jedem verfügbaren Band ≥ 5 % mit gleichem Vorzeichen → bankspezifisch
+            int sign = 0;
+            boolean consistent = true;
+            double maxDiff = 0;
+            for (Band b : Band.values()) {
+                Double m1 = mean(1, b), m2 = mean(2, b);
+                if (m1 == null) continue;
+                double d = m1 - m2;
+                int s = Math.abs(d) >= 5.0 ? (int) Math.signum(d) : 0;
+                if (s == 0 || (sign != 0 && s != sign)) consistent = false;
+                sign = s == 0 ? sign : s;
+                maxDiff = Math.max(maxDiff, Math.abs(d));
+            }
+            if (consistent && sign != 0) {
+                int lean = sign > 0 ? 1 : 2;
+                sb.append(String.format(Locale.GERMANY,
+                        "Bank %d wird in allen Lastbereichen stärker angefettet (bis %.1f %% mehr) – bankspezifisch: "
+                                + "Abgasundichtigkeit vor der Vorkat-Sonde, Einspritzventile oder Vorkat-Sonde Bank %d prüfen; ", lean, maxDiff, lean));
+            } else if (maxDiff >= 5.0) {
+                sb.append("Bänke unterscheiden sich nur in einzelnen Lastbereichen; ");
+            }
+            if ((i1 != null && loaded1 != null && i1 > 10 && loaded1 < i1 - 5)
+                    || (i2 != null && loaded2 != null && i2 > 10 && loaded2 < i2 - 5)) {
+                sb.append("Korrektur im Leerlauf hoch und mit Last fallend – passt zu Falschluft; ");
+            }
+            if ((i1 != null && i1 > 10 && loaded1 != null && loaded1 > 10) || (i2 != null && i2 > 10 && loaded2 != null && loaded2 > 10)) {
+                sb.append("auch unter Last über +10 % – Kraftstoffversorgung/HFM mitprüfen; ");
+            }
+            for (int bank = 1; bank <= 2; bank++) {
+                for (Band b : Band.values()) {
+                    Double m = mean(bank, b);
+                    if (m != null && m < -10) {
+                        sb.append("Bank ").append(bank).append(" deutlich negativ – Überfettung prüfen; ");
+                        break;
+                    }
+                }
+            }
+            if (sb.length() == 0) return "unauffällig (innerhalb ±10 %, Bänke gleichlaufend)";
+            return sb.substring(0, sb.length() - 2) + " (Richtwert, keine Diagnose)";
+        }
+
+        /** Mittel der Lastbänder Teillast/hohe Last einer Bank (gewichtet), null ohne Daten. */
+        private Double loaded(int bank) {
+            double s = 0;
+            int n = 0;
+            for (Band b : new Band[]{Band.PART, Band.HIGH}) {
+                if (count[b.ordinal()] < MIN_SAMPLES) continue;
+                s += (bank == 1 ? sum1 : sum2)[b.ordinal()];
+                n += count[b.ordinal()];
+            }
+            return n == 0 ? null : s / n;
         }
     }
 }
