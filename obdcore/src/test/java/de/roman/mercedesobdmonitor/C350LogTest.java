@@ -31,9 +31,12 @@ public class C350LogTest {
         Double lambda = pid(0x44).parse("4144FFFF");
         assertNotNull(lambda);
         assertTrue(EngineAnalysis.isLambdaSaturated(lambda));
-        assertEquals("Schub (FFFF)", pid(0x44).format(lambda));
+        assertEquals("FFFF (Schub/Messbereichsende)", pid(0x44).format(lambda));
         // früher: λ 2 → halber Verbrauch statt 0
-        assertEquals(0.0, EngineAnalysis.fuelRateLitersPerHour(5.11, lambda, 2, 1.18, 1370.0), 0);
+        assertEquals(0.0, EngineAnalysis.fuelRateLitersPerHour(5.11, lambda, 4, 1.18, 1370.0), 0);
+        assertEquals(0.0, EngineAnalysis.fuelRateLitersPerHour(5.11, lambda, null, 1.18, 1370.0), 0);
+        // FFFF bei geregeltem Status ist kein Schub (z. B. „nicht verfügbar“ bei anderen Steuergeräten)
+        assertFalse(EngineAnalysis.isOverrun(lambda, 2, 1.18, 1370.0));
         assertEquals("1,000 λ", pid(0x44).format(pid(0x44).parse("41448000")));
     }
 
@@ -49,12 +52,16 @@ public class C350LogTest {
     public void closedThrottleOnC350IsAboveOnePercent() {
         Double closed = pid(0x45).parse("414504");                                       // 1,57 %, Klappe zu
         assertEquals(1.57, closed, 0.01);
-        assertTrue(EngineAnalysis.isOverrun(1.0, 4, closed, 1533.0));
-        assertEquals(0.0, EngineAnalysis.fuelRateLitersPerHour(6.19, 1.0, 4, closed, 1533.0), 0);
+        // ohne Soll-Lambda: Klappe zu + Status 4 + über Leerlauf
+        assertTrue(EngineAnalysis.isOverrun(null, 4, closed, 1533.0));
+        assertEquals(0.0, EngineAnalysis.fuelRateLitersPerHour(6.19, null, 4, closed, 1533.0), 0);
+        // gültiges Soll-Lambda hat Vorrang: Übergang/Wiedereinsetzen, es wird eingespritzt
+        assertFalse(EngineAnalysis.isOverrun(1.0, 4, closed, 1533.0));
+        assertTrue(EngineAnalysis.fuelRateLitersPerHour(6.19, 1.0, 4, closed, 1533.0) > 0);
         // Volllast-Anreicherung (ebenfalls Status 4) ist kein Schub
-        assertFalse(EngineAnalysis.isOverrun(0.9, 4, 26.7, 2393.0));
+        assertFalse(EngineAnalysis.isOverrun(null, 4, 26.7, 2393.0));
         // Leerlauf mit Status 4 ist kein Schub
-        assertFalse(EngineAnalysis.isOverrun(1.0, 4, 1.18, 680.0));
+        assertFalse(EngineAnalysis.isOverrun(null, 4, 1.18, 680.0));
         assertNull(EngineAnalysis.fuelRateLitersPerHour(null, 2.0, 4, 1.0, 1500.0));
     }
 
@@ -70,6 +77,8 @@ public class C350LogTest {
         assertEquals(EngineAnalysis.TrimMap.Band.PART, EngineAnalysis.TrimMap.band(1500.0, 50.0, 30.0));
         assertEquals(EngineAnalysis.TrimMap.Band.HIGH, EngineAnalysis.TrimMap.band(2400.0, 90.0, 70.0));
         assertNull(EngineAnalysis.TrimMap.band(null, 0.0, 20.0));
+        // Stand mit erhöhter Drehzahl (Hochdrehen in P/N) ist weder Leerlauf noch Last
+        assertNull(EngineAnalysis.TrimMap.band(1500.0, 0.0, 20.0));
     }
 
     @Test
@@ -92,7 +101,7 @@ public class C350LogTest {
         feed(map, 30, 12.0, 3.8, 1500, 50, 30);
         feed(map, 30, 9.5, 3.8, 2100, 90, 60);
         String v = map.verdict();
-        assertTrue(v, v.startsWith("Bank 1 wird in allen Lastbereichen stärker angefettet"));
+        assertTrue(v, v.startsWith("Bank 1 wird in Leerlauf und unter Last stärker angefettet"));
         assertFalse(v, v.contains("Falschluft"));
         assertTrue(v, v.endsWith("(Richtwert, keine Diagnose)"));
         assertTrue(map.table(), map.table().contains("Leerlauf: B1 +9,3 % · B2 +2,5 % (n 30)"));
@@ -126,7 +135,41 @@ public class C350LogTest {
         assertTrue(v, v.contains("Bank 2 deutlich negativ"));
     }
 
+    @Test
+    public void trimMapOnlyOneBandDoesNotClaimAllBands() {
+        EngineAnalysis.TrimMap map = new EngineAnalysis.TrimMap();
+        feed(map, 30, 11.0, 4.0, 680, 0, 25);
+        String v = map.verdict();
+        assertTrue(v, v.startsWith("Bank 1 stärker angefettet (bis 7,0 % mehr), Lastbereich fehlt noch"));
+        assertFalse(v, v.contains("bankspezifisch"));
+    }
+
+    @Test
+    public void trimMapHighUnderLoadIsNotUnremarkable() {
+        EngineAnalysis.TrimMap map = new EngineAnalysis.TrimMap();
+        feed(map, 30, 5.0, 4.0, 680, 0, 25);
+        feed(map, 30, 15.0, 14.0, 1800, 60, 35);
+        String v = map.verdict();
+        assertTrue(v, v.contains("unter Last über +10 %"));
+        EngineAnalysis.TrimMap idleHigh = new EngineAnalysis.TrimMap();
+        feed(idleHigh, 30, 12.0, 12.0, 680, 0, 25);
+        feed(idleHigh, 30, 9.0, 9.0, 1800, 60, 35);
+        assertTrue(idleHigh.verdict(), idleHigh.verdict().contains("im Leerlauf über +10 %"));
+    }
+
+    @Test
+    public void saturatedLambdaIsNoControlDeviation() {
+        assertNull(EngineAnalysis.lambdaDeviation(pid(0x34).parse("4134FFFF8241"), 1.0, 2));
+        assertNull(EngineAnalysis.lambdaDeviation(0.99, pid(0x44).parse("4144FFFF"), 2));
+        assertEquals(0.01, EngineAnalysis.lambdaDeviation(0.99, 1.0, 2), 1e-9);
+    }
+
     // ------------------------------------------------------------------ Wiedergabe des echten Logs
+
+    private static Integer status(Map<Integer, Double> last) {
+        Double st = last.get(0x03);
+        return st == null ? null : (int) Math.round(st);
+    }
 
     /** Spielt die Rohantworten durch den Parser und die Trim-Karte wie das Dashboard (eine Probe je STFT-B2). */
     @Test
@@ -147,7 +190,8 @@ public class C350LogTest {
                 parsed++;
                 last.put(id, v);
                 if (id == 0x44 && EngineAnalysis.isLambdaSaturated(v)) overrun++;
-                if (id == 0x08) {
+                if (id == 0x08 && !EngineAnalysis.isOverrun(last.get(0x44), status(last), last.get(0x45), last.get(0x0C))
+                        && !EngineAnalysis.isLambdaSaturated(last.get(0x44))) {
                     Double st = last.get(0x03);
                     map.add(last.get(0x06), last.get(0x07), last.get(0x08), last.get(0x09),
                             st == null ? null : (int) Math.round(st), last.get(0x05), last.get(0x0C), last.get(0x0D), last.get(0x04));
@@ -161,7 +205,7 @@ public class C350LogTest {
         assertNotNull(map.table(), idle1);
         assertNotNull(map.table(), part1);
         assertTrue(map.table(), idle1 - idle2 >= 5 && part1 - part2 >= 5);
-        assertTrue(map.verdict(), map.verdict().startsWith("Bank 1 wird in allen Lastbereichen stärker angefettet"));
+        assertTrue(map.verdict(), map.verdict().startsWith("Bank 1 wird in Leerlauf und unter Last stärker angefettet"));
     }
 
     // ------------------------------------------------------------------ zwei Antwortende (Motor + Getriebe)

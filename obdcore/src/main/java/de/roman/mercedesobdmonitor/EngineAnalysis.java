@@ -25,13 +25,13 @@ public final class EngineAnalysis {
 
     /**
      * Momentanverbrauch in l/h aus der Luftmasse. λ_soll (01 44) korrigiert Anreicherung; fehlt er, gilt λ = 1.
-     * Schubabschaltung (Status 4, Drosselklappe geschlossen, Drehzahl über Leerlauf) ergibt 0 l/h.
+     * Schubabschaltung (siehe {@link #isOverrun}) ergibt 0 l/h.
      */
     public static Double fuelRateLitersPerHour(Double mafGs, Double lambdaCommanded, Integer fuelStatus,
                                                Double throttleRelPercent, Double rpm) {
         if (mafGs == null || mafGs < 0) return null;
         if (isOverrun(lambdaCommanded, fuelStatus, throttleRelPercent, rpm)) return 0.0;
-        double lambda = lambdaCommanded == null || lambdaCommanded <= 0.5 || lambdaCommanded >= LAMBDA_SATURATED ? 1.0 : lambdaCommanded;
+        double lambda = lambdaCommanded == null || lambdaCommanded <= 0.5 ? 1.0 : lambdaCommanded;
         double fuelGs = mafGs / (STOICH_AFR * lambda);
         return fuelGs * 3600.0 / FUEL_DENSITY_G_PER_L;
     }
@@ -53,11 +53,15 @@ public final class EngineAnalysis {
     }
 
     /**
-     * Schubabschaltung: Soll-Lambda am Messbereichsende (FFFF) oder Status „offen wegen Last/Schub“ bei
-     * geschlossener Drosselklappe und Drehzahl über Leerlauf.
+     * Schubabschaltung. Liegt ein Soll-Lambda vor, entscheidet es: FFFF bei Status „offen wegen Last/Schub“
+     * (oder unbekanntem Status) ist Schub, ein gültiger Wert nicht – auch bei geschlossener Klappe (Übergang,
+     * Wiedereinsetzen). Am C350 fiel jedes FFFF mit Status 4 zusammen (Log 07.11.2026). Ohne Soll-Lambda:
+     * Status 4, Drosselklappe geschlossen und Drehzahl über Leerlauf.
      */
     public static boolean isOverrun(Double lambdaCommanded, Integer fuelStatus, Double throttleRelPercent, Double rpm) {
-        if (isLambdaSaturated(lambdaCommanded)) return true;
+        if (lambdaCommanded != null) {
+            return isLambdaSaturated(lambdaCommanded) && (fuelStatus == null || fuelStatus == FUEL_STATUS_OPEN_LOAD);
+        }
         return fuelStatus != null && fuelStatus == FUEL_STATUS_OPEN_LOAD && throttleRelPercent != null
                 && throttleRelPercent < THROTTLE_CLOSED_REL && rpm != null && rpm > 1100;
     }
@@ -94,6 +98,8 @@ public final class EngineAnalysis {
     /** |λ_ist − λ_soll| einer Bank; nur im geregelten Betrieb (01 03 = 2) aussagekräftig. */
     public static Double lambdaDeviation(Double lambdaActual, Double lambdaCommanded, Integer fuelStatus) {
         if (lambdaActual == null || lambdaCommanded == null || fuelStatus == null || fuelStatus != 2) return null;
+        // FFFF = Messbereichsende (Schub-Übergang mit noch altem Status): keine Regelabweichung
+        if (isLambdaSaturated(lambdaActual) || isLambdaSaturated(lambdaCommanded)) return null;
         return Math.abs(lambdaActual - lambdaCommanded);
     }
 
@@ -213,8 +219,8 @@ public final class EngineAnalysis {
         /** Band einer Probe; null, wenn nicht eindeutig (z. B. fehlende Werte). */
         public static Band band(Double rpm, Double speed, Double load) {
             if (rpm == null || load == null) return null;
-            if (speed != null && speed < 3 && rpm < 1000) return Band.IDLE;
             if (speed == null) return null;
+            if (speed < 3) return rpm < 1000 ? Band.IDLE : null;   // Standgas erhöht/Hochdrehen im Stand: keine Last
             return load >= HIGH_LOAD ? Band.HIGH : Band.PART;
         }
 
@@ -285,19 +291,26 @@ public final class EngineAnalysis {
                 maxDiff = Math.max(maxDiff, Math.abs(d));
             }
             if (consistent && sign != 0) {
-                int lean = sign > 0 ? 1 : 2;
-                sb.append(String.format(Locale.GERMANY,
-                        "Bank %d wird in allen Lastbereichen stärker angefettet (bis %.1f %% mehr) – bankspezifisch: "
-                                + "Abgasundichtigkeit vor der Vorkat-Sonde, Einspritzventile oder Vorkat-Sonde Bank %d prüfen; ", lean, maxDiff, lean));
+                int rich = sign > 0 ? 1 : 2;
+                if (i1 != null && loaded1 != null) {
+                    sb.append(String.format(Locale.GERMANY,
+                            "Bank %d wird in Leerlauf und unter Last stärker angefettet (bis %.1f %% mehr) – bankspezifisch: "
+                                    + "Abgasundichtigkeit vor der Vorkat-Sonde, Einspritzventile oder Vorkat-Sonde Bank %d prüfen; ", rich, maxDiff, rich));
+                } else {
+                    // Ohne Vergleich Leerlauf/Last nicht von bankseitiger Falschluft zu unterscheiden.
+                    sb.append(String.format(Locale.GERMANY, "Bank %d stärker angefettet (bis %.1f %% mehr), %s fehlt noch für die Einordnung; ",
+                            rich, maxDiff, i1 == null ? "Leerlauf" : "Lastbereich"));
+                }
             } else if (maxDiff >= 5.0) {
                 sb.append("Bänke unterscheiden sich nur in einzelnen Lastbereichen; ");
             }
-            if ((i1 != null && loaded1 != null && i1 > 10 && loaded1 < i1 - 5)
-                    || (i2 != null && loaded2 != null && i2 > 10 && loaded2 < i2 - 5)) {
-                sb.append("Korrektur im Leerlauf hoch und mit Last fallend – passt zu Falschluft; ");
-            }
-            if ((i1 != null && i1 > 10 && loaded1 != null && loaded1 > 10) || (i2 != null && i2 > 10 && loaded2 != null && loaded2 > 10)) {
-                sb.append("auch unter Last über +10 % – Kraftstoffversorgung/HFM mitprüfen; ");
+            boolean leak = (i1 != null && loaded1 != null && i1 > 10 && loaded1 < i1 - 5)
+                    || (i2 != null && loaded2 != null && i2 > 10 && loaded2 < i2 - 5);
+            if (leak) sb.append("Korrektur im Leerlauf hoch und mit Last fallend – passt zu Falschluft; ");
+            if ((loaded1 != null && loaded1 > 10) || (loaded2 != null && loaded2 > 10)) {
+                sb.append("unter Last über +10 % – Kraftstoffversorgung/HFM mitprüfen; ");
+            } else if (!leak && ((i1 != null && i1 > 10) || (i2 != null && i2 > 10))) {
+                sb.append("im Leerlauf über +10 %; ");
             }
             for (int bank = 1; bank <= 2; bank++) {
                 for (Band b : Band.values()) {

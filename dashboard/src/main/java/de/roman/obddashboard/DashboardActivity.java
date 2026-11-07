@@ -735,8 +735,10 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         lastSamples.put(pid, value);
         if (pid == 0x15) catBank1.add(value, fuelStatus(), sample(0x05));
         if (pid == 0x19) catBank2.add(value, fuelStatus(), sample(0x05));
-        // STFT Bank 2 is polled right after Bank 1: one trim-map sample per polling round.
-        if (pid == 0x08) trimMap.add(sample(0x06), sample(0x07), sample(0x08), sample(0x09), fuelStatus(),
+        // One trim-map sample per STFT Bank 2 reading. Fuel status, load, speed and LTFT come from earlier
+        // cycles (PollSchedule staggers them), so samples near an overrun transition are skipped.
+        if (pid == 0x08 && !EngineAnalysis.isOverrun(sample(0x44), fuelStatus(), sample(0x45), sample(0x0C))
+                && !EngineAnalysis.isLambdaSaturated(sample(0x44))) trimMap.add(sample(0x06), sample(0x07), sample(0x08), sample(0x09), fuelStatus(),
                 sample(0x05), sample(0x0C), sample(0x0D), sample(0x04));
         requestAnalysisUpdate();
         if (pid == 0x0C) lastRpm = value;
