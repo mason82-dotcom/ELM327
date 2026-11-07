@@ -64,7 +64,7 @@ docker logs -f elm327-faults | grep PHASE
 | RPM_TIMEOUT | 15 s | 01 0C antwortet erst nach 3 s | Drehzahl sofort „–“, Rest bleibt; die verspätete Antwort darf **nicht** als anderer Wert erscheinen |
 | RPM_CAN_ERROR | 10 s | 01 0C → CAN ERROR | Drehzahl „–“ |
 | ENGINE_OFF | 15 s | Ircama-Szenario `engineoff` (Zündung an, Motor aus) | alle Motorwerte „–“ |
-| ADAPTER_SILENT | 20 s | Emulator antwortet nicht | alle Werte „–“, Verlauf mit Lücke, App verbindet neu |
+| ADAPTER_SILENT | 20 s | jede Antwort 6 s zu spät (Ircama `delay`) | alle Werte „–“, Verlauf mit Lücke, App verbindet neu |
 
 Dauern lassen sich mit `FAULT_NORMAL`, `FAULT_NO_DATA`, `FAULT_TIMEOUT`, `FAULT_CAN_ERROR`, `FAULT_ENGINE_OFF`,
 `FAULT_SILENT` (Sekunden) im `environment` des Dienstes ändern. Gesteuert wird über die Standardeingabe des

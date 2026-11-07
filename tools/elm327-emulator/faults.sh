@@ -30,8 +30,10 @@ while :; do
   send "emulator.answer = {}"; send "scenario engineoff"
   sleep "${FAULT_ENGINE_OFF:-15}"
 
-  phase ADAPTER_SILENT "${FAULT_SILENT:-20}" "Adapter antwortet nicht mehr – alle Werte '–', App verbindet neu"
-  send "scenario car"; send "emulator.threadState = emulator.THREAD.PAUSED"
+  phase ADAPTER_SILENT "${FAULT_SILENT:-20}" "Adapter antwortet nicht mehr (jede Antwort 6 s zu spät) – alle Werte '–', App verbindet neu"
+  # A delay instead of pausing the emulator thread: a paused emulator kept a closed client socket after resuming
+  # and accepted no new connection (found on brix-node 07.11.2026).
+  send "scenario car"; send "delay 6"
   sleep "${FAULT_SILENT:-20}"
-  send "emulator.threadState = emulator.THREAD.ACTIVE"
+  send "delay 0"
 done
