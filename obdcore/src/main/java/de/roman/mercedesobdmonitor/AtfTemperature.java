@@ -38,32 +38,21 @@ public final class AtfTemperature {
     public static Reading parse(String raw) {
         if (raw == null || ObdParser.isNoData(raw)) return new Reading(null, "keine Antwort", "");
         if (ObdParser.isLinkError(raw)) return new Reading(null, "Busfehler", raw.trim());
-        String joined = assemble(raw);
-        int pos = joined.indexOf("6130");
-        if (pos < 0 || pos % 2 != 0) {
-            if (joined.contains("7F21")) return new Reading(null, "Steuergerät lehnt die Anfrage ab (7F)", spaced(joined));
-            return new Reading(null, "unerwartete Antwort", spaced(joined));
+        // Same ISO-TP reassembly as every other answer (declared length, one message per responder).
+        String data = null, rejected = null, other = "";
+        for (String msg : ObdParser.canMessages(raw)) {
+            if (msg.startsWith("6130")) { data = msg; break; }
+            if (msg.startsWith("7F21") && rejected == null) rejected = msg;
+            else if (other.isEmpty()) other = msg;
         }
-        String data = joined.substring(pos);
+        if (data == null && rejected != null) return new Reading(null, "Steuergerät lehnt die Anfrage ab (7F)", spaced(rejected));
+        if (data == null) return new Reading(null, "unerwartete Antwort", spaced(other));
         if (data.length() < (BYTE_INDEX + 1) * 2) return new Reading(null, "Antwort zu kurz", spaced(data));
         int b = Integer.parseInt(data.substring(BYTE_INDEX * 2, BYTE_INDEX * 2 + 2), 16);
         if (b <= 1) return new Reading(null, "Rohwert " + b + " = Sensor/Steuergerät ohne Wert", spaced(data));
         double c = b - OFFSET;
         if (c < -40 || c > 150) return new Reading(null, String.format(Locale.GERMANY, "unplausibel (%.0f °C)", c), spaced(data));
         return new Reading(c, null, spaced(data));
-    }
-
-    /** Mehrteilige ELM-Antwort (ATH0/ATS0) zu einem Hex-String: Längenzeile und Segmentzähler entfernen. */
-    static String assemble(String raw) {
-        StringBuilder sb = new StringBuilder();
-        for (String line : raw.toUpperCase(Locale.US).split("[\\r\\n>]+")) {
-            String l = line.trim();
-            if (l.isEmpty() || l.startsWith("SEARCHING")) continue;
-            if (l.matches("^[0-9A-F]{3}$")) continue;               // ISO-TP length line, e.g. "01A"
-            l = l.replaceFirst("^[0-9A-F]:\\s*", "");               // segment counter "0:", "1:" …
-            sb.append(l.replaceAll("[^0-9A-F]", ""));
-        }
-        return sb.toString();
     }
 
     private static String spaced(String hex) {

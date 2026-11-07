@@ -69,6 +69,8 @@ public final class Elm327Client implements Closeable {
                     : CommandSafety.blockedReason(cmd)));
         }
         drainAvailable();
+        // Until the adapter confirms a header command, its header is unknown: only ATSH7DF/ATZ may follow.
+        if (CommandSafety.changesHeader(cmd)) header = CommandSafety.UNKNOWN_HEADER;
         byte[] data = (cmd + "\r").getBytes(StandardCharsets.US_ASCII);
         long start = SystemClock.elapsedRealtime();
         out.write(data);
@@ -91,8 +93,8 @@ public final class Elm327Client implements Closeable {
         }
         long elapsed = SystemClock.elapsedRealtime() - start;
         String raw = new String(buf.toByteArray(), StandardCharsets.US_ASCII).trim();
-        // Header state follows only confirmed commands; after a timeout the session drops the connection anyway.
-        header = CommandSafety.headerAfter(cmd, header);
+        // Header state follows only confirmed commands (see UNKNOWN_HEADER above).
+        if (CommandSafety.changesHeader(cmd)) header = CommandSafety.headerAfter(cmd, header);
         return new CommandResult(raw, elapsed);
     }
 

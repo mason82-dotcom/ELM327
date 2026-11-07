@@ -133,7 +133,7 @@ public class C350FeaturesTest {
     @Test
     public void atfTemperatureFromMultiFrameAnswer() {
         // byte[11] = 0x82 = 130 → 80 °C
-        String raw = "01A\r0: 61 30 00 00 00 00\r1: 00 00 00 00 00 82 00\r2: 00 00 00 00 00 00 00\r";
+        String raw = "014\r0: 61 30 00 00 00 00\r1: 00 00 00 00 00 82 00\r2: 00 00 00 00 00 00 00\r";
         AtfTemperature.Reading r = AtfTemperature.parse(raw);
         assertEquals(80.0, r.celsius, 1e-9);
         assertTrue(r.text().contains("80 °C"));
@@ -202,5 +202,49 @@ public class C350FeaturesTest {
         // ELM327 form with ATH0/ATS0: length line, then segment counters
         String raw = "017\r0: 490A0145434D\r1: 002D456E67696E\r2: 65436F6E74726F\r3: 6C000000000000\r";
         assertEquals(java.util.List.of("ECM-EngineControl"), VehicleInfo.ecuNames(raw, true));
+    }
+
+    @Test
+    public void unknownHeaderAfterUnconfirmedCommandOnlyAllowsTheWayBack() {
+        String unknown = CommandSafety.UNKNOWN_HEADER;
+        assertFalse(CommandSafety.isAllowed("010C", unknown));
+        assertFalse(CommandSafety.isAllowed("2130", unknown));
+        assertTrue(CommandSafety.isAllowed("ATSH7DF", unknown));
+        assertTrue(CommandSafety.isAllowed("ATZ", unknown));
+        assertTrue(CommandSafety.changesHeader("atsh7e1"));
+        assertFalse(CommandSafety.changesHeader("010C"));
+    }
+
+    @Test
+    public void terminalCannotRunTheAdr001Sequence() {
+        for (String cmd : new String[]{"ATSH7E1", "2130", "21 30", "ATSH7DF"}) assertFalse(cmd, CommandSafety.isAllowedInTerminal(cmd));
+        assertTrue(CommandSafety.isAllowedInTerminal("010C"));
+        assertTrue(CommandSafety.isAllowedInTerminal("ATZ"));
+    }
+
+    @Test
+    public void reconnectResetsTheHeaderOnlyOn11BitCan() {
+        assertTrue(LinkPolicy.reconnectInit("A6").contains("ATSH7DF"));
+        assertTrue(LinkPolicy.reconnectInit("8").contains("ATSH7DF"));
+        assertFalse(LinkPolicy.reconnectInit("7").contains("ATSH7DF"));   // 29-bit CAN
+        assertFalse(LinkPolicy.reconnectInit("3").contains("ATSH7DF"));   // ISO 9141
+        assertFalse(LinkPolicy.isCan11Bit(null));
+    }
+
+    @Test
+    public void analysisPidsAreNotCoreAndThrottleIsPolledOften() {
+        assertTrue(ObdPid.isCore(0x0C));
+        assertFalse(ObdPid.isCore(0x15));
+        // relative throttle feeds the fuel-cut detection: at least every second cycle
+        assertTrue(PollSchedule.shouldPoll(0x45, 1, false) || PollSchedule.shouldPoll(0x45, 2, false));
+        assertTrue(PollSchedule.shouldPoll(0x45, 3, false) || PollSchedule.shouldPoll(0x45, 4, false));
+    }
+
+    @Test
+    public void atfPicksTheTransmissionAnswerAmongSeveral() {
+        String raw = "7F 21 11\r61 30 00 00 00 00 00 00 00 00 00 78\r";
+        // a rejection from another responder does not hide the valid answer
+        assertEquals(70.0, AtfTemperature.parse(raw).celsius, 1e-9);
+        assertEquals(70.0, AtfTemperature.parse("61 30 00 00 00 00 00 00 00 00 00 78").celsius, 1e-9);
     }
 }

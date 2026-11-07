@@ -26,7 +26,7 @@ public final class VehicleScan {
      */
     private static Pattern bitmapPattern(int responseService, int base) {
         return Pattern.compile(String.format(Locale.US,
-                "^(?:(7E[8-9A-F]|[0-9A-F]{3})([0-9A-F]{2}))?%02X(?:(%02X)([0-9A-F]{8})|([0-9A-F]{8}))", responseService, base));
+                "^(?:([0-9A-F]{3})([0-9A-F]{2}))?%02X(?:(%02X)([0-9A-F]{8})|([0-9A-F]{8}))", responseService, base));
     }
 
     /**

@@ -444,6 +444,18 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         return v == null ? ObdSession.INVALID_TEXT : String.format(java.util.Locale.GERMANY, fmt, v);
     }
 
+    private boolean analysisPending;
+
+    /** Coalesces the many per-PID callbacks into at most one analysis rebuild every 500 ms. */
+    private void requestAnalysisUpdate() {
+        if (page != Page.ANALYSIS || analysisPending) return;
+        analysisPending = true;
+        status.postDelayed(() -> {
+            analysisPending = false;
+            if (page == Page.ANALYSIS) updateAnalysis();
+        }, 500);
+    }
+
     private void updateAnalysis() {
         if (analysisText == null) return;
         Double rpm = sample(0x0C), speed = sample(0x0D), maf = sample(0x10), lambdaCmd = sample(0x44);
@@ -578,6 +590,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         }
         saveSettings();
         if (!session.connect(this, host, port)) return;
+        // New connection, possibly another car: the catalyst tendency starts from scratch.
+        catBank1.reset();
+        catBank2.reset();
         startForegroundService(new Intent(this, ObdService.class).setAction(ObdService.ACTION_START));
     }
 
@@ -715,7 +730,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         lastSamples.put(pid, value);
         if (pid == 0x15) catBank1.add(value, fuelStatus(), sample(0x05));
         if (pid == 0x19) catBank2.add(value, fuelStatus(), sample(0x05));
-        if (page == Page.ANALYSIS) updateAnalysis();
+        requestAnalysisUpdate();
         if (pid == 0x0C) lastRpm = value;
         if (pid == 0x0D) lastSpeed = value;
         if (pid == 0x0C || pid == 0x0D) updateIdle();
@@ -731,7 +746,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     public void onPidInvalid(int pid) {
         lastSamples.remove(pid);
-        if (page == Page.ANALYSIS) updateAnalysis();
+        requestAnalysisUpdate();
         if (pid == 0x0C) lastRpm = Double.NaN;
         if (pid == 0x0D) lastSpeed = Double.NaN;
         if (pid == 0x0C || pid == 0x0D) updateIdle();

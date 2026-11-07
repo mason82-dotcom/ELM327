@@ -88,8 +88,27 @@ public final class CommandSafety {
         String cmd = normalize(command);
         boolean transmission = "7E1".equals(currentHeader);
         if (ATF_REQUEST.equals(cmd)) return transmission;
-        if (transmission) return OBD_HEADER.equals(cmd) || "ATZ".equals(cmd);
+        // On the transmission header, or when the adapter state is unknown (header command without a
+        // confirmed answer), only the way back to the standard header is open.
+        if (!DEFAULT_HEADER.equals(currentHeader)) return OBD_HEADER.equals(cmd) || "ATZ".equals(cmd);
         return true;
+    }
+
+    /** Header-Zustand, solange ein Header-Befehl unbestätigt ist (z. B. nach Zeitüberschreitung). */
+    public static final String UNKNOWN_HEADER = "?";
+
+    /** Ob dieser Befehl den Header ändern kann. */
+    public static boolean changesHeader(String command) {
+        String cmd = normalize(command);
+        return ATF_HEADER.equals(cmd) || OBD_HEADER.equals(cmd) || "ATZ".equals(cmd);
+    }
+
+    /**
+     * Freigabe für das Terminal: wie {@link #isAllowed(String)}, aber ohne die ADR-001-Sequenz – sie läuft nur
+     * als exklusive Diagnose mit Header-Wiederherstellung („ATF-Temperatur“).
+     */
+    public static boolean isAllowedInTerminal(String command) {
+        return isAllowed(command) && !ADR001_EXACT.contains(normalize(command));
     }
 
     /** Header nach erfolgreich gesendetem Befehl. */

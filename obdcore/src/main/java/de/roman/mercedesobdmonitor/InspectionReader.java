@@ -66,7 +66,7 @@ public final class InspectionReader {
         in.freezeFrameDtc = ffDtc == null ? null : InspectionCheck.freezeFrameDtc(ffDtc);
         if (in.freezeFrameDtc != null) {
             for (ObdPid pid : ObdPid.defaultPids()) {
-                if (!freezeFramePid.test(pid.pid)) continue;
+                if (!ObdPid.isCore(pid.pid) || !freezeFramePid.test(pid.pid)) continue;
                 String raw = query(String.format(Locale.US, "02%02X00", pid.pid), 2500);
                 if (raw == null || ObdParser.isNoData(raw)) continue;
                 Double v = pid.parseFreezeFrame(raw);

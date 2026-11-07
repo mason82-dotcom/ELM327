@@ -100,6 +100,17 @@ public final class ObdPid {
         };
     }
 
+    /**
+     * Kern-PIDs (Monitor seit 1.0): werden auch ohne Unterstützungs-Bitmap gepollt und im Freeze Frame gelesen.
+     * Die Analyse-PIDs kommen nur dazu, wenn das Fahrzeug sie meldet.
+     */
+    public static boolean isCore(int pid) {
+        return switch (pid) {
+            case 0x0C, 0x0D, 0x05, 0x04, 0x11, 0x10, 0x0B, 0x0F, 0x06, 0x07, 0x08, 0x09, 0x42, 0x44, 0x33 -> true;
+            default -> false;
+        };
+    }
+
     public static List<ObdPid> defaultPids() {
         List<ObdPid> p = new ArrayList<>();
         p.add(new ObdPid(0x0C, "Motordrehzahl", "U/min", 0, Formula.RPM));
