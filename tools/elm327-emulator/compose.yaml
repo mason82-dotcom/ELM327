@@ -20,7 +20,8 @@ services:
       driver: json-file
       options: { max-size: "5m", max-file: "2" }
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',35000),3); s.sendall(b'ATZ\\r'); import time; time.sleep(0.5); assert b'ELM327' in s.recv(256)"]
+      # Reads until the ELM327 prompt '>': after ATZ the echo and the identification can arrive in separate chunks.
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',35000),3); s.settimeout(3); s.sendall(b'ATZ\\r'); b=b''\nwhile b'>' not in b: b+=s.recv(256)\nassert b'ELM327' in b"]
       interval: 60s
       timeout: 10s
       retries: 3
