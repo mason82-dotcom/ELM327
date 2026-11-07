@@ -68,8 +68,11 @@ Anzeige **plus** Rohantwort.
 ## Umsetzungsschritte
 
 1. [x] Diese Entscheidung.
-2. [ ] `CommandSafety`: exakt `ATSH7E1`, `ATSH7DF`, `2130` freigeben; Test, dass andere Header/Dienste gesperrt bleiben.
-3. [ ] `AtfTemperature` (Android-frei): Antwort von 7E9 auswerten, Plausibilität, Tests mit echten Antwortformen.
-4. [ ] Sitzung: exklusive Diagnose mit Header-Wiederherstellung im `finally`, Reconnect bei Fehler.
-5. [ ] Oberfläche: Knopf „ATF-Temperatur lesen“, Anzeige mit Rohwert.
+2. [x] `CommandSafety`: exakt `ATSH7E1`, `ATSH7DF`, `2130` freigeben; Test, dass andere Header/Dienste gesperrt bleiben.
+3. [x] `AtfTemperature` (Android-frei): Antwort von 7E9 auswerten, Plausibilität, Tests mit echten Antwortformen.
+4. [x] Sitzung: exklusive Diagnose mit Header-Wiederherstellung im `finally`, Reconnect bei Fehler.
+5. [x] Oberfläche: Knopf „ATF-Temperatur lesen“, Anzeige mit Rohwert.
+   Umgesetzt in 1.1.0 / Dashboard 0.2.0, ergänzt nach Code-Review: Terminal sperrt die Sequenz
+   (`CommandSafety.isAllowedInTerminal`), nach einem unbestätigten Header-Befehl gilt der Header als unbekannt
+   (nur `ATSH7DF`/`ATZ` erlaubt), `LinkPolicy.reconnectInit` setzt bei 11-bit-CAN `ATSH7DF`.
 6. [ ] Am C350 kalt und warm prüfen und hier eintragen.
