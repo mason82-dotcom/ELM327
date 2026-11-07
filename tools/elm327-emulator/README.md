@@ -32,4 +32,11 @@ docker logs -f elm327-emulator          # jede Anfrage der App erscheint im Prot
 docker inspect -f '{{.State.Health.Status}}' elm327-emulator
 ```
 
+## Bekannte Schwäche des Emulators
+
+ELM327-emulator 4.0.0 beendet sich, wenn ein Client die Verbindung hart trennt, während der Emulator ein Zeichen
+als Echo zurückschickt (`BrokenPipeError`/`ConnectionResetError` in `read_from_device`). Der Container startet ihn
+deshalb in einer Schleife sofort neu: nach etwa 2 s antwortet er wieder, ohne Neustart des Containers (getestet mit
+fünf harten Abbrüchen). Die App muss sich danach neu verbinden.
+
 Read-only-Grenze der Apps bleibt unberührt: Der Emulator beantwortet nur, was die App fragt.
