@@ -6,8 +6,10 @@
 set -euo pipefail
 proj="$(cd "${1:?Projektpfad angeben}" && pwd)"; shift
 sdk="${ANDROID_SDK_DIR:-$HOME/android-sdk}"
-mkdir -p "$HOME/.gradle-docker"
+mkdir -p "$HOME/.gradle-docker" "$HOME/.android-docker"
+# ANDROID_USER_HOME persists the debug keystore: otherwise every build signs with a new key and
+# "adb install -r" fails with INSTALL_FAILED_UPDATE_INCOMPATIBLE (app data would be lost).
 exec docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp/home -e GRADLE_USER_HOME=/gradle \
-  -e ANDROID_HOME=/sdk -e ANDROID_SDK_ROOT=/sdk \
-  -v "$sdk:/sdk:ro" -v "$HOME/.gradle-docker:/gradle" -v "$proj:/work" -w /work \
+  -e ANDROID_HOME=/sdk -e ANDROID_SDK_ROOT=/sdk -e ANDROID_USER_HOME=/android-user \
+  -v "$sdk:/sdk:ro" -v "$HOME/.gradle-docker:/gradle" -v "$HOME/.android-docker:/android-user" -v "$proj:/work" -w /work \
   eclipse-temurin:17-jdk ./gradlew --no-daemon "$@"

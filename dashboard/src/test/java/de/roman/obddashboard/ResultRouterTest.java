@@ -7,38 +7,27 @@ import org.junit.Test;
 
 public class ResultRouterTest {
     @Test
-    public void dtcReportByTitle() {
-        assertEquals(ResultRouter.Target.DTC_DETAILS, new ResultRouter().route("OBD-II Fehlercodes", 0));
+    public void resultsGoToThePageOfTheirOperation() {
+        assertEquals(ResultRouter.Target.DTC_DETAILS, ResultRouter.route(ObdSession.Op.DTC, "OBD-II Fehlercodes"));
+        assertEquals(ResultRouter.Target.MODE06, ResultRouter.route(ObdSession.Op.MISFIRE, "Aussetzer-Analyse"));
+        assertEquals(ResultRouter.Target.INSPECTION, ResultRouter.route(ObdSession.Op.INSPECTION, "HU/AU-Vorab-Check"));
+        assertEquals(ResultRouter.Target.MONITOR_TESTS, ResultRouter.route(ObdSession.Op.MONITOR_TESTS, "Monitortests (Mode 06)"));
     }
 
     @Test
-    public void diagnosisResultGoesToThePageOfTheOperation() {
-        ResultRouter r = new ResultRouter();
-        r.onBusy(ObdSession.Op.MISFIRE, true, 1000);
-        r.onBusy(ObdSession.Op.MISFIRE, false, 4000);
-        assertEquals(ResultRouter.Target.MODE06, r.route("Mode 06 · Aussetzer", 4001));
-        r.onBusy(ObdSession.Op.INSPECTION, true, 5000);
-        assertEquals(ResultRouter.Target.INSPECTION, r.route("HU/AU-Vorcheck", 5500));
-        r.onBusy(ObdSession.Op.INSPECTION, false, 6000);
-        r.onBusy(ObdSession.Op.MONITOR_TESTS, true, 7000);
-        r.onBusy(ObdSession.Op.MONITOR_TESTS, false, 7100);
-        assertEquals(ResultRouter.Target.MONITOR_TESTS, r.route("Mode 06 · Monitortests", 7200));
-    }
-
-    @Test
-    public void lateMessagesAreDialogsNotStaleResults() {
-        ResultRouter r = new ResultRouter();
-        r.onBusy(ObdSession.Op.MISFIRE, true, 0);
-        r.onBusy(ObdSession.Op.MISFIRE, false, 1000);
-        assertEquals(ResultRouter.Target.DIALOG, r.route("Hinweis", 1000 + ResultRouter.OP_RESULT_WINDOW_MS + 1));
+    public void routingDoesNotDependOnTitlesOrTiming() {
+        // A renamed result title or a result replayed after the activity was recreated still lands on its page.
+        assertEquals(ResultRouter.Target.MODE06, ResultRouter.route(ObdSession.Op.MISFIRE, "irgendein Titel"));
+        // A plain dialog is never taken for a stale diagnosis result.
+        assertEquals(ResultRouter.Target.DIALOG, ResultRouter.route(null, "OBD-II Fehlercodes"));
+        assertEquals(ResultRouter.Target.DIALOG, ResultRouter.route(null, "Hinweis"));
+        assertEquals(ResultRouter.Target.DIALOG, ResultRouter.route(null, null));
     }
 
     @Test
     public void trimAndWarmupInstructionsGoToTrim() {
-        ResultRouter r = new ResultRouter();
         for (String t : new String[]{"Fuel-Trim-Test gestartet", "Leerlaufmessung abgeschlossen", "Fuel-Trim-Auswertung",
                 "Warmlauf-Check gestartet", "Motor noch nicht warm"})
-            assertEquals(t, ResultRouter.Target.TRIM, r.route(t, 0));
-        assertEquals(ResultRouter.Target.DIALOG, r.route(null, 0));
+            assertEquals(t, ResultRouter.Target.TRIM, ResultRouter.route(null, t));
     }
 }

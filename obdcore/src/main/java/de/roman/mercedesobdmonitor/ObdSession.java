@@ -53,6 +53,11 @@ public final class ObdSession {
         void onFuelTest(String button, String status);
         void onBusy(Op op, boolean busy);
         void onDialog(String title, String message);
+        /**
+         * Ergebnis einer Diagnose ({@code op} hat es erzeugt). Standard: wie ein Dialog, damit bestehende
+         * Oberflächen unverändert bleiben; das Dashboard ordnet es damit eindeutig seiner Seite zu.
+         */
+        default void onResult(Op op, String title, String message) { onDialog(title, message); }
         void onToast(String message);
         /** Neuer gültiger Messwert als Zahl (für Zeiger und Verlaufskurven); Main-Thread. */
         default void onPidSample(int pid, double value) { }
@@ -154,7 +159,12 @@ public final class ObdSession {
 
     // Nur Main-Thread.
     private final State state = new State();
-    private final List<String[]> pendingDialogs = new ArrayList<>();
+    /** Dialog oder Diagnose-Ergebnis, das ohne angebundene UI eintraf ({@code op} null = Dialog). */
+    private static final class Pending {
+        final Op op; final String title; final String message;
+        Pending(Op op, String title, String message) { this.op = op; this.title = title; this.message = message; }
+    }
+    private final List<Pending> pendingDialogs = new ArrayList<>();
     private Listener listener;
     private Observer observer;
 
@@ -172,7 +182,10 @@ public final class ObdSession {
         listener = l;
         if (l == null) return;
         l.render(state);
-        for (String[] d : pendingDialogs) l.onDialog(d[0], d[1]);
+        for (Pending d : pendingDialogs) {
+            if (d.op != null) l.onResult(d.op, d.title, d.message);
+            else l.onDialog(d.title, d.message);
+        }
         pendingDialogs.clear();
     }
 
@@ -235,6 +248,7 @@ public final class ObdSession {
         sessionGeneration.incrementAndGet();
         userDisconnect = true;
         monitoring.set(false);
+        protocolIsCan = null;
         latestValues.clear();
         latestSequences.clear();
         fuelTrimTest.cancel();
@@ -252,6 +266,8 @@ public final class ObdSession {
     private void connectAndStart(int session, String host, int port) {
         try {
             if (session != sessionGeneration.get()) return;
+            // Protocol of a previous adapter/car must not be shown or used for this connection.
+            protocolIsCan = null;
             showStatus("Verbinde mit " + host + ":" + port + " …");
             long connectMs = connectWithFallback(host, port, session);
             append("TCP verbunden in " + connectMs + " ms");
@@ -412,6 +428,9 @@ public final class ObdSession {
                 } catch (SocketTimeoutException e) {
                     timeouts.incrementAndGet();
                     firstRequestAfterInit = false;
+                    // No answer is not a value: the PID must not keep showing its last reading, also when the
+                    // other PIDs keep answering and no reconnect follows (review of #4).
+                    invalidatePid(pid);
                     // Auf den verspäteten '>'-Prompt warten; erst bei wiederholtem
                     // Timeout oder fehlgeschlagener Resynchronisation neu verbinden.
                     boolean resynced = c.resync(1500);
@@ -580,7 +599,7 @@ public final class ObdSession {
 
             setBusy(Op.DTC, false);
             showStatus(statusAfterDiagnosis("DTC-Scan beendet · Reconnect läuft …"));
-            showDialog("OBD-II Fehlercodes", report);
+            showResult(Op.DTC, "OBD-II Fehlercodes", report);
         });
     }
 
@@ -712,7 +731,7 @@ public final class ObdSession {
             setBusy(op, false);
             showStatus(statusAfterDiagnosis(title + " beendet · Reconnect läuft …"));
             updateStats();
-            showDialog(title, report);
+            showResult(op, title, report);
         });
     }
 
@@ -1293,11 +1312,21 @@ public final class ObdSession {
 
     /** Dialoge, die ohne sichtbare UI eintreffen, werden beim nächsten Anbinden gezeigt. */
     private void showDialog(String title, String message) {
+        deliver(null, title, message);
+    }
+
+    /** Ergebnis einer Diagnose, eindeutig mit der Operation, die es erzeugt hat. */
+    private void showResult(Op op, String title, String message) {
+        deliver(op, title, message);
+    }
+
+    private void deliver(Op op, String title, String message) {
         ui.post(() -> {
             if (listener != null) {
-                listener.onDialog(title, message);
+                if (op != null) listener.onResult(op, title, message);
+                else listener.onDialog(title, message);
             } else if (pendingDialogs.size() < MAX_PENDING_DIALOGS) {
-                pendingDialogs.add(new String[] {title, message});
+                pendingDialogs.add(new Pending(op, title, message));
             }
         });
     }

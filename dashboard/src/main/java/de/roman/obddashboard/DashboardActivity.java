@@ -11,7 +11,6 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.SystemClock;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -71,9 +70,10 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     }
 
     private static final TrendSpec[] TRENDS = {
-            new TrendSpec(0x0C, "Drehzahl", "U/min", 0, VehicleProfile.ACTIVE.chartMaxRpm),
-            new TrendSpec(0x0D, "Tempo", "km/h", 0, 260),
-            new TrendSpec(0x05, "Kühlmittel", "°C", -20, 130),
+            // Same ranges as the gauges (GaugeScale is the single source).
+            new TrendSpec(0x0C, "Drehzahl", "U/min", GaugeScale.RPM.min, GaugeScale.RPM.max),
+            new TrendSpec(0x0D, "Tempo", "km/h", GaugeScale.SPEED.min, GaugeScale.SPEED.max),
+            new TrendSpec(0x05, "Kühlmittel", "°C", GaugeScale.COOLANT.min, GaugeScale.COOLANT.max),
             new TrendSpec(0x04, "Last", "%", 0, 100),
             new TrendSpec(0x06, "STFT B1", "%", -25, 25),
             new TrendSpec(0x08, "STFT B2", "%", -25, 25),
@@ -84,10 +84,13 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private final ObdSession session = ObdSession.get();
     private final VehicleProfile profile = VehicleProfile.ACTIVE;
     private double lastRpm = Double.NaN, lastSpeed = Double.NaN;
-    private final ResultRouter router = new ResultRouter();
     /** Verlauf je PID; überlebt den Neuaufbau der Oberfläche beim Drehen. */
     private final Map<Integer, TrendBuffer> trends = new HashMap<>();
     private final Map<ResultRouter.Target, String> results = new EnumMap<>(ResultRouter.Target.class);
+    /** Short DTC summary of the last scan; survives rebuilding the UI on rotation. */
+    private String dtcSummary;
+    /** Last valid sample per PID while this UI is attached; restores the gauges after a rebuild. */
+    private final Map<Integer, Double> lastSamples = new HashMap<>();
     private Page page = Page.LIVE;
     private int trendPid = 0x0C;
 
@@ -143,6 +146,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     protected void onStop() {
         session.clearUiListener(this);
+        // While detached no samples arrive: the curves must not bridge that time (review of #4).
+        for (TrendBuffer t : trends.values()) t.addGap();
+        lastSamples.clear();
         saveSettings();
         super.onStop();
     }
@@ -300,7 +306,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         page.addView(heading("FEHLERCODES"));
         page.addView(text("Mode 03 gespeichert · 07 ausstehend · 0A permanent – nur lesen, kein Löschen", 13, Palette.TEAL));
         LinearLayout card = card();
-        dtcState = text("Noch kein Scan. Fehlercodes werden nur auf Knopfdruck gelesen.", 16, Palette.LIGHT);
+        dtcState = text(dtcSummary != null ? dtcSummary : "Noch kein Scan. Fehlercodes werden nur auf Knopfdruck gelesen.", 16, Palette.LIGHT);
         dtcState.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         card.addView(dtcState);
         page.addView(card, new LinearLayout.LayoutParams(-1, 0, 1f));
@@ -514,7 +520,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode != REQ_NET) return;
-        boolean ok = grantResults.length > 0;
+        if (grantResults.length == 0) return; // request interrupted/cancelled: nothing was refused
+        boolean ok = true;
         for (int i = 0; i < grantResults.length && i < permissions.length; i++) {
             if (Manifest.permission.POST_NOTIFICATIONS.equals(permissions[i])) continue;
             ok &= grantResults[i] == PackageManager.PERMISSION_GRANTED;
@@ -573,6 +580,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             String text = s.pidTexts.get(pid.pid);
             onPidValue(pid.pid, text == null ? ObdSession.INVALID_TEXT : text);
             if (text == null || ObdSession.INVALID_TEXT.equals(text)) onPidInvalid(pid.pid);
+            else restoreGauge(pid.pid);
         }
         onPassive(s);
         onFuelTest(s.fuelButton, s.fuelStatus);
@@ -611,8 +619,16 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         if (tile != null) tile.setText(text);
     }
 
+    /** After a rebuild: show the last valid sample of this UI on the new gauge (not a new trend point). */
+    private void restoreGauge(int pid) {
+        Double v = lastSamples.get(pid);
+        GaugeView g = gauges.get(pid);
+        if (v != null && g != null) g.setValue(v);
+    }
+
     @Override
     public void onPidSample(int pid, double value) {
+        lastSamples.put(pid, value);
         if (pid == 0x0C) lastRpm = value;
         if (pid == 0x0D) lastSpeed = value;
         if (pid == 0x0C || pid == 0x0D) updateIdle();
@@ -627,6 +643,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
 
     @Override
     public void onPidInvalid(int pid) {
+        lastSamples.remove(pid);
         if (pid == 0x0C) lastRpm = Double.NaN;
         if (pid == 0x0D) lastSpeed = Double.NaN;
         if (pid == 0x0C || pid == 0x0D) updateIdle();
@@ -671,7 +688,6 @@ public final class DashboardActivity extends Activity implements ObdSession.List
 
     @Override
     public void onBusy(ObdSession.Op op, boolean busy) {
-        router.onBusy(op, busy, SystemClock.elapsedRealtime());
         busyOps.put(op, busy);
         updateOpButtons();
         if (op == ObdSession.Op.DTC && busy) dtcState.setText("Lese Fehlercodes 03 / 07 / 0A …");
@@ -681,13 +697,22 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     }
 
     @Override
+    public void onResult(ObdSession.Op op, String title, String message) {
+        handle(ResultRouter.route(op, title), title, message);
+    }
+
+    @Override
     public void onDialog(String title, String message) {
-        ResultRouter.Target target = router.route(title, SystemClock.elapsedRealtime());
+        handle(ResultRouter.route(null, title), title, message);
+    }
+
+    private void handle(ResultRouter.Target target, String title, String message) {
         String text = title + "\n\n" + message;
         switch (target) {
             case DTC_DETAILS:
                 results.put(target, text);
-                dtcState.setText(firstLines(message, 6));
+                dtcSummary = firstLines(message, 6);
+                dtcState.setText(dtcSummary);
                 refreshResults();
                 show(Page.DTC_DETAILS);
                 break;
