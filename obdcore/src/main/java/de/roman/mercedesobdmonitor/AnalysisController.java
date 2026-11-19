@@ -20,6 +20,7 @@ public final class AnalysisController {
     public final LiveAnalysis analysis = new LiveAnalysis();
     private final TrimRecorder recorder;
     private final Context app;
+    private final String prefsName;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final long refreshMs;
     private Runnable listener;
@@ -32,6 +33,7 @@ public final class AnalysisController {
     public AnalysisController(Context context, String prefsName, long refreshMs) {
         this.app = context.getApplicationContext();
         this.recorder = new TrimRecorder(app, prefsName);
+        this.prefsName = prefsName;
         this.refreshMs = refreshMs;
     }
 
@@ -83,6 +85,27 @@ public final class AnalysisController {
         view.setText(report());
     }
 
+    // ------------------------------------------------------------------ Fahrtenbuch
+
+    /** Fahrtenbuch-Bericht (gespeicherter Stand; vorher ggf. {@link #refreshTrips}). */
+    public String tripReport(int maxRows) {
+        return TripBook.report(TripStore.load(app, prefsName), ZoneId.systemDefault(), System.currentTimeMillis(), maxRows);
+    }
+
+    /** Eigene CSV-Logs im Hintergrund nachlesen, danach {@code done} auf dem UI-Thread. */
+    public void refreshTrips(Runnable done) {
+        TripStore.refreshAsync(app, prefsName, done);
+    }
+
+    /** Fahrtenbuch als CSV teilen. */
+    public void shareTrips(Activity activity) {
+        try {
+            activity.startActivity(TripStore.shareIntent(app, prefsName));
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(activity, "Keine App zum Teilen verfügbar", Toast.LENGTH_LONG).show();
+        }
+    }
+
     /** Dateiauswahl für ein CSV-Log öffnen. */
     public void pickLog(Activity activity, int requestCode) {
         try {
@@ -92,14 +115,18 @@ public final class AnalysisController {
         }
     }
 
-    /** Ergebnis der Dateiauswahl; true, wenn es dieser Anfrage gehörte. */
-    public boolean onActivityResult(int requestCode, int expected, int resultCode, Intent data) {
+    /**
+     * Ergebnis der Dateiauswahl; true, wenn es dieser Anfrage gehörte. {@code afterImport} läuft nach dem Import auf
+     * dem UI-Thread (z. B. Fahrtenbuch neu anzeigen), darf null sein.
+     */
+    public boolean onActivityResult(int requestCode, int expected, int resultCode, Intent data, Runnable afterImport) {
         if (requestCode != expected) return false;
         if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) return true;
         Toast.makeText(app, "Log wird ausgewertet …", Toast.LENGTH_SHORT).show();
         recorder.importAsync(data.getData(), text -> {
             Toast.makeText(app, text, Toast.LENGTH_LONG).show();
             if (listener != null) listener.run();
+            if (afterImport != null) afterImport.run();
         });
         return true;
     }

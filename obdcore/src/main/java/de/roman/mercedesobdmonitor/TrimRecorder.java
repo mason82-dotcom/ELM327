@@ -105,7 +105,9 @@ public final class TrimRecorder {
                     applied = result.applyTo(h);
                     store(ctx, prefs, h);
                 }
-                message = "Log ausgewertet (" + result.summary() + "): " + applied;
+                TripStore.merge(ctx, prefs, result.drives);
+                message = "Log ausgewertet (" + result.summary() + "): " + applied
+                        + " · Fahrtenbuch: " + result.drives.size() + (result.drives.size() == 1 ? " Fahrt" : " Fahrten");
             } catch (IOException | RuntimeException e) {
                 message = "Log nicht übernommen: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())
                         + ". Bitte ein CSV der Monitor-App wählen.";

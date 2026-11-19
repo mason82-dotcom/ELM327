@@ -16,6 +16,23 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.4.0 (Monitor) / 0.8.0 (Dashboard): Fahrtenbuch
+
+- **Fahrtenbuch** (Dashboard → ALLE WERTE → FAHRTEN, Monitor-App → Abschnitt „Fahrtenbuch“): je Fahrt Motorlaufzeit,
+  Strecke, Ø-Verbrauch, Leerlaufanteil, Höchsttempo und Trim-Differenz B1−B2, dazu die Summe der letzten 30 Tage;
+  als CSV teilbar. Quelle sind die CSV-Logs, die der Dienst durchgehend schreibt (auch ohne sichtbare Oberfläche),
+  sowie importierte Logs. Eine Fahrt beginnt mit laufendem Motor und endet nach 30 s Motor aus, 2 min ohne Werte oder
+  bei einem Neustart; unter 1 min Motorlaufzeit wird verworfen. Teilstücke eines Logwechsels werden verbunden.
+- **Rechnung** (`TripComputer`): Strecke aus dem Tempo (Trapez), Kraftstoff aus Luftmasse und Soll-λ (wie die Analyse,
+  Schub = 0), nur über Abstände bis 15 s – bei 5 s gingen im normalen Abfragetakt bis zur Hälfte der Strecke verloren.
+  Ohne Luftmasse (≥ 50 % der Laufzeit) bleibt der Verbrauch unbekannt statt 0.
+- **Validiert** gegen eine unabhängige Nachrechnung am Log vom 19.11.2026: 4,72 km / 0,71 l (15,0 l/100 km) und
+  4,56 km / 0,55 l (12,0 l/100 km); Laufzeit stimmt mit 01 1F überein. Der Verbrauch bleibt ein Richtwert
+  (Dichte 0,745 kg/l, ohne Trim-Korrektur), kein Tankbeleg.
+- Log-Import: Trim-Verlauf und Fahrtenbuch nutzen dieselbe Aufteilung in Fahrten.
+- Hinweis: Logs speichern Ortszeit ohne Zeitzone. Wird ein Log nach einem Zeitzonenwechsel erneut eingelesen, kann
+  eine Fahrt doppelt erscheinen.
+
 ## Version 1.3.1 (Monitor) / 0.7.2 (Dashboard): Bankvergleich in Mode 06
 
 - **Monitortests (Mode 06)** enthalten einen **Bankvergleich**: Jeder Test, den beide Bänke mit Grenzwert liefern
@@ -88,7 +105,7 @@ Auswertung des zweiten Logs (19.11.2026), Details in [docs/c350-log-20261119.md]
   07.11. und 19.11. gleich weit (5,7–8,2 %) über Bank 2.
 - **Log wiedereinlesen:** Das CSV trennt mehrere Antworten mit Leerzeichen; der Parser trennt solche Header-Zeilen
   jetzt ebenfalls und wertet auch dann 7E8.
-- Regressionstest `C350Log20261119Test` mit 4 768 echten Rohantworten.
+- Regressionstest `C350Log20261119Test` mit 5 587 echten Rohantworten.
 
 ## Version 1.2.0 (Monitor) / 0.4.0 (Dashboard): Werte vom Motorsteuergerät
 
@@ -244,8 +261,8 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
 
 GitHub Actions testet und lintet alle drei Module und baut bei jedem Push auf `main` zwei Debug-APKs:
 
-- `Mercedes_OBD2_Monitor_v1.3.1-debug` (Modul `:app`)
-- `OBD_Dashboard_v0.7.2-debug` (Modul `:dashboard`)
+- `Mercedes_OBD2_Monitor_v1.4.0-debug` (Modul `:app`)
+- `OBD_Dashboard_v0.8.0-debug` (Modul `:dashboard`)
 
 | Modul | Inhalt |
 |---|---|

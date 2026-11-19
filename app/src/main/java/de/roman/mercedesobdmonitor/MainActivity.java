@@ -60,6 +60,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private Button atfButton;
     private SparklineView latencyGraph;
     private TextView analysisText;
+    private TextView tripsText;
 
     /**
      * Gemeinsame Auswertung mit dem Dashboard (Verbrauch, Lambda, Trim-Karte und -Verlauf, Kat-Tendenz, E-Gas,
@@ -85,6 +86,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         session.setUiListener(this);
         controller.setListener(this::updateAnalysis);
         updateAnalysis();
+        refreshTrips();
     }
 
     @Override
@@ -212,6 +214,26 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         Button importLog = button("Log importieren (Trim-Verlauf)");
         root.addView(importLog, new LinearLayout.LayoutParams(-1, dp(48)));
 
+        TextView tripsTitle = text("Fahrtenbuch", 18, Color.WHITE);
+        tripsTitle.setTypeface(null, Typeface.BOLD);
+        tripsTitle.setPadding(0, dp(14), 0, dp(2));
+        root.addView(tripsTitle);
+        TextView tripsNote = text("Aus den CSV-Logs dieser App und importierten Logs · Verbrauch aus Luftmasse und Soll-λ "
+                + "(Richtwert, kein Tankbeleg)", 13, Color.rgb(255, 204, 118));
+        tripsNote.setPadding(0, 0, 0, dp(6));
+        root.addView(tripsNote);
+        tripsText = text(controller.tripReport(8), 13, Color.rgb(210, 214, 220));
+        tripsText.setTextIsSelectable(true);
+        tripsText.setPadding(dp(8), dp(8), dp(8), dp(8));
+        tripsText.setBackgroundColor(Color.rgb(29, 33, 40));
+        root.addView(tripsText);
+        LinearLayout tripControls = row();
+        Button refreshTrips = button("Fahrten aktualisieren");
+        Button shareTrips = button("Fahrten teilen (CSV)");
+        tripControls.addView(refreshTrips, weight());
+        tripControls.addView(shareTrips, weight());
+        root.addView(tripControls);
+
         LinearLayout logControls = row();
         Button export = button("CSV exportieren");
         Button newLog = button("Neues Log");
@@ -254,6 +276,8 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         export.setOnClickListener(v -> session.exportCsv(this));
         newLog.setOnClickListener(v -> session.startNewLog());
         importLog.setOnClickListener(v -> pickTrimLog());
+        refreshTrips.setOnClickListener(v -> refreshTrips());
+        shareTrips.setOnClickListener(v -> controller.shareTrips(this));
 
         setContentView(scroll);
     }
@@ -380,6 +404,13 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         controller.showIn(analysisText);
     }
 
+    /** Logs im Hintergrund nachlesen; solange bleibt der gespeicherte Stand sichtbar. */
+    private void refreshTrips() {
+        if (tripsText == null) return;
+        tripsText.setText(controller.tripReport(8) + "\n\nLese Logs …");
+        controller.refreshTrips(() -> { if (!isFinishing() && !isDestroyed()) tripsText.setText(controller.tripReport(8)); });
+    }
+
     private void pickTrimLog() {
         controller.pickLog(this, REQ_TRIM_LOG);
     }
@@ -387,7 +418,8 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        controller.onActivityResult(requestCode, REQ_TRIM_LOG, resultCode, data);
+        controller.onActivityResult(requestCode, REQ_TRIM_LOG, resultCode, data,
+                () -> { if (tripsText != null) tripsText.setText(controller.tripReport(8)); });
     }
 
     @Override
