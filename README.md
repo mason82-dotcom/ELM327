@@ -16,6 +16,19 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.2.2 (Monitor) / 0.5.0 (Dashboard): Trim-Verlauf und zweites C350-Log
+
+Auswertung des zweiten Logs (19.11.2026), Details in [docs/c350-log-20261119.md](docs/c350-log-20261119.md).
+
+- **Absenderwahl bestätigt:** 1 899 Doppelantworten Motor/Getriebe, in 763 kam das Getriebe zuerst – geloggt wurde
+  immer der Motorwert (7E8).
+- **Trim-Verlauf** (Dashboard → ANALYSE): je Verbindung ein gespeicherter Eintrag der Trim-Karte (Leerlauf/Teillast/
+  hohe Last, Bankdifferenz); zeigt, ob ein Bankunterschied beständig ist und ob er wächst. Am C350 lag Bank 1 am
+  07.11. und 19.11. gleich weit (5,7–8,2 %) über Bank 2.
+- **Log wiedereinlesen:** Das CSV trennt mehrere Antworten mit Leerzeichen; der Parser trennt solche Header-Zeilen
+  jetzt ebenfalls und wertet auch dann 7E8.
+- Regressionstest `C350Log20261119Test` mit 4 768 echten Rohantworten.
+
 ## Version 1.2.0 (Monitor) / 0.4.0 (Dashboard): Werte vom Motorsteuergerät
 
 Am C350 beantworten Motor (7E8) und Getriebe (7E9) dieselben PIDs (01 0C/0D/04/05/42/49). Ohne Header galt die
@@ -27,7 +40,7 @@ zuerst eintreffende Antwort; je Abfrage lagen die Werte bis 194 U/min bzw. 1,1 V
   danach den Live-Zustand wieder her; Reconnect und Terminal (`ATZ`, `ATH0`) ebenso.
 - Andere Protokolle (29-bit-CAN, K-Line) bleiben bei `ATH0`.
 - Das CSV-Log enthält auf 11-bit-CAN die Rohantworten mit Absender (z. B. `7E804410C0EE7`).
-- **Am Fahrzeug zu prüfen:** Livewerte, DTC-Scan und HU/AU-Check einmal am C350 laufen lassen.
+- **Am Fahrzeug:** Livewerte am 19.11.2026 bestätigt; DTC-Scan und HU/AU-Check mit `ATH1`-Wechsel noch einmal am C350 laufen lassen.
 
 ## Version 1.1.2 (Monitor) / 0.3.1 (Dashboard): Review-Korrekturen
 
@@ -170,8 +183,8 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
 
 GitHub Actions testet und lintet alle drei Module und baut bei jedem Push auf `main` zwei Debug-APKs:
 
-- `Mercedes_OBD2_Monitor_v1.2.1-debug` (Modul `:app`)
-- `OBD_Dashboard_v0.4.1-debug` (Modul `:dashboard`)
+- `Mercedes_OBD2_Monitor_v1.2.2-debug` (Modul `:app`)
+- `OBD_Dashboard_v0.5.0-debug` (Modul `:dashboard`)
 
 | Modul | Inhalt |
 |---|---|

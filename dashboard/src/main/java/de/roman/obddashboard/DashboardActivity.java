@@ -11,6 +11,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -29,8 +30,10 @@ import de.roman.mercedesobdmonitor.EngineAnalysis;
 import de.roman.mercedesobdmonitor.ObdPid;
 import de.roman.mercedesobdmonitor.ObdService;
 import de.roman.mercedesobdmonitor.ObdSession;
+import de.roman.mercedesobdmonitor.TrimHistory;
 import de.roman.mercedesobdmonitor.VehicleProfile;
 
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -116,6 +119,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         for (TrendSpec t : TRENDS) trends.put(t.pid, new TrendBuffer(TREND_POINTS));
+        trimHistory = TrimHistory.parse(getSharedPreferences(PREFS, MODE_PRIVATE).getString(TRIM_HISTORY_KEY, null));
         if (savedInstanceState != null) {
             try { page = Page.valueOf(savedInstanceState.getString("page", "LIVE")); } catch (IllegalArgumentException ignored) { }
             trendPid = savedInstanceState.getInt("trendPid", 0x0C);
@@ -151,6 +155,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         for (TrendBuffer t : trends.values()) t.addGap();
         lastSamples.clear();
         saveSettings();
+        saveTrimHistory(true);
         super.onStop();
     }
 
@@ -402,6 +407,13 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private final EngineAnalysis.CatTendency catBank2 = new EngineAnalysis.CatTendency();
     /** Gesamttrim je Bank und Lastbereich (geregelt, warm); überlebt das Drehen. */
     private final EngineAnalysis.TrimMap trimMap = new EngineAnalysis.TrimMap();
+    /** Trim-Karte je Verbindung, in den Einstellungen gespeichert (Bank-1-Befund 07./19.11.2026 verfolgen). */
+    private TrimHistory trimHistory = new TrimHistory();
+    /** Start der Verbindung, zu der die laufende Trim-Karte gehört (0 = noch nicht gesetzt). */
+    private long trimSessionStart;
+    private long trimSavedAt;
+    private static final long TRIM_SAVE_INTERVAL_MS = 30_000;
+    private static final String TRIM_HISTORY_KEY = "trim_history";
 
     private View buildAnalysis() {
         LinearLayout page = column();
@@ -480,6 +492,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
                 .append("\n  ").append(EngineAnalysis.lambdaVerdict(dev1, dev2)).append("\n\n");
         sb.append("TRIM-KARTE (STFT+LTFT, geregelt und warm)\n  ").append(trimMap.table().replace("\n", "\n  "))
                 .append("\n  ").append(trimMap.verdict()).append("\n\n");
+        sb.append("TRIM-VERLAUF (je Verbindung: Leerlauf/Teillast/hohe Last, Δ = B1−B2)\n  ")
+                .append(trimHistory.table(ZoneId.systemDefault(), 5).replace("\n", "\n  "))
+                .append("\n  ").append(trimHistory.verdict()).append("\n\n");
         sb.append("KAT-TENDENZ (Sonde nach Kat)\n  Bank 1: ").append(catBank1.verdict())
                 .append("\n  Bank 2: ").append(catBank2.verdict()).append("\n\n");
         sb.append("ZÜNDWINKEL\n  ").append(num(sample(0x0E), "%.1f ° v. OT"))
@@ -597,7 +612,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         // New connection, possibly another car: the catalyst tendency starts from scratch.
         catBank1.reset();
         catBank2.reset();
+        saveTrimHistory(true);   // die abgelaufene Verbindung behält ihren Eintrag
         trimMap.reset();
+        trimSessionStart = System.currentTimeMillis();
         startForegroundService(new Intent(this, ObdService.class).setAction(ObdService.ACTION_START));
     }
 
@@ -632,6 +649,19 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         }
         if (ok) toggleConnection();
         else Toast.makeText(this, "Ohne Berechtigung für das lokale Netzwerk ist keine Verbindung zum ELM327 möglich", Toast.LENGTH_LONG).show();
+    }
+
+    /** Abbild der laufenden Trim-Karte speichern; ohne {@code force} höchstens alle 30 s. */
+    private void saveTrimHistory(boolean force) {
+        // Activity neu erstellt, während der Dienst weiter verbunden ist: Werte ab jetzt als eigene Verbindung
+        if (trimSessionStart == 0) trimSessionStart = System.currentTimeMillis();
+        long now = SystemClock.elapsedRealtime();
+        if (!force && now - trimSavedAt < TRIM_SAVE_INTERVAL_MS) return;
+        TrimHistory.Entry entry = TrimHistory.snapshot(trimSessionStart, trimMap);
+        if (entry == null) return;
+        trimSavedAt = now;
+        trimHistory.upsert(entry);
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(TRIM_HISTORY_KEY, trimHistory.serialize()).apply();
     }
 
     private void saveSettings() {
@@ -740,6 +770,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         if (pid == 0x08 && !EngineAnalysis.isOverrun(sample(0x44), fuelStatus(), sample(0x45), sample(0x0C))
                 && !EngineAnalysis.isLambdaSaturated(sample(0x44))) trimMap.add(sample(0x06), sample(0x07), sample(0x08), sample(0x09), fuelStatus(),
                 sample(0x05), sample(0x0C), sample(0x0D), sample(0x04));
+        if (pid == 0x08) saveTrimHistory(false);
         requestAnalysisUpdate();
         if (pid == 0x0C) lastRpm = value;
         if (pid == 0x0D) lastSpeed = value;
