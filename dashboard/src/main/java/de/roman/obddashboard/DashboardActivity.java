@@ -27,12 +27,17 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import de.roman.mercedesobdmonitor.EngineAnalysis;
+import de.roman.mercedesobdmonitor.LogReplay;
 import de.roman.mercedesobdmonitor.ObdPid;
 import de.roman.mercedesobdmonitor.ObdService;
 import de.roman.mercedesobdmonitor.ObdSession;
 import de.roman.mercedesobdmonitor.TrimHistory;
 import de.roman.mercedesobdmonitor.VehicleProfile;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -119,7 +124,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         for (TrendSpec t : TRENDS) trends.put(t.pid, new TrendBuffer(TREND_POINTS));
-        trimHistory = TrimHistory.parse(getSharedPreferences(PREFS, MODE_PRIVATE).getString(TRIM_HISTORY_KEY, null));
+        trimHistory = loadTrimHistory(this);
         if (savedInstanceState != null) {
             try { page = Page.valueOf(savedInstanceState.getString("page", "LIVE")); } catch (IllegalArgumentException ignored) { }
             trendPid = savedInstanceState.getInt("trendPid", 0x0C);
@@ -434,6 +439,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         LinearLayout actions = row();
         actions.addView(opButton(ObdSession.Op.ATF, "ATF LESEN", v -> session.runAtfTemperature()), weighted());
         actions.addView(opButton(ObdSession.Op.PROFILE, "FAHRZEUGPROFIL", v -> session.runVehicleProfile()), weighted());
+        actions.addView(button("LOG IMPORTIEREN", v -> pickTrimLog()), weighted());
         page.addView(actions);
         updateAnalysis();
         return page;
@@ -651,17 +657,82 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         else Toast.makeText(this, "Ohne Berechtigung für das lokale Netzwerk ist keine Verbindung zum ELM327 möglich", Toast.LENGTH_LONG).show();
     }
 
+    private static final int REQUEST_TRIM_LOG = 41;
+
+    /** CSV-Log der Monitor-App wählen (Systemdialog, nur Lesen); seine Fahrten kommen in den Trim-Verlauf. */
+    private void pickTrimLog() {
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                .putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"text/csv", "text/comma-separated-values", "text/plain"});
+        try {
+            startActivityForResult(pick, REQUEST_TRIM_LOG);
+        } catch (android.content.ActivityNotFoundException e) {
+            Toast.makeText(this, "Keine Dateiauswahl auf diesem Gerät verfügbar", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_TRIM_LOG || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        android.net.Uri uri = data.getData();
+        Toast.makeText(this, "Log wird ausgewertet …", Toast.LENGTH_SHORT).show();
+        // Alle Werte für den Hintergrund-Thread vorher holen; er schreibt direkt in die Einstellungen (Lesen-Ändern-
+        // Schreiben unter TRIM_LOCK) und hält so keine Daten einer Activity-Instanz, die inzwischen ersetzt sein kann.
+        android.content.Context app = getApplicationContext();
+        new Thread(() -> {
+            String message;
+            try (InputStream in = app.getContentResolver().openInputStream(uri)) {
+                if (in == null) throw new java.io.IOException("Datei lässt sich nicht öffnen");
+                LogReplay.Result result = LogReplay.read(new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8)),
+                        ZoneId.systemDefault());
+                String applied;
+                synchronized (TRIM_LOCK) {
+                    TrimHistory h = loadTrimHistory(app);
+                    applied = result.applyTo(h);
+                    storeTrimHistory(app, h);
+                }
+                message = "Log ausgewertet (" + result.summary() + "): " + applied;
+            } catch (java.io.IOException | RuntimeException e) {
+                message = "Log nicht übernommen: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())
+                        + ". Bitte ein CSV der Monitor-App wählen.";
+            }
+            final String text = message;
+            runOnUiThread(() -> {
+                trimHistory = loadTrimHistory(this);
+                if (page == Page.ANALYSIS) updateAnalysis();
+                Toast.makeText(this, text, Toast.LENGTH_LONG).show();
+            });
+        }, "trim-log-import").start();
+    }
+
+    /** Schützt Lesen-Ändern-Schreiben des gespeicherten Verlaufs (UI-Thread und Import-Thread, alle Instanzen). */
+    private static final Object TRIM_LOCK = new Object();
+
+    private static TrimHistory loadTrimHistory(android.content.Context c) {
+        return TrimHistory.parse(c.getSharedPreferences(PREFS, MODE_PRIVATE).getString(TRIM_HISTORY_KEY, null));
+    }
+
+    private static void storeTrimHistory(android.content.Context c, TrimHistory h) {
+        // apply ändert den Speicherstand im Prozess sofort; das Schreiben auf die Platte folgt im Hintergrund
+        c.getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(TRIM_HISTORY_KEY, h.serialize()).apply();
+    }
+
     /** Abbild der laufenden Trim-Karte speichern; ohne {@code force} höchstens alle 30 s. */
     private void saveTrimHistory(boolean force) {
         // Activity neu erstellt, während der Dienst weiter verbunden ist: Werte ab jetzt als eigene Verbindung
+        // (eigener Startzeitpunkt, überschreibt nie den Eintrag der vorigen Instanz)
         if (trimSessionStart == 0) trimSessionStart = System.currentTimeMillis();
         long now = SystemClock.elapsedRealtime();
         if (!force && now - trimSavedAt < TRIM_SAVE_INTERVAL_MS) return;
-        TrimHistory.Entry entry = TrimHistory.snapshot(trimSessionStart, trimMap);
+        TrimHistory.Entry entry = TrimHistory.snapshot(trimSessionStart, System.currentTimeMillis(), trimMap);
         if (entry == null) return;
         trimSavedAt = now;
-        trimHistory.upsert(entry);
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(TRIM_HISTORY_KEY, trimHistory.serialize()).apply();
+        synchronized (TRIM_LOCK) {
+            TrimHistory h = loadTrimHistory(this);
+            h.upsert(entry);
+            storeTrimHistory(this, h);
+            trimHistory = h;
+        }
     }
 
     private void saveSettings() {
@@ -767,10 +838,10 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         if (pid == 0x19) catBank2.add(value, fuelStatus(), sample(0x05));
         // One trim-map sample per STFT Bank 2 reading. Fuel status, load, speed and LTFT come from earlier
         // cycles (PollSchedule staggers them), so samples near an overrun transition are skipped.
-        if (pid == 0x08 && !EngineAnalysis.isOverrun(sample(0x44), fuelStatus(), sample(0x45), sample(0x0C))
-                && !EngineAnalysis.isLambdaSaturated(sample(0x44))) trimMap.add(sample(0x06), sample(0x07), sample(0x08), sample(0x09), fuelStatus(),
-                sample(0x05), sample(0x0C), sample(0x0D), sample(0x04));
-        if (pid == 0x08) saveTrimHistory(false);
+        if (pid == 0x08) {
+            trimMap.offer(this::sample);
+            saveTrimHistory(false);
+        }
         requestAnalysisUpdate();
         if (pid == 0x0C) lastRpm = value;
         if (pid == 0x0D) lastSpeed = value;

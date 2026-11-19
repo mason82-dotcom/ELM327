@@ -16,7 +16,7 @@ import java.util.Locale;
  */
 public final class TrimHistory {
     /** Gespeicherte Verbindungen (die ältesten fallen heraus). */
-    public static final int MAX_ENTRIES = 12;
+    public static final int MAX_ENTRIES = 30;
     /** Bankdifferenz, ab der eine Fahrt als „Bank stärker angefettet“ zählt (wie {@link EngineAnalysis.TrimMap}). */
     public static final double BANK_DIFF = 5.0;
     /** Änderung der Bankdifferenz (erste gegen letzte Fahrten), ab der sie als steigend/fallend gilt. */
@@ -25,15 +25,38 @@ public final class TrimHistory {
     public static final double LEAN_CODE_LIMIT = 25.0;
     private static final int BANDS = EngineAnalysis.TrimMap.Band.values().length;
 
+    /** Was {@link #upsert} bzw. {@link #addImported} mit einem Eintrag gemacht hat. */
+    public enum Outcome {
+        /** neu eingetragen */
+        ADDED,
+        /** gleichen Eintrag aktualisiert (gleicher Start) */
+        REPLACED,
+        /** Import überschneidet sich mit einer schon gespeicherten Verbindung – die gespeicherte bleibt */
+        ALREADY_PRESENT,
+        /** älter als alle {@link #MAX_ENTRIES} gespeicherten – nicht aufgenommen */
+        TOO_OLD,
+        /** kein Eintrag (zu wenige Werte) */
+        NONE
+    }
+
     /** Abbild einer Verbindung: Gesamtkorrektur je Bank und Band (NaN = zu wenige Proben). */
     public static final class Entry {
         public final long startedAtMs;
+        /** letzter berücksichtigter Zeitpunkt (Live: letzte Sicherung, Import: letzter Logwert) */
+        public final long endedAtMs;
+        /** aus einem CSV-Log übernommen statt live aufgezeichnet */
+        boolean imported;
         final double[] bank1 = new double[BANDS];
         final double[] bank2 = new double[BANDS];
         final int[] samples = new int[BANDS];
 
-        Entry(long startedAtMs) {
+        Entry(long startedAtMs, long endedAtMs) {
             this.startedAtMs = startedAtMs;
+            this.endedAtMs = Math.max(startedAtMs, endedAtMs);
+        }
+
+        public boolean isImported() {
+            return imported;
         }
 
         public Double mean(int bank, EngineAnalysis.TrimMap.Band b) {
@@ -66,13 +89,17 @@ public final class TrimHistory {
             }
             return m;
         }
+
+        boolean overlaps(Entry o) {
+            return startedAtMs <= o.endedAtMs && o.startedAtMs <= endedAtMs;
+        }
     }
 
     private final List<Entry> entries = new ArrayList<>();
 
-    /** Abbild der Trim-Karte; null, solange kein Band genug Proben hat. */
-    public static Entry snapshot(long startedAtMs, EngineAnalysis.TrimMap map) {
-        Entry e = new Entry(startedAtMs);
+    /** Abbild der Trim-Karte für die Zeitspanne Start–Ende; null, solange kein Band genug Proben hat. */
+    public static Entry snapshot(long startedAtMs, long endedAtMs, EngineAnalysis.TrimMap map) {
+        Entry e = new Entry(startedAtMs, endedAtMs);
         boolean any = false;
         for (EngineAnalysis.TrimMap.Band b : EngineAnalysis.TrimMap.Band.values()) {
             Double m1 = map.mean(1, b), m2 = map.mean(2, b);
@@ -85,18 +112,49 @@ public final class TrimHistory {
         return any ? e : null;
     }
 
-    /** Verbindung eintragen oder (gleicher Startzeitpunkt) aktualisieren; null wird ignoriert. */
-    public void upsert(Entry e) {
-        if (e == null) return;
+    /**
+     * Live-Verbindung eintragen oder aktualisieren. Dieselbe Verbindung erkennt nur der exakt gleiche Startzeitpunkt
+     * (er wird beim Verbinden gesetzt); ein schnelles Neuverbinden oder eine neu aufgebaute Activity ergibt einen
+     * eigenen Eintrag und überschreibt nie einen fremden. Importierte Einträge, die die Live-Verbindung überdecken,
+     * werden durch sie ersetzt – live aufgezeichnet gilt mehr als nachgetragen.
+     */
+    public Outcome upsert(Entry e) {
+        if (e == null) return Outcome.NONE;
         for (int i = 0; i < entries.size(); i++) {
             if (entries.get(i).startedAtMs == e.startedAtMs) {
                 entries.set(i, e);
-                return;
+                return Outcome.REPLACED;
             }
         }
+        if (!e.imported) entries.removeIf(o -> o.imported && o.overlaps(e));
+        return insert(e);
+    }
+
+    /**
+     * Fahrt aus einem CSV-Log nachtragen. Erneuter Import (gleicher Start eines importierten Eintrags) ersetzt;
+     * überschneidet sich die Fahrt mit einer schon gespeicherten Verbindung (live oder anders importiert), bleibt
+     * diese – so zählt eine Fahrt nie doppelt, auch wenn das Log später als die Verbindung begann oder Lücken hat.
+     */
+    public Outcome addImported(Entry e) {
+        if (e == null) return Outcome.NONE;
+        e.imported = true;
+        for (int i = 0; i < entries.size(); i++) {
+            Entry o = entries.get(i);
+            if (o.imported && o.startedAtMs == e.startedAtMs) {
+                entries.set(i, e);
+                return Outcome.REPLACED;
+            }
+        }
+        for (Entry o : entries) if (o.overlaps(e)) return Outcome.ALREADY_PRESENT;
+        return insert(e);
+    }
+
+    private Outcome insert(Entry e) {
         entries.add(e);
         entries.sort((a, b) -> Long.compare(a.startedAtMs, b.startedAtMs));
-        while (entries.size() > MAX_ENTRIES) entries.remove(0);
+        boolean dropped = false;
+        while (entries.size() > MAX_ENTRIES) dropped |= entries.remove(0) == e;
+        return dropped ? Outcome.TOO_OLD : Outcome.ADDED;
     }
 
     public List<Entry> entries() {
@@ -109,11 +167,14 @@ public final class TrimHistory {
 
     // ------------------------------------------------------------------ Speichern (SharedPreferences)
 
-    /** Eine Zeile je Verbindung: Start;B1 L/T/H;B2 L/T/H;n L/T/H (Punkt als Dezimalzeichen, leer = NaN). */
+    /**
+     * Eine Zeile je Verbindung: Start;Ende;importiert(0/1);B1 L/T/H;B2 L/T/H;n L/T/H (Punkt als Dezimalzeichen,
+     * leer = NaN). Zeilen der Version 0.5.0 ohne Ende/Herkunft werden weiter gelesen.
+     */
     public String serialize() {
         StringBuilder sb = new StringBuilder();
         for (Entry e : entries) {
-            sb.append(e.startedAtMs);
+            sb.append(e.startedAtMs).append(';').append(e.endedAtMs).append(';').append(e.imported ? 1 : 0);
             for (double[] bank : new double[][] {e.bank1, e.bank2}) {
                 for (double v : bank) sb.append(';').append(Double.isNaN(v) ? "" : String.format(Locale.US, "%.3f", v));
             }
@@ -123,22 +184,33 @@ public final class TrimHistory {
         return sb.toString();
     }
 
-    /** Liest {@link #serialize()}; beschädigte Zeilen werden übersprungen, nie eine Ausnahme. */
+    /** Liest {@link #serialize()}; beschädigte Zeilen werden übersprungen, nie eine Ausnahme, nie ein Verschmelzen. */
     public static TrimHistory parse(String text) {
         TrimHistory h = new TrimHistory();
         if (text == null) return h;
         for (String line : text.split("\n")) {
             String[] f = line.split(";", -1);
-            if (f.length != 1 + 3 * BANDS) continue;
+            int o;
+            if (f.length == 3 + 3 * BANDS) o = 3;
+            else if (f.length == 1 + 3 * BANDS) o = 1;      // Format 0.5.0
+            else continue;
             try {
-                Entry e = new Entry(Long.parseLong(f[0]));
+                long start = Long.parseLong(f[0]);
+                Entry e = new Entry(start, o == 3 ? Long.parseLong(f[1]) : start);
+                if (o == 3) {
+                    if (!f[2].equals("0") && !f[2].equals("1")) throw new NumberFormatException();
+                    e.imported = f[2].equals("1");
+                }
                 for (int i = 0; i < BANDS; i++) {
-                    e.bank1[i] = f[1 + i].isEmpty() ? Double.NaN : Double.parseDouble(f[1 + i]);
-                    e.bank2[i] = f[1 + BANDS + i].isEmpty() ? Double.NaN : Double.parseDouble(f[1 + BANDS + i]);
-                    e.samples[i] = Integer.parseInt(f[1 + 2 * BANDS + i]);
+                    e.bank1[i] = f[o + i].isEmpty() ? Double.NaN : Double.parseDouble(f[o + i]);
+                    e.bank2[i] = f[o + BANDS + i].isEmpty() ? Double.NaN : Double.parseDouble(f[o + BANDS + i]);
+                    e.samples[i] = Integer.parseInt(f[o + 2 * BANDS + i]);
                     if (Double.isNaN(e.bank1[i]) != Double.isNaN(e.bank2[i])) throw new NumberFormatException();
                 }
-                if (e.bankDifference() != null) h.upsert(e);
+                if (e.bankDifference() == null) continue;
+                boolean duplicate = false;
+                for (Entry x : h.entries) duplicate |= x.startedAtMs == start;
+                if (!duplicate) h.insert(e);
             } catch (NumberFormatException ignored) { }
         }
         return h;

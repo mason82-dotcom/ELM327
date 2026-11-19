@@ -75,7 +75,7 @@ public class C350Log20261119Test {
         assertTrue(map.verdict(), map.verdict().startsWith("Bank 1 wird in Leerlauf und unter Last stärker angefettet"));
 
         TrimHistory history = new TrimHistory();
-        history.upsert(TrimHistory.snapshot(1L, map));
+        history.upsert(TrimHistory.snapshot(1L, 1L, map));
         double diff = history.entries().get(0).bankDifference();
         assertTrue(map.table(), diff >= 5 && diff <= 10);
     }
