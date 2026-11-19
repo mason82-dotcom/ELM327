@@ -22,6 +22,8 @@ public final class LogReplay {
 
     /** Pause, ab der eine neue Fahrt beginnt (Motor aus, Verbindung neu). */
     public static final long TRIP_GAP_MS = 5 * 60_000L;
+    /** Byte-Order-Mark, die manche Editoren beim Speichern voranstellen. */
+    static final char BOM = (char) 0xFEFF;
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS", Locale.US);
 
     /** Ergebnis: je Fahrt mit genug Werten ein Verlaufseintrag, dazu Zählwerte für die Rückmeldung. */
@@ -44,7 +46,7 @@ public final class LogReplay {
     public static Result read(BufferedReader in, ZoneId zone) throws IOException {
         String header = in.readLine();
         if (header == null) throw new IOException("Datei ist leer");
-        if (header.startsWith("﻿")) header = header.substring(1);
+        if (!header.isEmpty() && header.charAt(0) == BOM) header = header.substring(1);
         List<String> cols = split(header);
         int iTs = cols.indexOf("timestamp"), iPid = cols.indexOf("pid"), iValue = cols.indexOf("value"), iRaw = cols.indexOf("raw");
         if (iTs < 0 || iPid < 0 || (iValue < 0 && iRaw < 0)) {

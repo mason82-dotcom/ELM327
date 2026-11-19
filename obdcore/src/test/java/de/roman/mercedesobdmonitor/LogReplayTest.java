@@ -59,7 +59,7 @@ public class LogReplayTest {
     /** Format der App (CsvLogWriter.HEADER) mit Anführungszeichen, kaputten Zeilen und BOM. */
     @Test
     public void appFormatToleratesBrokenRows() throws IOException {
-        String csv = "﻿" + CsvLogWriter.HEADER + "\n"
+        String csv = LogReplay.BOM + CsvLogWriter.HEADER + "\n"
                 + "\"2026-11-19 18:09:07.305\";0C;\"Motordrehzahl\";697.500000;\"U/min\";120;\"7E804410C0AE6 7E904410C0AF4\"\n"
                 + "kaputt\n"
                 + "\"2026-11-19 18:09:07.400\";0D;\"Geschwindigkeit\";;\"km/h\";90;\"7E803410D00\"\n"
