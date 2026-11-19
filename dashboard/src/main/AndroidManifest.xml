@@ -11,7 +11,9 @@
         android:theme="@style/DashboardTheme">
         <!-- Querformat bevorzugt (Halterung im Auto), Hochformat wird ebenso unterstützt.
              configChanges: Drehen baut die Activity nicht neu auf; die Verbindung läuft ohnehin im ObdService. -->
+        <!-- Zurück-Geste auf Unterseiten über OnBackInvokedCallback (Android 13+; ohne Flag erst ab 16) -->
         <activity
+            android:enableOnBackInvokedCallback="true"
             android:name=".DashboardActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"

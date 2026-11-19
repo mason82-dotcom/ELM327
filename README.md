@@ -16,6 +16,23 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Dashboard 0.7.0: Querformat für die Halterung, Zurück-Geste, Lesbarkeit
+
+Alle Seiten im Emulator (Android 16) am ELM327-Simulator geprüft (Design-Kritik und Barrierefreiheits-Prüfung):
+
+- **LIVE quer:** Drehzahl über die volle Höhe, Kühlmittel/Tempo daneben, Kacheln als Raster 2×3 mit ALLE WERTE.
+  Vorher bekamen die Instrumente nur die Resthöhe (~110 dp); in einem ersten 3-Zeilen-Raster wurde die Wertzeile
+  abgeschnitten, das Komma sah dort wie ein Punkt aus.
+- **Unterseiten** (Werte, Analyse, Mode 06, Trim-Test, HU/AU, DTC-Details) nutzen einen gemeinsamen Aufbau: quer
+  Knöpfe als Spalte rechts, statische Hinweise scrollen mit, Live-Status (Trim-Test) bleibt fest. ALLE WERTE zeigt
+  quer 4 statt 2,5 Zeilen.
+- **INFO quer:** Einstellungen links (scrollbar), Protokoll rechts – vorher waren die Log-Knöpfe abgeschnitten.
+- **Zurück-Geste** auf einer Unterseite führt zur übergeordneten Seite statt aus der App (Android 13+ über
+  `OnBackInvokedCallback`, darunter über die Zurück-Taste); Ziel wie der ZURÜCK-Knopf.
+- **Instrumente:** Mindestschrift 12 sp statt 12 px (≈ 4,6 sp), Titel wird in kleine Instrumente eingepasst.
+- **Graph:** Einheit über der Skala statt über der „0“.
+- Textkontraste geprüft: alle Textfarben ≥ 6,6:1 auf dem Hintergrund (gedämpftes Grau 9:1).
+
 ## Dashboard 0.6.1: Analyse-Seite für die Halterung
 
 Im Emulator (Android 16, Pixel 6) am ELM327-Simulator geprüft:
@@ -209,7 +226,7 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
 GitHub Actions testet und lintet alle drei Module und baut bei jedem Push auf `main` zwei Debug-APKs:
 
 - `Mercedes_OBD2_Monitor_v1.2.2-debug` (Modul `:app`)
-- `OBD_Dashboard_v0.6.1-debug` (Modul `:dashboard`)
+- `OBD_Dashboard_v0.7.0-debug` (Modul `:dashboard`)
 
 | Modul | Inhalt |
 |---|---|

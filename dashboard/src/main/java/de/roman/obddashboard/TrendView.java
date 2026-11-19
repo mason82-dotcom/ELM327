@@ -46,14 +46,15 @@ final class TrendView extends View {
         label.setTextSize(12f * density);
         line.setStrokeWidth(3f * density);
         float left = label.measureText("00000 ") + pad;
-        float top = pad, bottom = h - pad, right = w - pad;
+        // oben Platz für die Einheit, damit sie weder die Kurve (rechts oben) noch die „0“ (links unten) überdeckt
+        float top = pad + label.getTextSize() * 1.4f, bottom = h - pad, right = w - pad;
         for (int i = 0; i <= 4; i++) {
             float y = top + (bottom - top) * i / 4f;
             canvas.drawLine(left, y, right, y, grid);
             double v = max - (max - min) * i / 4.0;
             canvas.drawText(String.format(java.util.Locale.GERMANY, "%.0f", v), pad * 0.5f, y + label.getTextSize() * 0.35f, label);
         }
-        canvas.drawText(unit, pad * 0.5f, bottom + pad * 0.9f, label);
+        canvas.drawText(unit, pad * 0.5f, pad + label.getTextSize() * 0.7f, label);
         if (buffer == null || buffer.size() < 2) return;
         int cap = buffer.capacity(), n = buffer.size();
         path.reset();
