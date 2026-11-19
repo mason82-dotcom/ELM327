@@ -421,10 +421,10 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private static final String TRIM_HISTORY_KEY = "trim_history";
 
     private View buildAnalysis() {
-        LinearLayout page = column();
-        page.setPadding(dp(12), dp(4), dp(12), dp(4));
-        page.addView(backRow("ANALYSE / NUR LESEN", Page.VALUES));
-        page.addView(text("Aus Standardwerten berechnet · Schwellen sind Richtwerte, keine Herstellerangaben", 13, Palette.WARN));
+        boolean land = landscape();
+        LinearLayout main = column();
+        main.addView(backRow("ANALYSE / NUR LESEN", Page.VALUES));
+        String hint = "Aus Standardwerten berechnet · Schwellen sind Richtwerte, keine Herstellerangaben";
         analysisText = resultText("Werte erscheinen, sobald verbunden.");
         analysisText.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         atfText = resultText(results.containsKey(ResultRouter.Target.ATF) ? results.get(ResultRouter.Target.ATF)
@@ -432,15 +432,44 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         profileText = resultText(results.containsKey(ResultRouter.Target.PROFILE) ? results.get(ResultRouter.Target.PROFILE)
                 : "Fahrzeugprofil: welche Werte Motor und Getriebe melden – einmal am Fahrzeug lesen.");
         LinearLayout content = column();
+        // Querformat (Halterung): jede Zeile zählt – der Hinweis scrollt mit, statt fest Platz zu belegen
+        if (land) content.addView(text(hint, 13, Palette.WARN));
+        else main.addView(text(hint, 13, Palette.WARN));
         content.addView(analysisText);
         content.addView(atfText);
         content.addView(profileText);
-        page.addView(scrollCard(content), new LinearLayout.LayoutParams(-1, 0, 1f));
-        LinearLayout actions = row();
-        actions.addView(opButton(ObdSession.Op.ATF, "ATF LESEN", v -> session.runAtfTemperature()), weighted());
-        actions.addView(opButton(ObdSession.Op.PROFILE, "FAHRZEUGPROFIL", v -> session.runVehicleProfile()), weighted());
-        actions.addView(button("LOG IMPORTIEREN", v -> pickTrimLog()), weighted());
-        page.addView(actions);
+        main.addView(scrollCard(content), new LinearLayout.LayoutParams(-1, 0, 1f));
+        Button[] buttons = {
+                opButton(ObdSession.Op.ATF, "ATF LESEN", v -> session.runAtfTemperature()),
+                opButton(ObdSession.Op.PROFILE, "PROFIL LESEN", v -> session.runVehicleProfile()),
+                button("LOG IMPORTIEREN", v -> pickTrimLog())};
+        buttons[1].setContentDescription("Fahrzeugprofil lesen");
+        buttons[2].setContentDescription("CSV-Log importieren (Trim-Verlauf)");
+        if (!land) {
+            main.setPadding(dp(12), dp(4), dp(12), dp(4));
+            LinearLayout actions = row();
+            // sonst richtet LinearLayout die Knöpfe an der Grundlinie aus: ein zweizeiliger rutscht nach unten
+            actions.setBaselineAligned(false);
+            for (Button b : buttons) {
+                b.setMaxLines(2);   // schmale Spalten: lieber zweizeilig als „FAHRZEUGPR…“
+                actions.addView(b, weighted());
+            }
+            main.addView(actions);
+            updateAnalysis();
+            return main;
+        }
+        // Querformat: Inhalt links über die volle Höhe, Knöpfe als Spalte rechts
+        LinearLayout page = row();
+        page.setPadding(dp(12), dp(4), dp(12), dp(4));
+        page.addView(main, new LinearLayout.LayoutParams(0, -1, 1f));
+        LinearLayout side = column();
+        side.setPadding(dp(6), 0, 0, 0);
+        for (Button b : buttons) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(56));
+            lp.setMargins(0, dp(6), 0, 0);
+            side.addView(b, lp);
+        }
+        page.addView(side, new LinearLayout.LayoutParams(dp(190), -1));
         updateAnalysis();
         return page;
     }
@@ -498,7 +527,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
                 .append("\n  ").append(EngineAnalysis.lambdaVerdict(dev1, dev2)).append("\n\n");
         sb.append("TRIM-KARTE (STFT+LTFT, geregelt und warm)\n  ").append(trimMap.table().replace("\n", "\n  "))
                 .append("\n  ").append(trimMap.verdict()).append("\n\n");
-        sb.append("TRIM-VERLAUF (je Verbindung: Leerlauf/Teillast/hohe Last, Δ = B1−B2)\n  ")
+        sb.append("TRIM-VERLAUF (je Verbindung, neueste zuerst; Leerlauf/Teillast/hohe Last)\n  ")
                 .append(trimHistory.table(ZoneId.systemDefault(), 5).replace("\n", "\n  "))
                 .append("\n  ").append(trimHistory.verdict()).append("\n\n");
         sb.append("KAT-TENDENZ (Sonde nach Kat)\n  Bank 1: ").append(catBank1.verdict())

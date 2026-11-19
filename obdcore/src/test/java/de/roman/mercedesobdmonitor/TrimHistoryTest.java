@@ -112,10 +112,15 @@ public class TrimHistoryTest {
         h.upsert(trip(NOV_07, 9.3, 2.5, 12.0, 3.8));
         h.upsert(trip(NOV_07 + 12 * DAY, 11.7, 4.3, 10.2, 3.1));
         String[] rows = h.table(BERLIN, 5).split("\n");
-        assertEquals(2, rows.length);
-        assertEquals("19.11. 16:17  B1 +11,7/+10,2/– · B2 +4,3/+3,1/– · Δ +7,2", rows[0]);
-        assertTrue(rows[1], rows[1].startsWith("07.11. 16:17  B1 +9,3/+12,0/–"));
-        assertEquals(1, h.table(BERLIN, 1).split("\n").length);
+        assertEquals(4, rows.length);
+        assertEquals("19.11. 16:17  Δ B1−B2 +7,2 %", rows[0]);
+        assertEquals("  B1 +11,7/+10,2/– · B2 +4,3/+3,1/–", rows[1]);
+        assertTrue(rows[2], rows[2].startsWith("07.11. 16:17  Δ B1−B2"));
+        h.addImported(trip(NOV_07 + 13 * DAY, 9, 2, 9, 2));
+        String[] one = h.table(BERLIN, 1).split("\n");
+        assertEquals(3, one.length);
+        assertTrue(one[0], one[0].endsWith("(Log)"));
+        assertEquals("… 2 ältere", one[2]);
     }
 
     @Test
