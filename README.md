@@ -16,6 +16,15 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.3.1 (Monitor) / 0.7.2 (Dashboard): Bankvergleich in Mode 06
+
+- **Monitortests (Mode 06)** enthalten einen **Bankvergleich**: Jeder Test, den beide Bänke mit Grenzwert liefern
+  (Lambdasonden 1–4, Sondenheizungen 1–4, Katalysator), steht mit seiner Reserve zur Grenze nebeneinander; ab
+  25 Punkten Unterschied wird die schwächere Bank markiert. Liegt die Vorkat-Sonde von Bank 1 näher an ihren Grenzen,
+  verweist der Bericht auf den Trim-Befund (Sonde B1S1, Abgasleck vor der Sonde, Krümmer/Flansch Zyl. 1–3).
+- Am C350 einmal **warm** (nach einer Fahrt, Fahrzyklus abgeschlossen) „Monitortests“ lesen. Der ELM327-Simulator
+  liefert Mode 06 nur für Bank 1, dort erscheint kein Vergleich; abgedeckt durch `Mode06BankComparisonTest`.
+
 ## Version 1.3.0 (Monitor) / 0.7.1 (Dashboard): Analyse auch in der Monitor-App
 
 - **Monitor-App:** neuer Abschnitt **Analyse (C350/M272)** unter den Livewerten – derselbe Bericht wie im Dashboard
@@ -235,8 +244,8 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
 
 GitHub Actions testet und lintet alle drei Module und baut bei jedem Push auf `main` zwei Debug-APKs:
 
-- `Mercedes_OBD2_Monitor_v1.3.0-debug` (Modul `:app`)
-- `OBD_Dashboard_v0.7.1-debug` (Modul `:dashboard`)
+- `Mercedes_OBD2_Monitor_v1.3.1-debug` (Modul `:app`)
+- `OBD_Dashboard_v0.7.2-debug` (Modul `:dashboard`)
 
 | Modul | Inhalt |
 |---|---|

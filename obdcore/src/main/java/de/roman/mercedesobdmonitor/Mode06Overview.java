@@ -281,6 +281,12 @@ public final class Mode06Overview {
             for (Test t : notable) sb.append(line(t, true)).append('\n');
         }
 
+        List<String> banks = bankComparison(tests);
+        if (!banks.isEmpty()) {
+            sb.append("\nBankvergleich (M272: Bank 1 = Zyl. 1–3, Bank 2 = Zyl. 4–6; Reserve zur Grenze):\n");
+            for (String l : banks) sb.append(l).append('\n');
+        }
+
         sb.append("\nAlle Tests:\n");
         int lastMid = -1;
         for (Test t : tests) {
@@ -328,6 +334,64 @@ public final class Mode06Overview {
             sb.append(" · Reserve ").append(t.reservePercent).append(" %");
         }
         return sb.toString();
+    }
+
+    /** Reserve-Unterschied (Prozentpunkte), ab dem eine Bank im Vergleich als deutlich schwächer gilt. */
+    public static final int BANK_GAP_PERCENT = 25;
+
+    /** Monitorpaare Bank 1 → Bank 2: Lambdasonden 1–4, Sondenheizungen 1–4, Katalysator. */
+    private static final int[][] BANK_PAIRS = {
+            {0x01, 0x05}, {0x02, 0x06}, {0x03, 0x07}, {0x04, 0x08},
+            {0x41, 0x45}, {0x42, 0x46}, {0x43, 0x47}, {0x44, 0x48},
+            {0x21, 0x22}};
+
+    /**
+     * Gleiche Tests beider Bänke nebeneinander (Anlass: Bank 1 am C350 lastunabhängig ~7 % fetter korrigiert,
+     * 07./19.11.2026). Verglichen wird die Reserve zur Grenze, weil sie von der Skalierung unabhängig ist; ab
+     * {@link #BANK_GAP_PERCENT} Punkten Unterschied wird die schwächere Bank markiert. Ohne Wertepaar: leere Liste.
+     */
+    public static List<String> bankComparison(List<Test> tests) {
+        Map<Integer, Test> byKey = new HashMap<>();
+        for (Test t : tests) byKey.put((t.mid << 8) | t.tid, t);
+        List<String> lines = new ArrayList<>();
+        int weaker1 = 0, weaker2 = 0, compared = 0, sensor1Weaker1 = 0;
+        for (int[] pair : BANK_PAIRS) {
+            for (Test a : tests) {
+                if (a.mid != pair[0]) continue;
+                Test b = byKey.get((pair[1] << 8) | a.tid);
+                if (b == null || b.uasid != a.uasid || a.reservePercent == null || b.reservePercent == null) continue;
+                compared++;
+                int gap = a.reservePercent - b.reservePercent;
+                String mark = Math.abs(gap) >= BANK_GAP_PERCENT ? "⚠" : "·";
+                StringBuilder l = new StringBuilder("  ").append(mark).append(' ')
+                        .append(midName(a.mid).replace(" Bank 1", "")).append(" · ").append(tidName(a.tid)).append(": B1 ")
+                        .append(format(a.value, a.uasid)).append(" (").append(a.reservePercent).append(" %) · B2 ")
+                        .append(format(b.value, b.uasid)).append(" (").append(b.reservePercent).append(" %)");
+                if (gap <= -BANK_GAP_PERCENT) {
+                    l.append(" → Bank 1 näher an der Grenze");
+                    weaker1++;
+                    if (a.mid == 0x01) sensor1Weaker1++;
+                } else if (gap >= BANK_GAP_PERCENT) {
+                    l.append(" → Bank 2 näher an der Grenze");
+                    weaker2++;
+                }
+                lines.add(l.toString());
+            }
+        }
+        if (compared == 0) return lines;
+        String summary;
+        if (weaker1 == 0 && weaker2 == 0) {
+            summary = "  Bänke in allen " + compared + " vergleichbaren Tests ähnlich (Unterschied < " + BANK_GAP_PERCENT + " Punkte)";
+        } else {
+            summary = "  Deutlich schwächer: Bank 1 in " + weaker1 + ", Bank 2 in " + weaker2 + " von " + compared + " Tests";
+        }
+        lines.add(0, summary);
+        if (sensor1Weaker1 > 0) {
+            lines.add("  Hinweis: Die Vorkat-Sonde von Bank 1 liegt näher an ihren Grenzen als die von Bank 2. Das passt "
+                    + "zu einer lastunabhängig höheren Korrektur von Bank 1 (Trim-Karte): Sonde B1S1, Abgasleck vor der "
+                    + "Sonde (Krümmer/Flansch Zyl. 1–3) zuerst prüfen (Richtwert, keine Diagnose).");
+        }
+        return lines;
     }
 
     private static List<String> m272Hints(List<Test> notable) {
