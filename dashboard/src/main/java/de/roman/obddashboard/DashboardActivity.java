@@ -71,6 +71,16 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         }
     }
 
+    /** Übergeordnete Seite (wie der ZURÜCK-Knopf), null für die Reiter selbst. */
+    private static Page parentOf(Page p) {
+        switch (p) {
+            case VALUES: return Page.LIVE;
+            case MODE06: case TRIM: case ANALYSIS: return Page.VALUES;
+            case INSPECTION: case DTC_DETAILS: return Page.DTC;
+            default: return null;
+        }
+    }
+
     private static final class TrendSpec {
         final int pid; final String label; final String unit; final double min; final double max;
         TrendSpec(int pid, String label, String unit, double min, double max) {
@@ -239,48 +249,84 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         GaugeView speed = new GaugeView(this, "Tempo", "km/h", 0, GaugeScale.SPEED);
         gauges.put(0x0C, rpm); gauges.put(0x05, coolant); gauges.put(0x0D, speed);
 
-        if (landscape()) {
-            LinearLayout top = row();
-            top.addView(rpm, new LinearLayout.LayoutParams(0, -1, 1.25f));
-            top.addView(coolant, new LinearLayout.LayoutParams(0, -1, 1f));
-            top.addView(speed, new LinearLayout.LayoutParams(0, -1, 1f));
-            page.addView(top, new LinearLayout.LayoutParams(-1, 0, 1f));
-        } else {
-            page.addView(rpm, new LinearLayout.LayoutParams(-1, 0, 1.2f));
-            LinearLayout pair = row();
-            pair.addView(coolant, new LinearLayout.LayoutParams(0, -1, 1f));
-            pair.addView(speed, new LinearLayout.LayoutParams(0, -1, 1f));
-            page.addView(pair, new LinearLayout.LayoutParams(-1, 0, 0.9f));
-        }
-
         // Kraftstoffkorrektur und Spannung als Kacheln (M272: Bank 1 = Zyl. 1–3, Bank 2 = Zyl. 4–6)
-        int[][] tileDefs = {{0x06}, {0x08}, {0x07}, {0x09}, {0x42}};
+        int[] tilePids = {0x06, 0x08, 0x07, 0x09, 0x42};
         String[] tileNames = {"STFT B1", "STFT B2", "LTFT B1", "LTFT B2", "ECU-Spannung"};
-        LinearLayout tileRow = row();
-        LinearLayout tileRow2 = landscape() ? tileRow : row();
-        for (int i = 0; i < tileDefs.length; i++) {
+        View[] tileViews = new View[tilePids.length];
+        for (int i = 0; i < tilePids.length; i++) {
             LinearLayout card = card();
             card.addView(text(tileNames[i], 12, Palette.MUTED));
             TextView v = text(ObdSession.INVALID_TEXT, 20, Palette.LIGHT);
             v.setTypeface(Typeface.DEFAULT_BOLD);
             card.addView(v);
-            tiles.put(tileDefs[i][0], v);
+            tiles.put(tilePids[i], v);
+            tileViews[i] = card;
+        }
+        operating = text("Betriebszustand: –", 15, Palette.MUTED);
+        idleState = text("", 13, Palette.MUTED);
+        Button all = button("ALLE WERTE", v -> show(Page.VALUES));
+
+        if (landscape()) {
+            // Halterung: Instrumente über die volle Höhe (vorher nur die Resthöhe unter Kacheln und Fußzeile,
+            // ~110 dp), Kacheln als Raster rechts, Zustand darunter. Der Read-only-Hinweis steht schon im Kopf.
+            LinearLayout body = row();
+            body.addView(rpm, new LinearLayout.LayoutParams(0, -1, 1.3f));
+            LinearLayout mid = column();
+            mid.addView(coolant, new LinearLayout.LayoutParams(-1, 0, 1f));
+            mid.addView(speed, new LinearLayout.LayoutParams(-1, 0, 1f));
+            body.addView(mid, new LinearLayout.LayoutParams(0, -1, 0.75f));
+            // 2 Zeilen × 3 Spalten: bei 3 Zeilen wurde die Wertzeile unten abgeschnitten (Komma sah aus wie ein Punkt)
+            int[] order = {0, 1, 4, 2, 3, -1};   // STFT B1, STFT B2, Spannung / LTFT B1, LTFT B2, ALLE WERTE
+            LinearLayout grid = column();
+            for (int r = 0; r < 2; r++) {
+                LinearLayout gridRow = row();
+                gridRow.setBaselineAligned(false);
+                for (int c = 0; c < 3; c++) {
+                    int i = order[r * 3 + c];
+                    View cell = i >= 0 ? tileViews[i] : all;
+                    if (cell instanceof LinearLayout) ((LinearLayout) cell).setGravity(Gravity.CENTER_VERTICAL);
+                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -1, 1f);
+                    lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+                    gridRow.addView(cell, lp);
+                }
+                grid.addView(gridRow, new LinearLayout.LayoutParams(-1, 0, 1f));
+            }
+            body.addView(grid, new LinearLayout.LayoutParams(0, -1, 1.6f));
+            page.addView(body, new LinearLayout.LayoutParams(-1, 0, 1f));
+            LinearLayout foot = row();
+            foot.setGravity(Gravity.CENTER_VERTICAL);
+            LinearLayout states = column();   // untereinander: ein langer Zustand verdrängt die Leerlaufwarnung nicht
+            states.addView(operating);
+            states.addView(idleState);
+            foot.addView(states, new LinearLayout.LayoutParams(0, -2, 1f));
+            TextView note = text("Keine Codierung · kein Löschen · keine Stellglieder", 12, Palette.TEAL);
+            note.setGravity(Gravity.END);
+            foot.addView(note, new LinearLayout.LayoutParams(-2, -2));
+            page.addView(foot);
+            return page;
+        }
+
+        page.addView(rpm, new LinearLayout.LayoutParams(-1, 0, 1.2f));
+        LinearLayout pair = row();
+        pair.addView(coolant, new LinearLayout.LayoutParams(0, -1, 1f));
+        pair.addView(speed, new LinearLayout.LayoutParams(0, -1, 1f));
+        page.addView(pair, new LinearLayout.LayoutParams(-1, 0, 0.9f));
+        LinearLayout tileRow = row(), tileRow2 = row();
+        for (int i = 0; i < tileViews.length; i++) {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
             lp.setMargins(dp(3), dp(3), dp(3), dp(3));
-            (landscape() || i < 3 ? tileRow : tileRow2).addView(card, lp);
+            (i < 3 ? tileRow : tileRow2).addView(tileViews[i], lp);
         }
         page.addView(tileRow);
-        if (!landscape()) page.addView(tileRow2);
+        page.addView(tileRow2);
 
         LinearLayout foot = row();
         foot.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout states = column();
-        operating = text("Betriebszustand: –", 15, Palette.MUTED);
-        idleState = text("", 13, Palette.MUTED);
         states.addView(operating);
         states.addView(idleState);
         foot.addView(states, new LinearLayout.LayoutParams(0, -2, 1f));
-        foot.addView(button("ALLE WERTE", v -> show(Page.VALUES)), new LinearLayout.LayoutParams(dp(150), dp(52)));
+        foot.addView(all, new LinearLayout.LayoutParams(dp(150), dp(52)));
         page.addView(foot);
         TextView note = text("Keine Codierung · kein Löschen von Fehlercodes · keine Stellglieder", 12, Palette.TEAL);
         page.addView(note);
@@ -367,15 +413,23 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         scroll.addView(console);
         scroll.setBackground(cardBackground());
         scroll.setPadding(dp(8), dp(6), dp(8), dp(6));
-        page.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
-        return page;
+        if (!landscape()) {
+            page.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+            return page;
+        }
+        // Querformat: Einstellungen links (scrollbar – vorher wurden die Log-Knöpfe unten abgeschnitten und das
+        // Protokoll bekam keine Höhe), Protokoll rechts über die volle Höhe
+        LinearLayout split = row();
+        split.setPadding(dp(12), dp(4), dp(12), dp(4));
+        page.setPadding(0, 0, dp(8), 0);
+        ScrollView left = new ScrollView(this);
+        left.addView(page);
+        split.addView(left, new LinearLayout.LayoutParams(0, -1, 1.2f));
+        split.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1f));
+        return split;
     }
 
     private View buildValues() {
-        LinearLayout page = column();
-        page.setPadding(dp(12), dp(4), dp(12), dp(4));
-        page.addView(backRow("SENSOREN / FUEL TRIMS", Page.LIVE));
-        ScrollView scroll = new ScrollView(this);
         LinearLayout list = column();
         for (ObdPid pid : ObdPid.defaultPids()) {
             LinearLayout r = row();
@@ -392,15 +446,58 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         driveCycle = text("", 14, Palette.MUTED);
         list.addView(voltage);
         list.addView(driveCycle);
-        scroll.addView(list);
-        scroll.setBackground(cardBackground());
-        scroll.setPadding(dp(10), dp(6), dp(10), dp(6));
-        page.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
-        LinearLayout actions = row();
-        actions.addView(button("MODE 06", v -> show(Page.MODE06)), weighted());
-        actions.addView(button("TRIM-TEST", v -> show(Page.TRIM)), weighted());
-        actions.addView(button("ANALYSE", v -> show(Page.ANALYSIS)), weighted());
-        page.addView(actions);
+        return subPage("SENSOREN / FUEL TRIMS", Page.VALUES, new View[0], new View[0], list,
+                button("MODE 06", v -> show(Page.MODE06)),
+                button("TRIM-TEST", v -> show(Page.TRIM)),
+                button("ANALYSE", v -> show(Page.ANALYSIS)));
+    }
+
+    /**
+     * Unterseite mit Zurück-Kopf (Ziel {@link #parentOf}), Hinweiszeilen, festen Statuszeilen, Scrollinhalt und Aktionsknöpfen. Hochformat: Knöpfe als Zeile unten
+     * (zweizeilig statt abgeschnitten). Querformat (Halterung): Knöpfe als Spalte rechts und Hinweiszeilen im
+     * Scrollbereich – sonst blieben dort nur 2–3 Zeilen Inhalt sichtbar (Emulator-Prüfung 19.11.2026).
+     */
+    private View subPage(String title, Page self, View[] headerLines, View[] fixedLines, View content, Button... actions) {
+        boolean land = landscape();
+        LinearLayout main = column();
+        main.addView(backRow(title, parentOf(self)));   // ZURÜCK-Knopf und Zurück-Geste haben dasselbe Ziel
+        // Live-Status (z. B. Fuel-Trim-Test) bleibt immer sichtbar; nur statische Hinweise scrollen im Querformat mit
+        View scrolled = content;
+        if (land && headerLines.length > 0) {
+            LinearLayout inner = column();
+            for (View h : headerLines) inner.addView(h);
+            inner.addView(content);
+            scrolled = inner;
+        } else {
+            for (View h : headerLines) main.addView(h);
+        }
+        for (View f : fixedLines) main.addView(f);
+        main.addView(scrollCard(scrolled), new LinearLayout.LayoutParams(-1, 0, 1f));
+        if (!land || actions.length == 0) {
+            main.setPadding(dp(12), dp(4), dp(12), dp(4));
+            if (actions.length > 0) {
+                LinearLayout row = row();
+                row.setBaselineAligned(false);   // ein zweizeiliger Knopf rutscht sonst nach unten
+                for (Button b : actions) {
+                    b.setMaxLines(2);
+                    row.addView(b, weighted());
+                }
+                main.addView(row);
+            }
+            return main;
+        }
+        LinearLayout page = row();
+        page.setPadding(dp(12), dp(4), dp(12), dp(4));
+        page.addView(main, new LinearLayout.LayoutParams(0, -1, 1f));
+        LinearLayout side = column();
+        side.setPadding(dp(6), 0, 0, 0);
+        for (Button b : actions) {
+            b.setMaxLines(2);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(56));
+            lp.setMargins(0, dp(6), 0, 0);
+            side.addView(b, lp);
+        }
+        page.addView(side, new LinearLayout.LayoutParams(dp(190), -1));
         return page;
     }
 
@@ -421,10 +518,6 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private static final String TRIM_HISTORY_KEY = "trim_history";
 
     private View buildAnalysis() {
-        boolean land = landscape();
-        LinearLayout main = column();
-        main.addView(backRow("ANALYSE / NUR LESEN", Page.VALUES));
-        String hint = "Aus Standardwerten berechnet · Schwellen sind Richtwerte, keine Herstellerangaben";
         analysisText = resultText("Werte erscheinen, sobald verbunden.");
         analysisText.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         atfText = resultText(results.containsKey(ResultRouter.Target.ATF) ? results.get(ResultRouter.Target.ATF)
@@ -432,44 +525,16 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         profileText = resultText(results.containsKey(ResultRouter.Target.PROFILE) ? results.get(ResultRouter.Target.PROFILE)
                 : "Fahrzeugprofil: welche Werte Motor und Getriebe melden – einmal am Fahrzeug lesen.");
         LinearLayout content = column();
-        // Querformat (Halterung): jede Zeile zählt – der Hinweis scrollt mit, statt fest Platz zu belegen
-        if (land) content.addView(text(hint, 13, Palette.WARN));
-        else main.addView(text(hint, 13, Palette.WARN));
         content.addView(analysisText);
         content.addView(atfText);
         content.addView(profileText);
-        main.addView(scrollCard(content), new LinearLayout.LayoutParams(-1, 0, 1f));
-        Button[] buttons = {
-                opButton(ObdSession.Op.ATF, "ATF LESEN", v -> session.runAtfTemperature()),
-                opButton(ObdSession.Op.PROFILE, "PROFIL LESEN", v -> session.runVehicleProfile()),
-                button("LOG IMPORTIEREN", v -> pickTrimLog())};
-        buttons[1].setContentDescription("Fahrzeugprofil lesen");
-        buttons[2].setContentDescription("CSV-Log importieren (Trim-Verlauf)");
-        if (!land) {
-            main.setPadding(dp(12), dp(4), dp(12), dp(4));
-            LinearLayout actions = row();
-            // sonst richtet LinearLayout die Knöpfe an der Grundlinie aus: ein zweizeiliger rutscht nach unten
-            actions.setBaselineAligned(false);
-            for (Button b : buttons) {
-                b.setMaxLines(2);   // schmale Spalten: lieber zweizeilig als „FAHRZEUGPR…“
-                actions.addView(b, weighted());
-            }
-            main.addView(actions);
-            updateAnalysis();
-            return main;
-        }
-        // Querformat: Inhalt links über die volle Höhe, Knöpfe als Spalte rechts
-        LinearLayout page = row();
-        page.setPadding(dp(12), dp(4), dp(12), dp(4));
-        page.addView(main, new LinearLayout.LayoutParams(0, -1, 1f));
-        LinearLayout side = column();
-        side.setPadding(dp(6), 0, 0, 0);
-        for (Button b : buttons) {
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(56));
-            lp.setMargins(0, dp(6), 0, 0);
-            side.addView(b, lp);
-        }
-        page.addView(side, new LinearLayout.LayoutParams(dp(190), -1));
+        Button profileButton = opButton(ObdSession.Op.PROFILE, "PROFIL LESEN", v -> session.runVehicleProfile());
+        profileButton.setContentDescription("Fahrzeugprofil lesen");
+        Button importButton = button("LOG IMPORTIEREN", v -> pickTrimLog());
+        importButton.setContentDescription("CSV-Log importieren (Trim-Verlauf)");
+        View page = subPage("ANALYSE / NUR LESEN", Page.ANALYSIS,
+                new View[] {text("Aus Standardwerten berechnet · Schwellen sind Richtwerte, keine Herstellerangaben", 13, Palette.WARN)},
+                new View[0], content, opButton(ObdSession.Op.ATF, "ATF LESEN", v -> session.runAtfTemperature()), profileButton, importButton);
         updateAnalysis();
         return page;
     }
@@ -542,60 +607,36 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     }
 
     private View buildMode06() {
-        LinearLayout page = column();
-        page.setPadding(dp(12), dp(4), dp(12), dp(4));
-        page.addView(backRow("MODE 06 / AUSSETZER", Page.VALUES));
-        page.addView(text("M272: Bank 1 = Zyl. 1–3 · Bank 2 = Zyl. 4–6 · „–“ = nicht gemeldet, nicht „0 Aussetzer“", 13, Palette.MUTED));
         mode06Text = resultText("Aussetzer pro Zylinder oder alle Monitortests manuell lesen.");
-        page.addView(scrollCard(mode06Text), new LinearLayout.LayoutParams(-1, 0, 1f));
-        LinearLayout actions = row();
-        actions.addView(opButton(ObdSession.Op.MISFIRE, "AUSSETZER LESEN", v -> session.runMisfireAnalysis()), weighted());
-        actions.addView(opButton(ObdSession.Op.MONITOR_TESTS, "MONITORTESTS", v -> session.runMonitorTests()), weighted());
-        page.addView(actions);
-        return page;
+        return subPage("MODE 06 / AUSSETZER", Page.MODE06,
+                new View[] {text("M272: Bank 1 = Zyl. 1–3 · Bank 2 = Zyl. 4–6 · „–“ = nicht gemeldet, nicht „0 Aussetzer“", 13, Palette.MUTED)},
+                new View[0], mode06Text,
+                opButton(ObdSession.Op.MISFIRE, "AUSSETZER LESEN", v -> session.runMisfireAnalysis()),
+                opButton(ObdSession.Op.MONITOR_TESTS, "MONITORTESTS", v -> session.runMonitorTests()));
     }
 
     private View buildInspection() {
-        LinearLayout page = column();
-        page.setPadding(dp(12), dp(4), dp(12), dp(4));
-        page.addView(backRow("HU/AU-VORCHECK / OBD", Page.DTC));
-        page.addView(text("Nur Indikation, keine amtliche Prüfung", 13, Palette.WARN));
         inspectionText = resultText("Vorcheck auf der DTC-Seite starten.");
-        page.addView(scrollCard(inspectionText), new LinearLayout.LayoutParams(-1, 0, 1f));
-        LinearLayout actions = row();
-        actions.addView(opButton(ObdSession.Op.INSPECTION, "VORCHECK STARTEN", v -> session.runInspectionCheck()), weighted());
-        page.addView(actions);
-        return page;
+        return subPage("HU/AU-VORCHECK / OBD", Page.INSPECTION,
+                new View[] {text("Nur Indikation, keine amtliche Prüfung", 13, Palette.WARN)},
+                new View[0], inspectionText, opButton(ObdSession.Op.INSPECTION, "VORCHECK STARTEN", v -> session.runInspectionCheck()));
     }
 
     private View buildTrim() {
-        LinearLayout page = column();
-        page.setPadding(dp(12), dp(4), dp(12), dp(4));
-        page.addView(backRow("FUEL-TRIM-TEST / WARMLAUF", Page.VALUES));
-        page.addView(text("Passiv: nur lesen, Drehzahl wird von Hand gehalten · nur bei stehendem Fahrzeug", 13, Palette.WARN));
         trimStatus = text("Fuel-Trim-Test: bereit", 16, Palette.LIGHT);
         trimStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         warmupStatus = text("Warmlauf-Check: bereit", 16, Palette.LIGHT);
-        page.addView(trimStatus);
-        page.addView(warmupStatus);
         trimReport = resultText("20 s Leerlauf, danach 15 s bei ca. 2500 U/min. Keine Stellgliedansteuerung.");
-        page.addView(scrollCard(trimReport), new LinearLayout.LayoutParams(-1, 0, 1f));
-        LinearLayout actions = row();
         fuelButton = button("Fuel-Trim-Test", v -> session.toggleFuelTrimTest());
         warmupButton = button("Warmlauf-Check", v -> session.toggleWarmupCheck());
-        actions.addView(fuelButton, weighted());
-        actions.addView(warmupButton, weighted());
-        page.addView(actions);
-        return page;
+        return subPage("FUEL-TRIM-TEST / WARMLAUF", Page.TRIM,
+                new View[] {text("Passiv: nur lesen, Drehzahl wird von Hand gehalten · nur bei stehendem Fahrzeug", 13, Palette.WARN)},
+                new View[] {trimStatus, warmupStatus}, trimReport, fuelButton, warmupButton);
     }
 
     private View buildDtcDetails() {
-        LinearLayout page = column();
-        page.setPadding(dp(12), dp(4), dp(12), dp(4));
-        page.addView(backRow("DTC-DETAILS / NUR LESEN", Page.DTC));
         dtcDetails = resultText("Fehlercodes auf der DTC-Seite manuell einlesen. Keine Löschfunktion.");
-        page.addView(scrollCard(dtcDetails), new LinearLayout.LayoutParams(-1, 0, 1f));
-        return page;
+        return subPage("DTC-DETAILS / NUR LESEN", Page.DTC_DETAILS, new View[0], new View[0], dtcDetails);
     }
 
     // ------------------------------------------------------------------ Navigation
@@ -610,6 +651,43 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             e.getValue().setSelected(sel);
             e.getValue().setContentDescription(e.getKey().name() + (sel ? ", ausgewählt" : ""));
         }
+        updateBackHandling();
+    }
+
+    /**
+     * Systemgeste „Zurück“ auf einer Unterseite führt zur übergeordneten Seite statt aus der App (im Emulator
+     * verließ sie vorher das Dashboard mitten in der Fahrt). Ab Android 13 über OnBackInvokedCallback, nur solange
+     * eine Unterseite offen ist – auf den Reitern gilt das normale Verhalten des Systems.
+     */
+    private Object backCallback;
+
+    private void updateBackHandling() {
+        if (Build.VERSION.SDK_INT < 33) return;
+        android.window.OnBackInvokedDispatcher dispatcher = getOnBackInvokedDispatcher();
+        boolean sub = parentOf(page) != null;
+        if (sub && backCallback == null) {
+            android.window.OnBackInvokedCallback cb = () -> {
+                Page parent = parentOf(page);
+                if (parent != null) show(parent);
+            };
+            dispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, cb);
+            backCallback = cb;
+        } else if (!sub && backCallback != null) {
+            dispatcher.unregisterOnBackInvokedCallback((android.window.OnBackInvokedCallback) backCallback);
+            backCallback = null;
+        }
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
+        // Android 8–12 (vor OnBackInvokedCallback): Zurück-Taste auf einer Unterseite
+        Page parent = parentOf(page);
+        if (Build.VERSION.SDK_INT < 33 && keyCode == android.view.KeyEvent.KEYCODE_BACK && event.getRepeatCount() == 0
+                && parent != null) {
+            show(parent);
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
     }
 
     private void showTrend() {
@@ -686,7 +764,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         else Toast.makeText(this, "Ohne Berechtigung für das lokale Netzwerk ist keine Verbindung zum ELM327 möglich", Toast.LENGTH_LONG).show();
     }
 
-    private static final int REQUEST_TRIM_LOG = 41;
+    private static final int REQUEST_TRIM_LOG = 42;   // 41 = REQ_NET (Berechtigungen)
 
     /** CSV-Log der Monitor-App wählen (Systemdialog, nur Lesen); seine Fahrten kommen in den Trim-Verlauf. */
     private void pickTrimLog() {

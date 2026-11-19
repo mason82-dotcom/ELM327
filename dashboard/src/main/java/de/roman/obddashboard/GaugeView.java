@@ -19,6 +19,8 @@ final class GaugeView extends View {
     private static final float START = 135f;
 
     private final GaugeScale scale;
+
+    private final float minSmall;
     private final String title;
     private final String unit;
     private final int decimals;
@@ -38,6 +40,9 @@ final class GaugeView extends View {
         this.unit = unit;
         this.decimals = decimals;
         this.scale = scale;
+        // Mindestgröße 12 sp (vorher 12 px ≈ 4,6 sp auf 420 dpi – Einheit/Titel im Querformat kaum lesbar)
+        minSmall = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, 12f,
+                context.getResources().getDisplayMetrics());
         track.setStyle(Paint.Style.STROKE);
         track.setStrokeCap(Paint.Cap.ROUND);
         track.setColor(Palette.GRID);
@@ -117,15 +122,21 @@ final class GaugeView extends View {
         big.setTextSize(size * 0.22f);
         big.setColor(Double.isNaN(value) ? Palette.MUTED : Palette.LIGHT);
         canvas.drawText(valueText(), cx, cy + size * 0.07f, big);
-        small.setTextSize(Math.max(12f, size * 0.075f));
+        small.setTextSize(Math.max(minSmall, size * 0.075f));
         canvas.drawText(unit, cx, cy + size * 0.18f, small);
         // Titel in der unteren Öffnung des Bogens: liegt immer innerhalb der View (vorher unten abgeschnitten).
-        small.setTextSize(Math.max(12f, size * 0.068f));
+        small.setTextSize(Math.max(minSmall, size * 0.068f));
         small.setColor(Palette.MUTED);
-        canvas.drawText(title.toUpperCase(java.util.Locale.GERMANY), cx, Math.min(cy + r * 0.78f, h - small.descent()), small);
+        String caps = title.toUpperCase(java.util.Locale.GERMANY);
+        // Die Öffnung des Bogens ist auf Titelhöhe etwa 1,1 r breit: kleine Instrumente (Querformat) verkleinern
+        // den Titel, statt ihn über den Bogen laufen zu lassen („KÜHLMITTEL“).
+        float room = r * 1.1f, width = small.measureText(caps);
+        if (width > room) small.setTextSize(small.getTextSize() * room / width);
+        canvas.drawText(caps, cx, Math.min(cy + r * 0.78f, h - small.descent()), small);
         // Zustand nur bei Warn-/Alarmbereich; ohne Messwert genügt „–“ (Vorlesetext nennt „kein Messwert“).
         if (!Double.isNaN(value) && scale.zone(value) != GaugeScale.Zone.NORMAL) {
             small.setColor(Palette.zoneColor(scale.zone(value)));
+            small.setTextSize(Math.max(minSmall, size * 0.068f));   // eigene Größe, nicht die eingepasste des Titels
             canvas.drawText(stateText(), cx, cy - size * 0.16f, small);
             small.setColor(Palette.MUTED);
         }
