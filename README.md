@@ -16,6 +16,16 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.3.0 (Monitor) / 0.7.1 (Dashboard): Analyse auch in der Monitor-App
+
+- **Monitor-App:** neuer Abschnitt **Analyse (C350/M272)** unter den Livewerten – derselbe Bericht wie im Dashboard
+  (Verbrauch, Liefergrad, Kraftstoffsystem, Lambda-Regelung, Trim-Karte, **Trim-Verlauf**, Kat-Tendenz, Zündwinkel,
+  E-Gas, Bordnetz), dazu **Log importieren (Trim-Verlauf)**. Jede App speichert ihren eigenen Verlauf.
+- **Gemeinsamer Kern:** `LiveAnalysis` (Werte, Trim-Karte, Kat-Tendenz, Bericht), `TrimRecorder` (gespeicherter
+  Verlauf, Import) und `AnalysisController` (Verbindungswechsel, Sichern auch beim Trennen, gedrosselte
+  Aktualisierung, Import ohne Bezug auf eine Activity). Vorher lag das nur in der Dashboard-Activity.
+- Markierter Text im Bericht bleibt markiert (keine Aktualisierung während einer Auswahl), damit er sich kopieren lässt.
+
 ## Dashboard 0.7.0: Querformat für die Halterung, Zurück-Geste, Lesbarkeit
 
 Alle Seiten im Emulator (Android 16) am ELM327-Simulator geprüft (Design-Kritik und Barrierefreiheits-Prüfung):
@@ -225,8 +235,8 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
 
 GitHub Actions testet und lintet alle drei Module und baut bei jedem Push auf `main` zwei Debug-APKs:
 
-- `Mercedes_OBD2_Monitor_v1.2.2-debug` (Modul `:app`)
-- `OBD_Dashboard_v0.7.0-debug` (Modul `:dashboard`)
+- `Mercedes_OBD2_Monitor_v1.3.0-debug` (Modul `:app`)
+- `OBD_Dashboard_v0.7.1-debug` (Modul `:dashboard`)
 
 | Modul | Inhalt |
 |---|---|

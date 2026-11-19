@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Berechtigungen (lokales Netz, Vordergrunddienst, Benachrichtigung) und ObdService kommen aus :obdcore. -->
 
@@ -14,6 +15,7 @@
         <!-- Zurück-Geste auf Unterseiten über OnBackInvokedCallback (Android 13+; ohne Flag erst ab 16) -->
         <activity
             android:enableOnBackInvokedCallback="true"
+            tools:targetApi="33"
             android:name=".DashboardActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
