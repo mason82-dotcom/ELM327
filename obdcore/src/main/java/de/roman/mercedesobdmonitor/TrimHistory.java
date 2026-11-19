@@ -85,11 +85,17 @@ public final class TrimHistory {
         return any ? e : null;
     }
 
-    /** Verbindung eintragen oder (gleicher Startzeitpunkt) aktualisieren; null wird ignoriert. */
+    /**
+     * Startzeitpunkte, die so nah beieinander liegen, gelten als dieselbe Verbindung: live beginnt der Eintrag beim
+     * Verbinden, beim Import desselben Logs mit dem ersten Wert ein paar Sekunden später.
+     */
+    public static final long SAME_CONNECTION_MS = 2 * 60_000L;
+
+    /** Verbindung eintragen oder (Start innerhalb {@link #SAME_CONNECTION_MS}) ersetzen; null wird ignoriert. */
     public void upsert(Entry e) {
         if (e == null) return;
         for (int i = 0; i < entries.size(); i++) {
-            if (entries.get(i).startedAtMs == e.startedAtMs) {
+            if (Math.abs(entries.get(i).startedAtMs - e.startedAtMs) < SAME_CONNECTION_MS) {
                 entries.set(i, e);
                 return;
             }

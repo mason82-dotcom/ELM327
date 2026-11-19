@@ -236,6 +236,21 @@ public final class EngineAnalysis {
             count[b.ordinal()]++;
         }
 
+        /**
+         * Eine Probe aus dem aktuellen Wertestand (letzter Wert je PID, null = fehlt), wie Dashboard und Log-Import
+         * sie je STFT-Bank-2-Messung aufnehmen. Proben im Schub und am Schub-Übergang (Soll-λ FFFF) entfallen.
+         * Gibt true zurück, wenn die Probe gezählt wurde.
+         */
+        public boolean offer(java.util.function.IntFunction<Double> sample) {
+            Double lambda = sample.apply(0x44), st = sample.apply(0x03), rpm = sample.apply(0x0C);
+            Integer status = st == null ? null : (int) Math.round(st);
+            if (isOverrun(lambda, status, sample.apply(0x45), rpm) || isLambdaSaturated(lambda)) return false;
+            int before = count[0] + count[1] + count[2];
+            add(sample.apply(0x06), sample.apply(0x07), sample.apply(0x08), sample.apply(0x09), status,
+                    sample.apply(0x05), rpm, sample.apply(0x0D), sample.apply(0x04));
+            return count[0] + count[1] + count[2] > before;
+        }
+
         public void reset() {
             java.util.Arrays.fill(sum1, 0);
             java.util.Arrays.fill(sum2, 0);
