@@ -218,7 +218,10 @@ public final class TrimHistory {
 
     // ------------------------------------------------------------------ Anzeige
 
-    /** Letzte Verbindungen, neueste zuerst, z. B. „19.11. 18:09  B1 +11,7/+10,2/– · B2 +4,3/+3,1/– · Δ +7,0“. */
+    /**
+     * Letzte Verbindungen, neueste zuerst, je Eintrag zwei Zeilen (passt auch hochkant ohne Umbruch mitten im Eintrag):
+     * „19.11. 18:38  Δ B1−B2 +7,7 % (Log)“ und darunter „  B1 +11,9/+11,2/+10,4 · B2 +4,8/+3,2/+3,7“.
+     */
     public String table(ZoneId zone, int maxRows) {
         if (entries.isEmpty()) return "noch keine Verbindung mit genug Werten gespeichert";
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd.MM. HH:mm", Locale.GERMANY).withZone(zone);
@@ -228,9 +231,11 @@ public final class TrimHistory {
             Entry e = entries.get(i);
             if (rows > 0) sb.append('\n');
             sb.append(fmt.format(Instant.ofEpochMilli(e.startedAtMs)))
-                    .append("  B1 ").append(bands(e.bank1)).append(" · B2 ").append(bands(e.bank2))
-                    .append(String.format(Locale.GERMANY, " · Δ %+.1f", e.bankDifference()));
+                    .append(String.format(Locale.GERMANY, "  Δ B1−B2 %+.1f %%", e.bankDifference()))
+                    .append(e.imported ? " (Log)" : "")
+                    .append("\n  B1 ").append(bands(e.bank1)).append(" · B2 ").append(bands(e.bank2));
         }
+        if (entries.size() > maxRows) sb.append(String.format(Locale.GERMANY, "\n… %d ältere", entries.size() - maxRows));
         return sb.toString();
     }
 

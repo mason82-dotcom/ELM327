@@ -16,6 +16,16 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Dashboard 0.6.1: Analyse-Seite für die Halterung
+
+Im Emulator (Android 16, Pixel 6) am ELM327-Simulator geprüft:
+
+- **Querformat:** Die Knöpfe stehen als Spalte rechts, der Hinweis „Richtwerte“ scrollt mit. Statt etwa 3 sind
+  jetzt etwa 8 Zeilen der Analyse sichtbar.
+- **Hochformat:** Knöpfe werden zweizeilig statt abgeschnitten („FAHRZEUGPR…“ → „PROFIL LESEN“, „LOG IMPORTIEREN“).
+- **Trim-Verlauf:** zwei Zeilen je Verbindung, die Bankdifferenz steht vorn, importierte Fahrten sind mit „(Log)“
+  markiert, ältere werden gezählt („… 2 ältere“).
+
 ## Dashboard 0.6.0: Logs in den Trim-Verlauf importieren
 
 - **LOG IMPORTIEREN** (Dashboard → ANALYSE): ein CSV der Monitor-App über die Dateiauswahl des Systems öffnen (nur
@@ -199,7 +209,7 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
 GitHub Actions testet und lintet alle drei Module und baut bei jedem Push auf `main` zwei Debug-APKs:
 
 - `Mercedes_OBD2_Monitor_v1.2.2-debug` (Modul `:app`)
-- `OBD_Dashboard_v0.6.0-debug` (Modul `:dashboard`)
+- `OBD_Dashboard_v0.6.1-debug` (Modul `:dashboard`)
 
 | Modul | Inhalt |
 |---|---|
