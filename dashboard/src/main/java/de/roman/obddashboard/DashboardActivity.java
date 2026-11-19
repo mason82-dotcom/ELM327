@@ -11,7 +11,6 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.SystemClock;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -26,19 +25,12 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import de.roman.mercedesobdmonitor.EngineAnalysis;
-import de.roman.mercedesobdmonitor.LogReplay;
+import de.roman.mercedesobdmonitor.AnalysisController;
 import de.roman.mercedesobdmonitor.ObdPid;
 import de.roman.mercedesobdmonitor.ObdService;
 import de.roman.mercedesobdmonitor.ObdSession;
-import de.roman.mercedesobdmonitor.TrimHistory;
 import de.roman.mercedesobdmonitor.VehicleProfile;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -108,8 +100,11 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private final Map<ResultRouter.Target, String> results = new EnumMap<>(ResultRouter.Target.class);
     /** Short DTC summary of the last scan; survives rebuilding the UI on rotation. */
     private String dtcSummary;
-    /** Last valid sample per PID while this UI is attached; restores the gauges after a rebuild. */
-    private final Map<Integer, Double> lastSamples = new HashMap<>();
+    /**
+     * Auswertung und Trim-Verlauf (gemeinsamer Kern mit der Monitor-App, Verlauf in {@link #PREFS} wie bisher);
+     * der letzte gültige Wert je PID stellt auch die Instrumente nach einem Neuaufbau wieder her.
+     */
+    private AnalysisController controller;
     private Page page = Page.LIVE;
     private int trendPid = 0x0C;
 
@@ -134,7 +129,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         for (TrendSpec t : TRENDS) trends.put(t.pid, new TrendBuffer(TREND_POINTS));
-        trimHistory = loadTrimHistory(this);
+        controller = new AnalysisController(this, PREFS, 500);
         if (savedInstanceState != null) {
             try { page = Page.valueOf(savedInstanceState.getString("page", "LIVE")); } catch (IllegalArgumentException ignored) { }
             trendPid = savedInstanceState.getInt("trendPid", 0x0C);
@@ -161,6 +156,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     protected void onStart() {
         super.onStart();
         session.setUiListener(this);
+        controller.setListener(() -> { if (page == Page.ANALYSIS) updateAnalysis(); });
     }
 
     @Override
@@ -168,9 +164,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         session.clearUiListener(this);
         // While detached no samples arrive: the curves must not bridge that time (review of #4).
         for (TrendBuffer t : trends.values()) t.addGap();
-        lastSamples.clear();
+        controller.onStop();
         saveSettings();
-        saveTrimHistory(true);
         super.onStop();
     }
 
@@ -504,18 +499,6 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     // ------------------------------------------------------------------ Analyse (C350/M272)
 
     private TextView analysisText, atfText, profileText;
-    /** Kat-Tendenz je Bank aus der Nachkat-Sonde; überlebt das Drehen. */
-    private final EngineAnalysis.CatTendency catBank1 = new EngineAnalysis.CatTendency();
-    private final EngineAnalysis.CatTendency catBank2 = new EngineAnalysis.CatTendency();
-    /** Gesamttrim je Bank und Lastbereich (geregelt, warm); überlebt das Drehen. */
-    private final EngineAnalysis.TrimMap trimMap = new EngineAnalysis.TrimMap();
-    /** Trim-Karte je Verbindung, in den Einstellungen gespeichert (Bank-1-Befund 07./19.11.2026 verfolgen). */
-    private TrimHistory trimHistory = new TrimHistory();
-    /** Start der Verbindung, zu der die laufende Trim-Karte gehört (0 = noch nicht gesetzt). */
-    private long trimSessionStart;
-    private long trimSavedAt;
-    private static final long TRIM_SAVE_INTERVAL_MS = 30_000;
-    private static final String TRIM_HISTORY_KEY = "trim_history";
 
     private View buildAnalysis() {
         analysisText = resultText("Werte erscheinen, sobald verbunden.");
@@ -539,71 +522,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         return page;
     }
 
-    private Double sample(int pid) {
-        return lastSamples.get(pid);
-    }
-
-    private Integer fuelStatus() {
-        Double v = lastSamples.get(0x03);
-        return v == null ? null : (int) Math.round(v);
-    }
-
-    /** Wide-band lambda of a bank: voltage-type PID (24/28) first, current-type (34/38) as fallback. */
-    private Double lambdaBank(int bank) {
-        Double v = sample(bank == 1 ? 0x24 : 0x28);
-        return v != null ? v : sample(bank == 1 ? 0x34 : 0x38);
-    }
-
-    private static String num(Double v, String fmt) {
-        return v == null ? ObdSession.INVALID_TEXT : String.format(java.util.Locale.GERMANY, fmt, v);
-    }
-
-    private boolean analysisPending;
-
-    /** Coalesces the many per-PID callbacks into at most one analysis rebuild every 500 ms. */
-    private void requestAnalysisUpdate() {
-        if (page != Page.ANALYSIS || analysisPending) return;
-        analysisPending = true;
-        status.postDelayed(() -> {
-            analysisPending = false;
-            if (page == Page.ANALYSIS) updateAnalysis();
-        }, 500);
-    }
-
     private void updateAnalysis() {
-        if (analysisText == null) return;
-        Double rpm = sample(0x0C), speed = sample(0x0D), maf = sample(0x10), lambdaCmd = sample(0x44);
-        Integer status = fuelStatus();
-        Double lph = EngineAnalysis.fuelRateLitersPerHour(maf, lambdaCmd, status, sample(0x45), rpm);
-        Double l100 = EngineAnalysis.fuelPer100Km(lph, speed);
-        Double eta = EngineAnalysis.volumetricEfficiency(maf, sample(0x0B), sample(0x0F), rpm);
-        Double dev1 = EngineAnalysis.lambdaDeviation(lambdaBank(1), lambdaCmd, status);
-        Double dev2 = EngineAnalysis.lambdaDeviation(lambdaBank(2), lambdaCmd, status);
-        Double pedal = EngineAnalysis.pedalRatio(sample(0x49), sample(0x4A));
-        Double track = EngineAnalysis.throttleTracking(sample(0x4C), sample(0x45));
-        StringBuilder sb = new StringBuilder();
-        sb.append("VERBRAUCH (aus Luftmasse)\n  ").append(num(lph, "%.1f l/h"));
-        if (l100 != null) sb.append(" · ").append(num(l100, "%.1f l/100 km"));
-        sb.append("\n  Annahme Dichte 0,745 kg/l; Schubabschaltung (λ-Soll FFFF oder Klappe zu) = 0\n\n");
-        sb.append("LUFTMASSE / LIEFERGRAD\n  ").append(num(eta == null ? null : eta * 100, "%.0f %%"))
-                .append(" – ").append(EngineAnalysis.volumetricVerdict(eta)).append("\n\n");
-        sb.append("KRAFTSTOFFSYSTEM\n  ").append(status == null ? ObdSession.INVALID_TEXT : ObdPid.fuelSystemText(status)).append("\n\n");
-        sb.append("LAMBDA-REGELUNG\n  Bank 1 Δλ ").append(num(dev1, "%.3f")).append(" · Bank 2 Δλ ").append(num(dev2, "%.3f"))
-                .append("\n  ").append(EngineAnalysis.lambdaVerdict(dev1, dev2)).append("\n\n");
-        sb.append("TRIM-KARTE (STFT+LTFT, geregelt und warm)\n  ").append(trimMap.table().replace("\n", "\n  "))
-                .append("\n  ").append(trimMap.verdict()).append("\n\n");
-        sb.append("TRIM-VERLAUF (je Verbindung, neueste zuerst; Leerlauf/Teillast/hohe Last)\n  ")
-                .append(trimHistory.table(ZoneId.systemDefault(), 5).replace("\n", "\n  "))
-                .append("\n  ").append(trimHistory.verdict()).append("\n\n");
-        sb.append("KAT-TENDENZ (Sonde nach Kat)\n  Bank 1: ").append(catBank1.verdict())
-                .append("\n  Bank 2: ").append(catBank2.verdict()).append("\n\n");
-        sb.append("ZÜNDWINKEL\n  ").append(num(sample(0x0E), "%.1f ° v. OT"))
-                .append(" – nur bei gleicher Drehzahl/Last vergleichbar, kein Klopfen je Zylinder\n\n");
-        sb.append("E-GAS\n  Pedalgeber D/E ").append(num(pedal, "%.2f")).append(" · Drosselklappe Ist−Soll ")
-                .append(num(track, "%+.1f %%")).append("\n  stationär > 5 % Abweichung: Drosselklappe prüfen (Richtwert)\n\n");
-        sb.append("BORDNETZ\n  ").append(num(sample(0x42), "%.2f V")).append(" – ")
-                .append(EngineAnalysis.voltageVerdict(sample(0x42), rpm));
-        analysisText.setText(sb.toString());
+        controller.showIn(analysisText);
     }
 
     private View buildMode06() {
@@ -707,6 +627,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private void toggleConnection() {
         if (session.isActive()) {
             session.disconnect();
+            controller.connectionEnded();
             return;
         }
         if (!ensurePermissions()) return;
@@ -722,12 +643,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         }
         saveSettings();
         if (!session.connect(this, host, port)) return;
-        // New connection, possibly another car: the catalyst tendency starts from scratch.
-        catBank1.reset();
-        catBank2.reset();
-        saveTrimHistory(true);   // die abgelaufene Verbindung behält ihren Eintrag
-        trimMap.reset();
-        trimSessionStart = System.currentTimeMillis();
+        // Neue Verbindung, evtl. anderes Fahrzeug: die alte behält ihren Verlaufseintrag, Karte und Kat-Tendenz neu
+        controller.newConnection();
         startForegroundService(new Intent(this, ObdService.class).setAction(ObdService.ACTION_START));
     }
 
@@ -768,78 +685,13 @@ public final class DashboardActivity extends Activity implements ObdSession.List
 
     /** CSV-Log der Monitor-App wählen (Systemdialog, nur Lesen); seine Fahrten kommen in den Trim-Verlauf. */
     private void pickTrimLog() {
-        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
-                .putExtra(Intent.EXTRA_MIME_TYPES, new String[] {"text/csv", "text/comma-separated-values", "text/plain"});
-        try {
-            startActivityForResult(pick, REQUEST_TRIM_LOG);
-        } catch (android.content.ActivityNotFoundException e) {
-            Toast.makeText(this, "Keine Dateiauswahl auf diesem Gerät verfügbar", Toast.LENGTH_LONG).show();
-        }
+        controller.pickLog(this, REQUEST_TRIM_LOG);
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQUEST_TRIM_LOG || resultCode != RESULT_OK || data == null || data.getData() == null) return;
-        android.net.Uri uri = data.getData();
-        Toast.makeText(this, "Log wird ausgewertet …", Toast.LENGTH_SHORT).show();
-        // Alle Werte für den Hintergrund-Thread vorher holen; er schreibt direkt in die Einstellungen (Lesen-Ändern-
-        // Schreiben unter TRIM_LOCK) und hält so keine Daten einer Activity-Instanz, die inzwischen ersetzt sein kann.
-        android.content.Context app = getApplicationContext();
-        new Thread(() -> {
-            String message;
-            try (InputStream in = app.getContentResolver().openInputStream(uri)) {
-                if (in == null) throw new java.io.IOException("Datei lässt sich nicht öffnen");
-                LogReplay.Result result = LogReplay.read(new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8)),
-                        ZoneId.systemDefault());
-                String applied;
-                synchronized (TRIM_LOCK) {
-                    TrimHistory h = loadTrimHistory(app);
-                    applied = result.applyTo(h);
-                    storeTrimHistory(app, h);
-                }
-                message = "Log ausgewertet (" + result.summary() + "): " + applied;
-            } catch (java.io.IOException | RuntimeException e) {
-                message = "Log nicht übernommen: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())
-                        + ". Bitte ein CSV der Monitor-App wählen.";
-            }
-            final String text = message;
-            runOnUiThread(() -> {
-                trimHistory = loadTrimHistory(this);
-                if (page == Page.ANALYSIS) updateAnalysis();
-                Toast.makeText(this, text, Toast.LENGTH_LONG).show();
-            });
-        }, "trim-log-import").start();
-    }
-
-    /** Schützt Lesen-Ändern-Schreiben des gespeicherten Verlaufs (UI-Thread und Import-Thread, alle Instanzen). */
-    private static final Object TRIM_LOCK = new Object();
-
-    private static TrimHistory loadTrimHistory(android.content.Context c) {
-        return TrimHistory.parse(c.getSharedPreferences(PREFS, MODE_PRIVATE).getString(TRIM_HISTORY_KEY, null));
-    }
-
-    private static void storeTrimHistory(android.content.Context c, TrimHistory h) {
-        // apply ändert den Speicherstand im Prozess sofort; das Schreiben auf die Platte folgt im Hintergrund
-        c.getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(TRIM_HISTORY_KEY, h.serialize()).apply();
-    }
-
-    /** Abbild der laufenden Trim-Karte speichern; ohne {@code force} höchstens alle 30 s. */
-    private void saveTrimHistory(boolean force) {
-        // Activity neu erstellt, während der Dienst weiter verbunden ist: Werte ab jetzt als eigene Verbindung
-        // (eigener Startzeitpunkt, überschreibt nie den Eintrag der vorigen Instanz)
-        if (trimSessionStart == 0) trimSessionStart = System.currentTimeMillis();
-        long now = SystemClock.elapsedRealtime();
-        if (!force && now - trimSavedAt < TRIM_SAVE_INTERVAL_MS) return;
-        TrimHistory.Entry entry = TrimHistory.snapshot(trimSessionStart, System.currentTimeMillis(), trimMap);
-        if (entry == null) return;
-        trimSavedAt = now;
-        synchronized (TRIM_LOCK) {
-            TrimHistory h = loadTrimHistory(this);
-            h.upsert(entry);
-            storeTrimHistory(this, h);
-            trimHistory = h;
-        }
+        controller.onActivityResult(requestCode, REQUEST_TRIM_LOG, resultCode, data);
     }
 
     private void saveSettings() {
@@ -933,23 +785,14 @@ public final class DashboardActivity extends Activity implements ObdSession.List
 
     /** After a rebuild: show the last valid sample of this UI on the new gauge (not a new trend point). */
     private void restoreGauge(int pid) {
-        Double v = lastSamples.get(pid);
+        Double v = controller.analysis.sample(pid);
         GaugeView g = gauges.get(pid);
         if (v != null && g != null) g.setValue(v);
     }
 
     @Override
     public void onPidSample(int pid, double value) {
-        lastSamples.put(pid, value);
-        if (pid == 0x15) catBank1.add(value, fuelStatus(), sample(0x05));
-        if (pid == 0x19) catBank2.add(value, fuelStatus(), sample(0x05));
-        // One trim-map sample per STFT Bank 2 reading. Fuel status, load, speed and LTFT come from earlier
-        // cycles (PollSchedule staggers them), so samples near an overrun transition are skipped.
-        if (pid == 0x08) {
-            trimMap.offer(this::sample);
-            saveTrimHistory(false);
-        }
-        requestAnalysisUpdate();
+        controller.onSample(pid, value);
         if (pid == 0x0C) lastRpm = value;
         if (pid == 0x0D) lastSpeed = value;
         if (pid == 0x0C || pid == 0x0D) updateIdle();
@@ -964,8 +807,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
 
     @Override
     public void onPidInvalid(int pid) {
-        lastSamples.remove(pid);
-        requestAnalysisUpdate();
+        controller.onInvalid(pid);
         if (pid == 0x0C) lastRpm = Double.NaN;
         if (pid == 0x0D) lastSpeed = Double.NaN;
         if (pid == 0x0C || pid == 0x0D) updateIdle();

@@ -33,6 +33,8 @@ import java.util.Map;
  */
 public final class MainActivity extends Activity implements ObdSession.Listener {
     private static final int REQ_NET = 41;
+    private static final int REQ_TRIM_LOG = 42;
+    private static final String PREFS = "elm";
     private static final String LOCAL_NET_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK";
     private static final String PREF_NOTIFICATIONS_ASKED = "notificationsAsked";
 
@@ -57,6 +59,13 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private Button profileButton;
     private Button atfButton;
     private SparklineView latencyGraph;
+    private TextView analysisText;
+
+    /**
+     * Gemeinsame Auswertung mit dem Dashboard (Verbrauch, Lambda, Trim-Karte und -Verlauf, Kat-Tendenz, E-Gas,
+     * Bordnetz); Verlauf in den Einstellungen dieser App.
+     */
+    private AnalysisController controller;
 
     private final Map<Integer, TextView> pidRows = new LinkedHashMap<>();
 
@@ -65,6 +74,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        controller = new AnalysisController(this, PREFS, 1000);
         buildUi();
         loadSettings();
     }
@@ -73,11 +83,15 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     protected void onStart() {
         super.onStart();
         session.setUiListener(this);
+        controller.setListener(this::updateAnalysis);
+        updateAnalysis();
     }
 
     @Override
     protected void onStop() {
         session.clearUiListener(this);
+        // Ohne Anmeldung kommen keine Werte: nichts Veraltetes auswerten, laufende Trim-Karte sichern
+        controller.onStop();
         super.onStop();
     }
 
@@ -182,6 +196,22 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         root.addView(pidBox);
         createPidRows();
 
+        TextView analysisTitle = text("Analyse (C350/M272)", 18, Color.WHITE);
+        analysisTitle.setTypeface(null, Typeface.BOLD);
+        analysisTitle.setPadding(0, dp(14), 0, dp(2));
+        root.addView(analysisTitle);
+        TextView analysisNote = text("Aus Standardwerten berechnet · Schwellen sind Richtwerte, keine Herstellerangaben", 13,
+                Color.rgb(255, 204, 118));
+        analysisNote.setPadding(0, 0, 0, dp(6));
+        root.addView(analysisNote);
+        analysisText = text("Werte erscheinen, sobald verbunden.", 13, Color.rgb(210, 214, 220));
+        analysisText.setTextIsSelectable(true);
+        analysisText.setPadding(dp(8), dp(8), dp(8), dp(8));
+        analysisText.setBackgroundColor(Color.rgb(29, 33, 40));
+        root.addView(analysisText);
+        Button importLog = button("Log importieren (Trim-Verlauf)");
+        root.addView(importLog, new LinearLayout.LayoutParams(-1, dp(48)));
+
         LinearLayout logControls = row();
         Button export = button("CSV exportieren");
         Button newLog = button("Neues Log");
@@ -208,7 +238,10 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         root.addView(console, new LinearLayout.LayoutParams(-1, dp(230)));
 
         connect.setOnClickListener(v -> connectRequested());
-        disconnect.setOnClickListener(v -> session.disconnect());
+        disconnect.setOnClickListener(v -> {
+            session.disconnect();
+            controller.connectionEnded();
+        });
         dtcButton.setOnClickListener(v -> session.readDtcs());
         fuelTestButton.setOnClickListener(v -> session.toggleFuelTrimTest());
         misfireButton.setOnClickListener(v -> session.runMisfireAnalysis());
@@ -220,6 +253,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         send.setOnClickListener(v -> session.sendTerminal(terminalInput.getText().toString()));
         export.setOnClickListener(v -> session.exportCsv(this));
         newLog.setOnClickListener(v -> session.startNewLog());
+        importLog.setOnClickListener(v -> pickTrimLog());
 
         setContentView(scroll);
     }
@@ -254,6 +288,8 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
 
         saveSettings();
         if (!session.connect(this, host, port)) return;
+        // Neue Verbindung, evtl. anderes Fahrzeug: die alte behält ihren Verlaufseintrag, Karte und Kat-Tendenz neu
+        controller.newConnection();
         // Ab hier läuft die Verbindung im Foreground-Service weiter, auch ohne sichtbare Activity.
         startForegroundService(new Intent(this, ObdService.class).setAction(ObdService.ACTION_START));
     }
@@ -269,7 +305,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
             needed.add(LOCAL_NET_PERMISSION);
         }
         // Benachrichtigung ist optional (Dienst läuft auch ohne); nur einmal nachfragen.
-        SharedPreferences prefs = getSharedPreferences("elm", MODE_PRIVATE);
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         boolean askNotifications = Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                 && !prefs.getBoolean(PREF_NOTIFICATIONS_ASKED, false);
@@ -328,6 +364,30 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     public void onPidValue(int pid, String text) {
         TextView v = pidRows.get(pid);
         if (v != null) v.setText(text);
+    }
+
+    @Override
+    public void onPidSample(int pid, double value) {
+        controller.onSample(pid, value);
+    }
+
+    @Override
+    public void onPidInvalid(int pid) {
+        controller.onInvalid(pid);
+    }
+
+    private void updateAnalysis() {
+        controller.showIn(analysisText);
+    }
+
+    private void pickTrimLog() {
+        controller.pickLog(this, REQ_TRIM_LOG);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        controller.onActivityResult(requestCode, REQ_TRIM_LOG, resultCode, data);
     }
 
     @Override
@@ -399,14 +459,14 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     // ---------------------------------------------------------------- Einstellungen, Views
 
     private void saveSettings() {
-        getSharedPreferences("elm", MODE_PRIVATE).edit()
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putString("host", hostInput.getText().toString().trim())
                 .putString("port", portInput.getText().toString().trim())
                 .apply();
     }
 
     private void loadSettings() {
-        SharedPreferences p = getSharedPreferences("elm", MODE_PRIVATE);
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
         hostInput.setText(p.getString("host", "192.168.0.10"));
         portInput.setText(p.getString("port", "35000"));
     }
