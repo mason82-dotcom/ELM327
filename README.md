@@ -20,8 +20,12 @@ Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, R
 
 - **LOG IMPORTIEREN** (Dashboard → ANALYSE): ein CSV der Monitor-App über die Dateiauswahl des Systems öffnen (nur
   Lesen). Jede Fahrt im Log (neue Fahrt nach mindestens 5 min Pause) läuft wie live durch die Trim-Karte und landet
-  als Eintrag im Trim-Verlauf. Ein erneuter Import desselben Logs ersetzt die Einträge (Start innerhalb von 2 min =
-  dieselbe Verbindung), statt sie zu verdoppeln.
+  als Eintrag im Trim-Verlauf (bis 30 Einträge). Ein erneuter Import desselben Logs ersetzt seine Einträge;
+  überschneidet sich eine Fahrt zeitlich mit einer schon gespeicherten Verbindung, bleibt diese (live gilt mehr als
+  nachgetragen). Die Rückmeldung nennt übernommene, schon vorhandene und zu alte Fahrten.
+- Live-Einträge werden nur bei exakt gleichem Verbindungsstart aktualisiert; ein schnelles Neuverbinden überschreibt
+  keinen fremden Eintrag. Gespeichert wird per Lesen-Ändern-Schreiben, damit Import und Live-Aufzeichnung sich nicht
+  gegenseitig verlieren. Zeitstempel in der doppelten Stunde der Zeitumstellung bleiben eine Fahrt.
 - Die Logs vom 07.11. und 19.11.2026 ergeben vier Fahrten: Bankdifferenz +6,4 / +8,0 / +7,3 / +7,7 % → „Bank 1 in
   allen 4 Verbindungen stärker angefettet – beständig; Unterschied stabil“.
 - Dashboard und Import nehmen Proben über dieselbe Regel (`EngineAnalysis.TrimMap.offer`); Kern `LogReplay`, Tests

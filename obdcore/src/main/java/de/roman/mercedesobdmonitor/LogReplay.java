@@ -4,6 +4,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -33,6 +35,30 @@ public final class LogReplay {
         public int skippedRows;
         public int trips;
 
+        /**
+         * Trägt die Fahrten in den Verlauf ein und beschreibt das Ergebnis für die Rückmeldung, z. B.
+         * „2 Fahrten übernommen, 1 schon gespeichert“.
+         */
+        public String applyTo(TrimHistory history) {
+            int added = 0, replaced = 0, present = 0, old = 0;
+            for (TrimHistory.Entry e : entries) {
+                switch (history.addImported(e)) {
+                    case ADDED -> added++;
+                    case REPLACED -> replaced++;
+                    case ALREADY_PRESENT -> present++;
+                    case TOO_OLD -> old++;
+                    default -> { }
+                }
+            }
+            List<String> parts = new ArrayList<>();
+            if (added > 0) parts.add(added + (added == 1 ? " Fahrt" : " Fahrten") + " übernommen");
+            if (replaced > 0) parts.add(replaced + " erneut importiert (aktualisiert)");
+            if (present > 0) parts.add(present + " schon gespeichert (live oder früherer Import)");
+            if (old > 0) parts.add(old + " älter als die " + TrimHistory.MAX_ENTRIES + " gespeicherten, nicht aufgenommen");
+            if (parts.isEmpty()) parts.add("keine Fahrt mit genug Trim-Werten (warm, geregelt)");
+            return String.join(", ", parts);
+        }
+
         public String summary() {
             return String.format(Locale.GERMANY, "%d Werte, %d Fahrten, %d mit genug Trim-Werten%s", rows, trips, entries.size(),
                     skippedRows > 0 ? String.format(Locale.GERMANY, " (%d Zeilen übersprungen)", skippedRows) : "");
@@ -59,6 +85,7 @@ public final class LogReplay {
         Map<Integer, Double> last = new HashMap<>();
         EngineAnalysis.TrimMap map = new EngineAnalysis.TrimMap();
         long tripStart = 0, previous = 0;
+        ZoneOffset offset = null;   // Offset der Vorzeile: hält die doppelte Stunde der Zeitumstellung fortlaufend
         String line;
         while ((line = in.readLine()) != null) {
             if (line.isEmpty()) continue;
@@ -67,7 +94,11 @@ public final class LogReplay {
             int pid;
             Double value;
             try {
-                t = LocalDateTime.parse(f.get(iTs), TS).atZone(zone).toInstant().toEpochMilli();
+                ZonedDateTime local = ZonedDateTime.ofLocal(LocalDateTime.parse(f.get(iTs), TS), zone, offset);
+                // springt die Ortszeit in der doppelten Stunde zurück, ist es die zweite Hälfte (Winterzeit)
+                if (r.trips > 0 && local.toInstant().toEpochMilli() < previous) local = local.withLaterOffsetAtOverlap();
+                t = local.toInstant().toEpochMilli();
+                offset = local.getOffset();
                 pid = Integer.parseInt(f.get(iPid).trim(), 16);
                 ObdPid def = pids.get(pid);
                 if (iValue >= 0 && !f.get(iValue).isEmpty()) value = Double.parseDouble(f.get(iValue));
@@ -81,7 +112,7 @@ public final class LogReplay {
                 continue;
             }
             if (r.trips == 0 || t - previous >= TRIP_GAP_MS || t < previous) {
-                if (r.trips > 0) addTrip(r, tripStart, map);
+                if (r.trips > 0) addTrip(r, tripStart, previous, map);
                 r.trips++;
                 tripStart = t;
                 last.clear();
@@ -92,12 +123,12 @@ public final class LogReplay {
             last.put(pid, value);
             if (pid == 0x08) map.offer(last::get);
         }
-        if (r.trips > 0) addTrip(r, tripStart, map);
+        if (r.trips > 0) addTrip(r, tripStart, previous, map);
         return r;
     }
 
-    private static void addTrip(Result r, long start, EngineAnalysis.TrimMap map) {
-        TrimHistory.Entry e = TrimHistory.snapshot(start, map);
+    private static void addTrip(Result r, long start, long end, EngineAnalysis.TrimMap map) {
+        TrimHistory.Entry e = TrimHistory.snapshot(start, end, map);
         if (e != null) r.entries.add(e);
     }
 
