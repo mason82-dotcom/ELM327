@@ -349,8 +349,24 @@ public final class ObdParser {
                 if (dots >= 0 && dots + 3 < s.length()) s = s.substring(dots + 3).trim();
                 else continue;
             }
-            lines.add(s.replace(" ", "").replace("\t", ""));
+            List<String> frames = flattenedFrames(s);
+            if (frames != null) lines.addAll(frames);
+            else lines.add(s.replace(" ", "").replace("\t", ""));
         }
         return lines;
+    }
+
+    /**
+     * Mehrere Header-Antworten in einer Zeile, getrennt durch Leerzeichen: so steht eine Rohantwort im CSV-Log
+     * ({@link CsvLogWriter} ersetzt CR/LF durch Leerzeichen), z. B. „7E90341055B 7E80341055C“. Nur wenn jedes
+     * Wort für sich ein vollständiger Single-Frame mit Header ist, wird getrennt; ATS1-Antworten („7E8 03 41 …“)
+     * und Zeilen ohne Header bleiben eine Zeile. Sonst würde beim Wiedereinlesen eines Logs die zuerst
+     * empfangene Antwort gelten (Log 19.11.2026: 763 von 1 899 Doppelantworten kamen zuerst vom Getriebe).
+     */
+    private static List<String> flattenedFrames(String line) {
+        String[] words = line.trim().split("\\s+");
+        if (words.length < 2) return null;
+        for (String w : words) if (splitCanHeader(w) == null) return null;
+        return java.util.Arrays.asList(words);
     }
 }
