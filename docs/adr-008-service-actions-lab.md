@@ -20,21 +20,67 @@ Read-only-Fahrzeugpfad oder seine Tests zu verändern.
 - Referenz: SAE J1979 (2002), Abschnitt 5.4
   https://www.pgmfi.org/files/sae_j1979_207.pdf
 
-## 2. Schiebedach öffnen / schließen
+## 2. Schiebe-/Hebedach öffnen / schließen – **Code 414, N70**
 
-- Die Baureihe 204 kann unterschiedliche Dachausführungen besitzen. Ausstattungs- und
-  Baujahrprüfung (z. B. Panoramadach-Code 413) ist vor jeder Protokollannahme nötig.
-- Die dokumentierte Panoramadachsteuerung (A98n1) verarbeitet Dachschalter- und
-  Hallsensorsignale, betätigt den Dachmotor und berücksichtigt Einklemmschutz,
-  Positionsüberwachung und Normierung. Ein Teil der Signale läuft über Innenraum-CAN;
-  die Diagnosebuchse bietet nicht automatisch einen direkt freigegebenen Steuerpfad.
-- **Kein** validierter ELM327-Diagnosebefehl für Öffnen/Schließen am C350 MJ 2008.
-  Kein Senden von geratenen CAN-Frames oder Ersatz des Einklemmschutzes durch Software.
-- Referenzen:
-  https://charm.li/Mercedes%20Benz/2011/C%20350%204MATIC%20%282204.087%29%20%28CAN%29%20V6-3.5L%20%28272.971%29/Repair%20and%20Diagnosis/Relays%20and%20Modules/Relays%20and%20Modules%20-%20Body%20and%20Frame/Sunroof%20%2F%20Moonroof%20Module/Description%20and%20Operation/
-  https://www.mersec.net/263/signal_acquisition_and_actuation_module_sam_.html
-  (Die genannten Dokumente betreffen teils andere Baujahre/Ausstattungen; nicht als
-  exakte 2008er-Protokollbestätigung verwenden.)
+**Fahrzeugangabe des Betreibers (20.11.2026):** normales Schiebe-/Hebedach
+im C350 **S204, 2008**, ausdrücklich **kein Panoramadach**.
+Das entspricht den Werkstattunterlagen zur Baureihe 204 für die
+**elektrische Glas-Schiebe-/Hebedachausführung SA-Code 414**.
+Die SA-Code-Zuordnung ist aus den Unterlagen abgeleitet; die konkrete
+Datenkarte/VIN des Fahrzeugs wurde bisher **nicht** gegengeprüft.
+
+### Komponenten und Abgrenzung
+
+| Ausstattung | Steuerung / Bauteile | Status |
+|---|---|---|
+| **414**, normales Schiebe-/Hebedach | **N70** Dachbedieneinheit / Overhead Control Panel, **M12m1** Dachmotor | W204-Dokumentation, auf dem konkreten Fahrzeug noch ungeprüft |
+| **413**, Panoramadach | separates Panorama-Dachsteuergerät **A98/A98n1**, eigenes Motorsystem | **Nicht die Ausstattung dieses Fahrzeugs** |
+
+- Für Code **414** beschreibt die Werkstattdokumentation, dass **N70** die
+  Polung der Motoransteuerung und damit die Bewegungsrichtung festlegt.
+  Referenz: **GF77.20-P-5212CW** (Antriebseinheit) und
+  **GF82.20-P-5216CW** (N70), Baujahr-/Variantenangabe beachten.
+- Die Dachschalterbedienung erfolgt an der Dachkonsole; die
+  Mercedes-W204-Erstschulungsunterlage nennt die **Normierung über den
+  Dachschalter** und einen **Einklemmschutz**.
+- Die elektrische Prinzipschaltung **PE77.20-P-2050-97FAA**
+  ordnet **N70** und **M12m1** dem Dachsystem zu.
+- **Wichtig:** Eine Verbindung von N70 zur Fahrzeug-Kommunikation ist **kein**
+  Nachweis für einen über die OBD-Buchse erreichbaren, autorisierten
+  Diagnose-Aktuatorbefehl. Der ELM327 unterstützt im Projekt bislang nur
+  lesende, genau freigegebene Diagnosen.
+
+### Sichere, konkrete Entwicklungsreihenfolge
+
+1. **Datenkarte** auf SA **414** prüfen und das exakte S204-Baumuster/
+   Fertigungsdatum sowie N70-Teilenummer dokumentieren (keine VIN im Repository).
+2. **Passiven Ist-Zustand** erfassen: Dach funktioniert über Originalschalter,
+   Schieben/Heben, definierte Endlagen, keine Störung, Einklemmschutz laut
+   Werkstattverfahren geprüft; keinerlei erzwungene Motorbewegung durch die App.
+3. **Herstellerdokumentation** des verbauten N70 zu Werkstatt-
+   Diagnosefähigkeiten und erreichbarem Gateway/Bus prüfen; vorerst
+   **keine** CAN-Injektion, Direktverdrahtung oder Stellgliedaktivierung.
+4. Im **Simulator** die geplante HMI ausschließlich als Zustandsmodell
+   OFFEN / GESCHLOSSEN / GEKIPPT / UNBEKANNT prüfen, inklusive
+   Unterbrechung, Timeout, Sperre bei unbekannter Position sowie STOP.
+   **Simulation ist keine reale Positionsmessung.**
+5. Erst nach nachweislich unterstützter fahrzeugspezifischer Diagnosefunktion
+   und Sicherheits-/Betriebsfreigabe neu über reale Umsetzung entscheiden.
+
+**Keine** verifizierte ELM327-Steuersequenz für Öffnen oder Schließen an
+diesem C350. Keine Schiebedachbefehle im Fahrzeugpfad, kein Umgehen
+von Einklemmschutz/Normierung.
+
+**Quellen für die Dachvariante:**
+- W204-Werkstattunterlage **GF77.20-P-5212CW**, Antrieb des elektrischen
+  Glas-Schiebe-/Hebedachs mit Code 414:
+  https://lemon.dogeware.me/Mercedes%20Benz/2012/C300%20Luxury%204Matic/Repair%20and%20Diagnosis%20%28Single%20Page%29/Body%20%26%20Frame/Sun%20Roof%2FT-Top%2FConvertible%20Top/Sliding%20Roof%2C%20Soft%20Top%20--%20C300%204MATIC%20%28204.081%29/Basic%20Knowledge/Tilting%2Fsliding%20roof%20drive%20unit%2C%20component%20description%2C%20up%20to%20model%20year%202008%20-%20GF77.20-P-5212CW/
+- Mercedes-C350-MJ-2008-Motor- und Dachreferenz, Code 414:
+  https://workshop-manuals.com/mercedesbenz/c_350_%28204.056%29/v6-3.5l_%28272.961%29/body_and_frame/roof_and_associated_components/sunroof/moonroof/sunroof/moonroof_motor/component_information/locations/page_15276/
+- Elektrischer Funktionsplan **PE77.20-P-2050-97FAA**:
+  https://lemon-manuals.la/Mercedes%20Benz/2011/C350/Repair%20and%20Diagnosis%20%28Single%20Page%29/Body%20%26%20Frame/Sun%20Roof%2FT-Top%2FConvertible%20Top/Sliding%20Roof%2C%20Soft%20Top%20--%20%20C63%2FC350%20%28204%29/Wiring%20Diagrams/Electrical%20function%20schematic%20for%20tilting%2Fsliding%20roof%20%28SHD%29%20-%20PE77.20-P-2050-97FAA/
+- W204-Erstschulung (Dachsysteme, Normierung am Dachschalter):
+  https://www.mersec.net/251/roof_systems.html
 
 ## 3. Codierungsmöglichkeiten
 
@@ -69,10 +115,10 @@ Rücksetz-/Recovery-Konzept und rechtmäßiger Zugang zwingende Voraussetzungen.
 | LAB-01 | Alle sechs Funktionskategorien als nicht ausführbar gelistet | JUnit vorhanden |
 | LAB-02 | `04`, `08`, `14`, `2E`, `2F`, `31`, `27`, `34`, `36`, `3D` weiterhin blockiert | JUnit vorhanden |
 | LAB-03 | DTC-Vorher/Nachher- und Readiness-Auswirkungen in Simulator durchspielen | OFFEN |
-| ROOF-01 | Exakte Dachausstattung und Dachsteuergerät am Fahrzeug bestätigen | OFFEN |
-| ROOF-02 | Einklemmschutz/Normierung nach Herstellerunterlage nachweisen | OFFEN |
-| ROOF-03 | Eine tatsächlich unterstützte Diagnosefunktion in Herstellerdokumentation bestätigen | OFFEN |
-| CODE-01 | SA-Codes, Software-/Hardwarestände und gesicherte Ausgangskonfiguration | OFFEN |
+| ROOF-01 | Dachtyp **normal**, nicht Panorama, vom Betreiber bestätigt; **SA 414** aus W204-Unterlagen, Fahrzeug-Datenkarte und konkrete N70-Teilenummer noch offen | TEILWEISE |
+| ROOF-02 | Originalschalter, Einklemmschutz und Normierung nach W204-Herstellerunterlage prüfen | OFFEN |
+| ROOF-03 | **N70 / Code 414**: tatsächlich unterstützten OBD-Gateway-Zugriff und eine Hersteller-Werkstattfunktion belegen | OFFEN |
+| CODE-01 | SA-Code 414 und N70-Hardware/Softwarestände gegen Fahrzeug-Datenkarte prüfen, Ausgangskonfiguration sichern | OFFEN |
 | MEM-01 | Legitime EEPROM-Lese-/Schreibschnittstelle und Risikoanalyse | OFFEN |
 
 **Release-Grenze:** Kein Merge in die Fahrzeug-App, das die reale CommandSafety-Whitelist
