@@ -105,7 +105,9 @@ public final class ServiceActionLab {
     }
 
     public static List<Proposal> catalog() {
-        return java.util.Arrays.stream(Action.values()).map(ServiceActionLab::describe).toList();
+        java.util.ArrayList<Proposal> proposals = new java.util.ArrayList<>();
+        for (Action action : Action.values()) proposals.add(describe(action));
+        return java.util.Collections.unmodifiableList(proposals);
     }
 
     /** In dieser Entwicklungsstufe ist keine Aktion zur Fahrzeugausführung freigegeben. */
