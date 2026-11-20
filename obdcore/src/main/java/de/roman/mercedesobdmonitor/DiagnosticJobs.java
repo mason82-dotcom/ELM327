@@ -92,6 +92,7 @@ final class DiagnosticJobs {
     }
 
     private static String m272Section(List<String> codes) {
+        if (!VehicleProfile.ACTIVE.m272Hints) return "";
         List<String> seen = new ArrayList<>();
         StringBuilder sb = new StringBuilder();
         for (String code : codes) {
@@ -117,6 +118,8 @@ final class DiagnosticJobs {
             String raw = ElmText.clean(r.raw);
             host.log("DTC " + label + " [" + cmd + "]: " + raw);
             List<String> codes = ObdParser.dtcs(r.raw, responseMode, host.protocolIsCan());
+            // vor dem Sammeln merken, welche Codes schon in einem früheren Modus standen (ME9.7-Zeile nur einmal)
+            List<String> shownBefore = collected == null ? new ArrayList<>() : new ArrayList<>(collected);
             if (collected != null) collected.addAll(codes);
             if (codes.isEmpty()) {
                 if (raw.isEmpty()) return label + ": keine Antwort";
@@ -138,6 +141,10 @@ final class DiagnosticJobs {
             StringBuilder sb = new StringBuilder(label).append(":");
             for (String code : codes) {
                 sb.append("\n• ").append(DtcDescriptions.describe(code));
+                String me = VehicleProfile.ACTIVE.m272Hints && !shownBefore.contains(code) ? Me97Codes.describe(code) : null;
+                shownBefore.add(code);
+                // mehrere Mercedes-Teilfehler je P-Code („·“ oder „/“): gemeint ist genau einer davon
+                if (me != null) sb.append(Me97Codes.hasAlternatives(me) ? "\n   ME9.7, einer von: " : "\n   ME9.7: ").append(me);
             }
             return sb.toString();
         } catch (SocketTimeoutException e) {

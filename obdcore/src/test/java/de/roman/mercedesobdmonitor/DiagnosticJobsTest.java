@@ -237,6 +237,7 @@ public class DiagnosticJobsTest {
         String r = new DiagnosticJobs(host).readDtcReport(client);
         assertEquals(List.of("03", "07", "0A", "0100"), received);
         assertTrue(r, r.contains("P0016"));
+        assertTrue(r, r.contains("ME9.7, einer von: Einlassnockenwelle rechts dauerhaft Richtung früh"));
         assertTrue(r, r.contains("M272-Werkstatthinweise"));
         assertTrue(r, r.contains("Baureihe 204 (W204/S204) nimmt das Bulletin ausdrücklich aus"));
         assertFalse(r, r.contains("Kommunikationsfehler"));

@@ -69,8 +69,11 @@ public final class M272Hints {
 
         String cat = "Katalysator erst bewerten, wenn Aussetzer und Lambdasonden (hinten) ausgeschlossen "
                 + "sind; Aussetzer schädigen den Kat. Mode 06 enthält die Kat-Testwerte.";
-        HINTS.put("P0420", "Bank 1. " + cat);
-        HINTS.put("P0430", "Bank 2. " + cat);
+        // Das ME9.7 meldet Kat-Fehler als P0422 (rechts und links); P0420/P0430 kommen dort laut Tabelle nicht vor.
+        HINTS.put("P0420", "Bank 1 – beim ME9.7 nicht in der Fehlertabelle (dort P0422); Code ggf. von anderem "
+                + "Steuergerät oder Tester. " + cat);
+        HINTS.put("P0430", "Bank 2 – beim ME9.7 nicht in der Fehlertabelle (dort P0422); Code ggf. von anderem "
+                + "Steuergerät oder Tester. " + cat);
 
         String evap = "Tankentlüftung: Tankdeckel/Dichtung, Regenerierventil, Schläuche zum Aktivkohlefilter.";
         for (String c : new String[] {"P0440", "P0441", "P0442", "P0455", "P0456"}) HINTS.put(c, evap);
@@ -82,6 +85,75 @@ public final class M272Hints {
 
         HINTS.put("P0101", "Luftmassenmesser Plausibilität: Falschluft nach dem LMM oder verschmutzter "
                 + "LMM. MAF im Leerlauf (warm) grob 3,5–5 g/s beim 3,5-l-V6 als Richtwert.");
+
+        // Prüfreihenfolgen je Gruppe; Seiten und Bauteile laut ME9.7-Fehlertabelle (Me97Codes).
+        String heater = "Sondenheizung: zuerst Stecker und Leitung der genannten Sonde (Korrosion, Scheuerstelle am "
+                + "Abgasstrang), dann Heizwiderstand der Sonde messen lassen; ist die Heizung defekt, Sonde tauschen.";
+        for (String c : new String[] {"P0030", "P0031", "P0032", "P0036", "P0037", "P0038", "P0050", "P0051",
+                "P0052", "P0056", "P0057", "P0058", "P0135", "P0141", "P0155"}) HINTS.put(c, heater);
+        String front = "Sonde vor Kat: Stecker/Leitung, dann Abgasleck vor der Sonde (Krümmer, Flansch) – angesaugte "
+                + "Luft verfälscht das Signal Richtung mager; erst danach die Sonde selbst.";
+        for (String c : new String[] {"P0130", "P0150", "P2237", "P2240", "P2243", "P2247", "P2251", "P2254",
+                "P2626", "P2629", "P2414", "P2415", "P2195", "P2196", "P2197", "P2198"}) HINTS.put(c, front);
+        String rear = "Sonde nach Kat: Stecker/Leitung; „gealtert“ heißt zu träge – Sonde tauschen, vorher Abgasleck "
+                + "zwischen Kat und Sonde ausschließen.";
+        for (String c : new String[] {"P0136", "P0138", "P0139", "P0140", "P0156", "P0158", "P0159", "P0160",
+                "P2270", "P2271", "P2272", "P2273"}) HINTS.put(c, rear);
+        String swapped = "Sondenstecker vertauscht – fast immer nach einer Reparatur: Stecker rechts/links prüfen.";
+        HINTS.put("P0040", swapped);
+        HINTS.put("P0041", swapped);
+        String injector = "Einspritzventil des genannten Zylinders: Stecker und Leitung zum Motorsteuergerät, "
+                + "Widerstand des Ventils; bei Kurzschluss nach Plus/Masse zuerst den Kabelbaum.";
+        for (String c : new String[] {"P0201", "P0202", "P0203", "P0204", "P0205", "P0206", "P0261", "P0262", "P0264",
+                "P0265", "P0267", "P0268", "P0270", "P0271", "P0273", "P0274", "P0276", "P0277"}) HINTS.put(c, injector);
+        String coil = "Zündspule des genannten Zylinders: Stecker, dann Tauschtest mit dem Nachbarzylinder – wandert der "
+                + "Fehler mit, ist es die Spule; bleibt er, Leitung bzw. Endstufe im Motorsteuergerät.";
+        for (String c : new String[] {"P0351", "P0352", "P0353", "P0354", "P0355", "P0356",
+                "P2300", "P2301", "P2303", "P2304", "P2306", "P2307", "P2309", "P2310", "P2312", "P2313",
+                "P2315", "P2316"}) HINTS.put(c, coil);
+        String thermostat = "Thermostat Y110 elektrisch: Stecker und Leitung am Thermostat; ohne Ansteuerung regelt es "
+                + "nur noch mechanisch (ab etwa 110 °C ganz offen). Warmlauf-Check zeigt die Folge.";
+        for (String c : new String[] {"P0597", "P0598", "P0599"}) HINTS.put(c, thermostat);
+        String coolant = "Kühlmitteltemperatursensor B11/4: Stecker, Leitung, Sensor; Livewert mit der Anzeige im "
+                + "Kombiinstrument vergleichen. Falsche Werte stören Gemisch und Warmlauf.";
+        for (String c : new String[] {"P0116", "P0117", "P0118"}) HINTS.put(c, coolant);
+        String maf = "Luftmassenmesser B2/5: Stecker (Wackelkontakt), Sitz am Ansaugkrümmer, Falschluft danach; "
+                + "ein verschmutzter LMM misst zu wenig.";
+        for (String c : new String[] {"P0068", "P0102", "P0104"}) HINTS.put(c, maf);
+        String map = "Drucksensor B28 im Saugrohr: Stecker, Unterdruck-/Saugrohrdichtheit, Sensor.";
+        for (String c : new String[] {"P0106", "P0107", "P0108"}) HINTS.put(c, map);
+        String throttle = "Drosselklappensteller M16/6: Stecker, Klappe auf Verschmutzung oder Vereisung prüfen; nach "
+                + "Reinigung oder Tausch muss die Werkstatt die Klappe anlernen (nur mit Tester).";
+        for (String c : new String[] {"P0122", "P0123", "P0222", "P0223", "P0638", "P2072", "P2101", "P2111", "P2112",
+                "P2135", "P2176"}) HINTS.put(c, throttle);
+        String camSensor = "Nockenwellen-Hallgeber: Stecker auf Öl prüfen (Ölwanderung von den Versteller-Magneten), "
+                + "Leitung, Geber.";
+        for (String c : new String[] {"P0342", "P0343", "P0347", "P0348", "P0367", "P0368", "P0392", "P0393"}) {
+            HINTS.put(c, camSensor);
+        }
+        String magnet = "Nockenwellenmagnet (Seite siehe ME9.7-Zeile): Stecker auf Öl (bekanntes M272-Thema), Leitung, "
+                + "Magnet (Ersatz A272 051 01 77 bei Motoren bis 2729..30 759427).";
+        for (String c : new String[] {"P2088", "P2089", "P2090", "P2091", "P2092", "P2093"}) HINTS.put(c, magnet);
+        String knock = "Klopfsensor: Stecker und Leitung, Anzugsmoment des Sensors; Klopfregelung gestört kostet "
+                + "Leistung, Zündung wird zurückgenommen.";
+        for (String c : new String[] {"P0324", "P0325", "P0327", "P0328", "P0330", "P0332", "P0333"}) HINTS.put(c, knock);
+        String purge = "Tankentlüftung: Regenerierventil Y58/1 bzw. Absperrventil Y58/4 am Aktivkohlefilter – Stecker, "
+                + "Leitung, Ventil klemmt; Schläuche dicht?";
+        for (String c : new String[] {"P0444", "P0446", "P0447", "P0448", "P0458", "P0459", "P2421", "P2422"}) {
+            HINTS.put(c, purge);
+        }
+        String saWiring = "Sekundärluft elektrisch: Relais und Umschaltventil Y32 – Stecker, Leitung, Sicherung.";
+        for (String c : new String[] {"P0413", "P0414", "P0418", "P2257", "P2258"}) HINTS.put(c, saWiring);
+        String supply = "Spannung am Motorsteuergerät: Batterie und Ladespannung prüfen (Starttest, Bordnetz-Warnung), "
+                + "Masseverbindungen und Klemmen.";
+        for (String c : new String[] {"P0562", "P0563", "P2505"}) HINTS.put(c, supply);
+        HINTS.put("P0620", "Lichtmaschine: Ladespannung im Livewert und im Starttest prüfen, Keilrippenriemen, "
+                + "Ladekabel; Werkstatt prüft den Ladestrom (120–150 A bei 2000 U/min).");
+        String ecu = "Motorsteuergerät meldet einen internen Fehler: zuerst Versorgung und Masse prüfen, Fehler löschen "
+                + "lassen und beobachten; ein Tausch ist erst nach Prüfung in der Werkstatt sinnvoll.";
+        for (String c : new String[] {"P0604", "P0605", "P0606", "P0607"}) HINTS.put(c, ecu);
+        HINTS.put("P0422", "Katalysator (das ME9.7 meldet P0422 für rechts und links, nicht P0420/P0430). " + cat);
+        HINTS.put("P2279", "Falschluft im Ansaugtrakt laut Steuergerät. " + leanBoth);
     }
 
     private M272Hints() { }

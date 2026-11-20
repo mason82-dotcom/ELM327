@@ -2,6 +2,22 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.13.0 (Monitor) / 0.20.0 (Dashboard): Fehlercodes mit ME9.7-Bedeutung
+
+Vorschlag B aus der Handbuch-Auswertung.
+
+- **ME9.7-Bedeutung je P-Code** (227 Codes): Unter jedem gelesenen Fehlercode steht, was das Motorsteuergerät damit
+  meint – Seite (rechts = Bank 1, links = Bank 2), Bauteil mit Kennzeichen (z. B. G3/4, Y49/5, B70) und Teilfehler,
+  z. B. „Gemischadaption rechts Teillast: Anreicherung über Grenze (lief mager)“. Mehrere mögliche Teilfehler stehen
+  als „einer von“. Eigene deutsche Kurzfassung der ME9.7-Fehlertabelle; Abweichungen der Tabelle von der OBD-Norm
+  (P0174/P0175, P0038, P0013) sind im Text vermerkt. Je Code nur einmal, auch wenn er in mehreren Modi steht.
+- **Prüfreihenfolgen** für weitere Gruppen in den M272-Hinweisen: Sondenheizung, Sonden vor/nach Kat, vertauschte
+  Sondenstecker, Einspritzventile, Zündspulen, Thermostat elektrisch, Kühlmittelsensor, Luftmassenmesser,
+  Saugrohrdrucksensor, Drosselklappe, Nockenwellengeber und -magnete, Klopfsensoren, Tankentlüftung, Sekundärluft
+  elektrisch, Versorgungsspannung, Lichtmaschine, Steuergerät; P0422 (Kat beim ME9.7) und P2279 (Falschluft).
+- M272-Hinweise nur noch mit dem M272-Profil.
+- Code-Review (medium): 10 Befunde behoben.
+
 ## Version 1.12.1 (Monitor) / 0.19.1 (Dashboard): Herstellerwerte und Fahrzyklus-Hilfe
 
 Vorschläge E und D aus der Handbuch-Auswertung (WIS-Nummern im Code).
