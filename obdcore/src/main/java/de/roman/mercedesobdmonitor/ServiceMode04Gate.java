@@ -86,6 +86,25 @@ public final class ServiceMode04Gate {
         return true;
     }
 
+    /**
+     * Die Live-Messwerte des Motorsteuergeräts müssen tatsächlich von ECU 7E8 kommen.
+     * Mit ATH0 oder nur einem 7E9-Frame ist ein Motor-aus-Nachweis nicht belastbar.
+     * Das Fahrzeugprofil und der CSV-Replay dürfen weiterhin auf andere ECUs zurückfallen,
+     * dieser sicherheitskritische Preflight ausdrücklich nicht.
+     */
+    public static Double engineOnlyPid(ObdPid pid, String raw) {
+        if (pid == null || raw == null) return null;
+        String marker = String.format(Locale.US, "41%02X", pid.pid & 0xFF);
+        for (String line : ObdParser.normalizedLines(raw)) {
+            String[] frame = ObdParser.splitCanHeader(line);
+            if (frame == null || !ObdParser.ENGINE_ECU.equals(frame[0])
+                    || !frame[1].startsWith(marker)) continue;
+            Double value = pid.parse(frame[1]);
+            if (value != null && Double.isFinite(value)) return value;
+        }
+        return null;
+    }
+
     /** Wird ausschließlich nach vollständigem Preflight ausgegeben und ist nur einmal nutzbar. */
     public static Ticket issue(Preflight p) {
         String reason = blockedReason(p);
