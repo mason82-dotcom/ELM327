@@ -2,10 +2,26 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Dashboard 0.18.1 (Monitor 1.11.5): Befunde aus dem Werkstatthandbuch
+
+Quelle: Offline-Werkstatthandbücher C 350 (204.056, Motor 272.961), nur privat ausgewertet; hier nur Zusammenfassungen
+mit WIS-Dokumentnummer.
+
+- **Warnungen:** „Ladung schwach“ erst unter 12,6 V (vorher 13,0 V). Das ME senkt die Ladespannung bei voller Batterie
+  im Leerlauf absichtlich ab (GF07.61-P-3003CY); Obergrenze bis 15 V. Alarm unter 12,2 V und über 15,0 V unverändert.
+- **Mode 06:** herstellerspezifische Tests des ME9.7 benannt (Referenztabelle des Handbuchs) – vor allem MID 81/82
+  TID 80/82 = **Gemischadaption je Bank** (% mit Referenz ±4,5 %, Faktor 0,70–1,30), dazu Kat-Sauerstoffspeicher,
+  Sondenheizungen, Sekundärluft. Der Bankvergleich nutzt die Namen.
+- **Hinweise:** Bank 1 = rechte Zylinderbank (Sonden G3/4/G3/6), Bank 2 = links (G3/3/G3/5) – belegt über die
+  ME9.7-Fehlertabelle (P0030 = G3/4, P0016 = rechts). P0171/P0174 mit dem Prüfablauf des Herstellers (Einspritzventile
+  der Bank, Falschluft/Abgasleck vor der Sonde); „beide Bänke mager“ nennt zusätzlich den Sitz des Luftmassenmessers.
+- **ADR-007 korrigiert:** Motor 272.961 bis MJ 08 hat keinen Öltemperatursensor (nur Ölstandsschalter S43); das ME
+  rechnet die Öltemperatur aus einem Modell. Die Kennungssuche kann nur diesen Rechenwert finden.
+
 ## Dashboard 0.18.0 (Monitor 1.11.4): Kennungssuche Motoröltemperatur (ADR-007, Test)
 
 - **Recherche:** Für die Motoröltemperatur des ME9.7 ist keine Kennung öffentlich belegt; der Standard-PID `01 5C`
-  wird vom C350 nicht unterstützt (Logs: PIDs nur bis `01 4C`). Der Wert kommt vom Ölsensor B40 an das ME-SFI.
+  wird vom C350 nicht unterstützt (Logs: PIDs nur bis `01 4C`). (Korrektur in 0.18.1: kein Sensor, nur Rechenwert.)
 - **Kennungssuche** ([ADR-007](docs/adr-007-kennungssuche-motor.md)) unter ANALYSE, nur mit dem Testschalter
   (jetzt „ADR-004/007“): `ATSH7E0` → `21 01`…`21 FE` → `ATSH7DF`, vorher `01 05`. Bericht mit allen positiven
   Antworten roh und Kandidaten im Fenster um die Kühlmitteltemperatur; ein zweiter Lauf mit mindestens 20 K Unterschied

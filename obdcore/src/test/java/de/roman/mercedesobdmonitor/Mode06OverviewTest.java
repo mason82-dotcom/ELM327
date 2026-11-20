@@ -143,4 +143,13 @@ public class Mode06OverviewTest {
         assertTrue(Mode06Overview.read(f).isEmpty());
         assertTrue(Mode06Overview.report(new ArrayList<>()).contains("keine Mode-06-Testergebnisse"));
     }
+
+    /** ME9.7-Referenz (Werkstatthandbuch): MID 81/82 TID 80/82 sind die Gemischadaption je Bank. */
+    @Test public void me97ManufacturerTestsAreNamed() {
+        assertEquals("Gemischadaption Faktor (Ref. 0,70–1,30)", Mode06Overview.testName(0x81, 0x82));
+        assertEquals("Gemischadaption % (Ref. ±4,5 %)", Mode06Overview.testName(0x82, 0x80));
+        assertEquals("Sauerstoffspeicher (Ref. 1–16 mg O₂)", Mode06Overview.testName(0x21, 0x84));
+        assertEquals("Aussetzer aktueller Zyklus", Mode06Overview.testName(0xA2, 0x0C));      // SAE-Name bleibt
+        assertEquals("Test 0x90 (herstellerspezifisch)", Mode06Overview.testName(0x81, 0x90));
+    }
 }

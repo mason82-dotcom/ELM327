@@ -71,11 +71,18 @@ public class LiveWarningsTest {
     @Test
     public void chargingTooLowWhileRunning() {
         run(0, 25_000, 750, 80, 14.2);                     // läuft > 20 s
-        assertNull(run(26_000, 35_000, 750, 80, 12.8));     // 10 s < 15 s Haltezeit
-        LiveWarnings.Warning x = run(36_000, 45_000, 750, 80, 12.8);
+        assertNull(run(26_000, 35_000, 750, 80, 12.4));     // 10 s < 15 s Haltezeit
+        LiveWarnings.Warning x = run(36_000, 45_000, 750, 80, 12.4);
         assertEquals("charge_low", x.key);
         assertEquals(LiveWarnings.Level.WARN, x.level);
         assertEquals(LiveWarnings.Level.ALARM, run(46_000, 55_000, 750, 80, 11.9).level);
+    }
+
+    /** WIS: Bei voller Batterie senkt das ME die Ladespannung im Leerlauf ab – das ist keine Störung. */
+    @Test
+    public void loweredChargingVoltageAtIdleIsNoWarning() {
+        run(0, 25_000, 750, 80, 14.2);
+        assertNull(run(26_000, 120_000, 750, 80, 12.8));
     }
 
     @Test

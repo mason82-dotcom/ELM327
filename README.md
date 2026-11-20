@@ -49,10 +49,11 @@ Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantwort
   Steuergerätespannung, Soll-Lambda, Umgebungsdruck; Dashboard mit Rundinstrumenten und Verlaufskurven.
 - Werte des Motorsteuergeräts (7E8), auch wenn das Getriebe dieselben PIDs beantwortet.
 - **Kennungssuche Motor (Test, ADR-007):** liest einmal alle lokalen Kennungen `21 01`–`21 FE` des Motorsteuergeräts
-  und nennt Kandidaten für die Motoröltemperatur; ein zweiter Lauf bei anderer Temperatur bestätigt sie. Nur mit
+  und nennt Kandidaten für den Öltemperatur-Rechenwert (der C350 bis MJ 08 hat keinen Öltemperatursensor); ein zweiter
+  Lauf bei anderer Temperatur bestätigt sie. Nur mit
   Testschalter, nur lesend, etwa 1 min, zweiter Druck stoppt.
 - **Warnungen (Dashboard):** Leiste über allen Seiten bei hoher Kühlmitteltemperatur (gelb ab 108 °C, rot ab 115 °C),
-  schwacher Batterie bei Zündung an (unter 11,8 V), zu wenig Ladung (unter 13,0 V) oder Überspannung (über 15,0 V) bei
+  schwacher Batterie bei Zündung an (unter 11,8 V), zu wenig Ladung (unter 12,6 V; bei voller Batterie senkt das Steuergerät die Ladespannung absichtlich) oder Überspannung (über 15,0 V) bei
   laufendem Motor. Rot mit Ton (auch wenn eine andere App vorn ist), „Ton aus“ je Meldung. Orientierungswerte, keine
   Herstellerangabe; nur aus den ohnehin gelesenen Werten.
 

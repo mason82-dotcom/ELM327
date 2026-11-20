@@ -8,9 +8,14 @@ Wettbewerbsanalyse „W204 & W212 OBD Pro“ (Lücke „Motoröltemperatur“)
 
 ## Kontext
 
-Die Motoröltemperatur misst am M272 der Ölsensor **B40** (Ölstand, -temperatur, -qualität); er meldet an das
-Motorsteuergerät ME-SFI (ME9.7), das den Wert über CAN an das Kombiinstrument gibt. Die Konkurrenz-App zeigt ihn an,
-unsere Apps nicht.
+Die Konkurrenz-App zeigt eine Motoröltemperatur an, unsere Apps nicht.
+
+**Korrektur 20.11.2026 (Werkstatthandbuch, WIS GF18.40-P-4114CY, GF07.61-P-3026CY, GF07.61-P-4021CY):** Der Motor
+272.961 im Modell 204.0 **bis Modelljahr 08** hat **keinen** Ölsensor B40, sondern nur den Ölstandsschalter S43
+(Schwimmer mit Reed-Kontakt). Das ME9.7 bestimmt die Öltemperatur aus einem **Temperaturmodell** (Last, Kühlmittel,
+Zeit) für Nockenwellenverstellung und Lüfternachlauf. Die Suche kann daher höchstens diesen **Rechenwert** finden –
+nützlich als Anzeige, aber kein Messwert und kein unabhängiger Warngeber. Fahrzeuge ab MJ 09 können B40 haben
+(Baudatum/Motornummer im Prüfplan festhalten).
 
 Recherche 20.11.2026:
 - Der Standard-PID `01 5C` (Öltemperatur) wird vom C350 **nicht** unterstützt: die Logs zeigen nur PIDs bis `01 4C`,
@@ -73,7 +78,7 @@ liefert keine Skalierung, weil der Simulator Herstelleranfragen nicht beantworte
 
 ## Konsequenzen
 
-- Einfacher: Öltemperatur (und weitere ME-Werte) ohne Werkstatttester auffindbar.
+- Einfacher: Öltemperatur-Rechenwert (und weitere ME-Werte) ohne Werkstatttester auffindbar.
 - Schwerer: `CommandSafety` hat ein headergebundenes Muster; jede Änderung an der Header-Logik muss es mitprüfen.
 - Neu bewerten: nach zwei Läufen am C350 – Kennung exakt freigeben und Suche entfernen, oder ADR verwerfen.
 

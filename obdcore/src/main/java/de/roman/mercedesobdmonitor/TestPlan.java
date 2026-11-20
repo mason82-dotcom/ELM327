@@ -105,7 +105,7 @@ public final class TestPlan {
                 + "laut Forum auffällig)", count(ObdSession.Op.MISFIRE, Record::warm), 1));
         out.add(new Step("Fehlercodes", "einmal lesen", count(ObdSession.Op.DTC, r -> true), 1));
         out.add(new Step("Kennungssuche Motor kalt und warm", "Schalter ADR-004/007 an; einmal kalt (Kühlmittel unter "
-                + "40\u00A0°C), einmal warm nach der Fahrt – findet die Motoröltemperatur (ADR-007)",
+                + "40\u00A0°C), einmal warm nach der Fahrt – sucht den Öltemperatur-Rechenwert des Steuergeräts (ADR-007)",
                 count(ObdSession.Op.LID_SCAN, Record::cold) > 0 && count(ObdSession.Op.LID_SCAN, Record::warm) > 0 ? 2
                         : Math.min(1, count(ObdSession.Op.LID_SCAN, r -> true)), 2));
         return out;
