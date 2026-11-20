@@ -132,6 +132,43 @@ public class Elm327ClientTest {
     }
 
     @Test
+    public void rejectedHeaderKeepsEcuSpecificRequestsBlocked() throws Exception {
+        start((cmd, out, in) -> {
+            if (cmd.equals("ATSH7E1")) write(out, "?\\r\\r>");
+            else if (cmd.equals("ATSH7DF")) write(out, "OK\r\r>");
+            else if (cmd.equals("010C")) write(out, "41 0C 1A F8\r\r>");
+            else write(out, "?\r\r>");
+        });
+        try {
+            client.sendCommand("ATSH7E1", 1000);
+            fail("ATSH ohne OK darf nicht erfolgreich sein");
+        } catch (IOException expected) {
+            assertTrue(expected.getMessage().contains("nicht bestätigt"));
+        }
+        assertEquals(CommandSafety.UNKNOWN_HEADER, client.header());
+        try {
+            client.sendCommand("2130", 1000);
+            fail("Herstelleranfrage muss unter unbekanntem Header gesperrt bleiben");
+        } catch (IOException expected) {
+            assertTrue(expected.getMessage().contains("Read-Only-Schutz"));
+        }
+        client.sendCommand("ATSH7DF", 1000);
+        assertEquals("7DF", client.header());
+        assertEquals("41 0C 1A F8", client.sendCommand("010C", 1000).raw);
+        assertEquals(21, client.getTxBytes()); // ATSH7E1 (8), ATSH7DF (8), 010C (5) – kein 2130
+    }
+
+    @Test
+    public void headerAcknowledgementRequiresOwnOkLine() {
+        assertTrue(Elm327Client.headerAcknowledged("ATSH7E1", "ATSH7E1\rOK"));
+        assertFalse(Elm327Client.headerAcknowledged("ATSH7E1", "ATSH7E1"));
+        assertFalse(Elm327Client.headerAcknowledged("ATSH7E1", "?"));
+        assertFalse(Elm327Client.headerAcknowledged("ATSH7E1", "OK\rERROR"));
+        assertFalse(Elm327Client.headerAcknowledged("ATSH7E1", ""));
+        assertTrue(Elm327Client.headerAcknowledged("ATZ", "ELM327 v1.5"));
+    }
+
+    @Test
     public void resyncWaitsForLatePrompt() throws Exception {
         start((cmd, out, in) -> {
             if (cmd.equals("0100")) {
