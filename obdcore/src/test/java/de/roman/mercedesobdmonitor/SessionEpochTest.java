@@ -46,6 +46,19 @@ public class SessionEpochTest {
         assertFalse(SessionEpoch.matchesGeneration(4, generation.get()));
     }
 
+    @Test public void lateOldPidSampleCannotOverwriteNewSessionCache() {
+        AtomicInteger generation = new AtomicInteger(32);
+        java.util.Map<Integer, Double> cache = new java.util.concurrent.ConcurrentHashMap<>();
+        // Die erste Verbindung sendet bereits 1600 U/min, der Callback wartet aber noch.
+        Runnable oldSample = () -> {
+            if (SessionEpoch.matchesGeneration(32, generation.get())) cache.put(0x0C, 1600.0);
+        };
+        generation.incrementAndGet();
+        cache.put(0x0C, 2100.0); // neue Verbindung liefert frischen Messwert
+        oldSample.run();
+        org.junit.Assert.assertEquals(2100.0, cache.get(0x0C), 0.001);
+    }
+
     @Test public void lateOldConnectionStatusCannotReplaceCurrentStatus() {
         AtomicInteger generation = new AtomicInteger(10);
         java.util.concurrent.atomic.AtomicReference<String> status =
