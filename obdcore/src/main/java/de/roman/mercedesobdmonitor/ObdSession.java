@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * zeichnet sich daraus neu. Bewusst ohne gespeicherten Context.
  */
 public final class ObdSession {
-    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS, PROFILE, ATF, STARTER, CAN_MONITOR, KWP }
+    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS, PROFILE, ATF, STARTER, CAN_MONITOR, KWP, SERVICE_CLEAR }
 
     /** UI-Callbacks; alle Aufrufe im Main-Thread. */
     public interface Listener {
