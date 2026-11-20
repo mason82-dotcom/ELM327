@@ -124,8 +124,7 @@ public final class ServiceLabDialogs {
                 "KIPPEN (SIMULATION)", "STOPP (SIMULATION)", "Hindernis simulieren / entfernen"
         };
         dialog(a, theme).setTitle("Schiebedach – NUR SIMULATION")
-                .setMessage("Keine echte Bewegung. Dachsteuerung N70/A98 und Eingriffsschutz "
-                        + "sind für dieses Fahrzeug noch nicht verifiziert.")
+                // Die Menüeinträge bleiben sichtbar; technische Warnung steht in Titel/Ergebnisdialog.
                 .setItems(actions, (d, which) -> {
                     String result;
                     if (which == 4) result = session.toggleRoofLabObstacle();
