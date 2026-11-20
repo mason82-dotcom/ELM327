@@ -5,6 +5,8 @@
 `Mercedes_OBD2_Monitor_20261120_165041 (1).csv`.
 Die zweite Datei enthält vollständig auch die erste (exakt 2.656 identische Datensätze).
 Nicht als zwei unabhängige Fahrten auswerten.
+Fahrzeugbefunde (Spannung bei Zündung an, Trims, Bankunterschied kalt):
+[c350-log-20261120.md](c350-log-20261120.md).
 
 ## Verifizierte Beobachtungen im längeren CSV
 
@@ -42,7 +44,8 @@ gleichzeitig vorhanden; angezeigt wurde 1.072,75 U/min.
 Diese vier Ereignisse sind **erfolgreiche Antworten**, nicht Socket-Timeouts.
 Sie rechtfertigen keine pauschale Verlängerung des Poll-Timeouts. Die bestehende
 Policy (1.800 ms, zwei aufeinanderfolgende Timeouts mit erfolgreicher
-Resynchronisierung, andernfalls Reconnect) wurde nicht geändert.
+Resynchronisierung, andernfalls Reconnect) wurde nicht geändert. Reserve zur Deadline: rund 270 ms; über
+Bluetooth (ADR-005) beim ersten Test am echten Adapter die Latenz im Log beobachten.
 
 ## Maßnahmen in dieser Revision
 
