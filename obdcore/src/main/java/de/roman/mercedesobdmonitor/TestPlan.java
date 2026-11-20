@@ -158,6 +158,7 @@ public final class TestPlan {
             case STARTER -> "Starttest";
             case CAN_MONITOR -> "Bus mitlesen";
             case KWP -> "Kennung + Getriebe-Fehler";
+            case SERVICE_CLEAR -> "Service-Labor: Emissionsdaten löschen";
         };
     }
 
