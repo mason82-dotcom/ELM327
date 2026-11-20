@@ -532,6 +532,7 @@ public final class ObdSession {
             if (cycle == null || cycle.monitors.isEmpty()) return;
             final String text = "Fahrzyklus (01 41): " + cycle.summary();
             ui.post(() -> {
+                if (session != sessionGeneration.get() || userDisconnect) return;
                 state.driveCycleText = text;
                 if (listener != null) listener.onPassive(state);
             });
