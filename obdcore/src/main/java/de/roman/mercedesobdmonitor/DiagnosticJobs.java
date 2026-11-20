@@ -30,6 +30,8 @@ final class DiagnosticJobs {
         /** Statuszeile (Fortschritt). */
         void status(String text);
         boolean starterCancelled();
+        /** Abbruch eines DTC-Leseauftrags, z. B. beim Schließen des blockierenden Adapter-Sockets. */
+        boolean dtcCancelled();
         /** Außentemperatur (01 46), nur wenn frisch; sonst NaN. */
         double recentAmbient();
         /** Ob ein PID im Live-Polling aktiv ist (ohne erkannte PIDs: alle). */
@@ -66,7 +68,7 @@ final class DiagnosticJobs {
         sb.append("\n\n").append(readDtcMode(c, "Permanent", "0A", 0x4A, allCodes));
         ElmText.sleepQuiet(250);
         // Harmlose Read-only-Probe: scheitert sie, bleibt das Ergebnis, die Verbindung wird neu aufgebaut.
-        if (c.isConnected()) {
+        if (!host.dtcCancelled() && c.isConnected()) {
             try {
                 c.sendCommand("0100", 2200);
             } catch (IOException probeError) {
@@ -93,6 +95,7 @@ final class DiagnosticJobs {
 
     private String readDtcMode(Elm327Client c, String label, String cmd, int responseMode,
                                List<String> collected) {
+        if (host.dtcCancelled()) return label + ": abgebrochen";
         if (!c.isConnected()) {
             // Ein vorheriger Modus hat die Verbindung bereits verworfen (Timeout/I/O).
             return label + ": übersprungen · Verbindung wird neu aufgebaut";
@@ -126,6 +129,7 @@ final class DiagnosticJobs {
             }
             return sb.toString();
         } catch (SocketTimeoutException e) {
+            if (host.dtcCancelled()) return label + ": abgebrochen";
             host.countTimeouts(1);
             // Wie beim Live-Polling: auf den verspäteten Prompt warten; neu verbinden
             // nur, wenn der Adapter nicht wieder synchron wird.
@@ -137,6 +141,7 @@ final class DiagnosticJobs {
             host.drop(c);
             return label + ": Timeout · Verbindung wird neu aufgebaut";
         } catch (IOException e) {
+            if (host.dtcCancelled()) return label + ": abgebrochen";
             host.countIoError();
             host.drop(c);
             return label + ": Kommunikationsfehler – " + e.getMessage();
