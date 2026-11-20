@@ -28,7 +28,8 @@ public class C350Log20261120Test {
         verify(0x49, 6.666667, "7E903414910 7E803414911");
         verify(0x0C, 1072.75, "7E904410C1090 7E804410C10C3");
         verify(0x0C, 678.50, "7E804410C0A9A 7E904410C0A98");
-        // Ein echter 7E9-first-Frame wird nicht automatisch als Motorwert übernommen.
+        // Steht 7E9 allein, wird er gelesen (es gibt keine Motorantwort); kommt 7E8 dazu, gilt 7E8 –
+        // unabhängig davon, welcher Frame zuerst eintrifft.
         assertEquals(10.925, pid(0x42).parse("7E90441422AAD"), 1e-6);
         assertEquals(11.497, pid(0x42).parse("7E90441422AAD 7E80441422CE9"), 1e-6);
         assertEquals(1072.75, pid(0x0C).parse("7E904410C1090 7E804410C10C3"), 1e-6);
