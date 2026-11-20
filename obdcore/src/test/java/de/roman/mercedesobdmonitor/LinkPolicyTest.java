@@ -39,6 +39,7 @@ public class LinkPolicyTest {
         List<String> init = LinkPolicy.reconnectInit("A6");
         assertTrue(init.contains("ATAT1"));
         assertTrue(init.contains("ATST64"));
+        assertTrue("ADR-002: ATCAF0 darf einen Reconnect nicht überleben", init.contains("ATCAF1"));
         assertTrue(init.contains("ATSP6"));
         assertFalse(init.contains("ATSP0"));
         for (String cmd : init) {

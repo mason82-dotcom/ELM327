@@ -51,4 +51,19 @@ public class CommandSafetyTest {
         assertFalse(CommandSafety.isAllowed("ATSP66"));
         assertFalse(CommandSafety.isAllowed("ATPB0101"));
     }
+
+    /** ADR-002: ATMA läuft nie über die normale Befehlsschnittstelle, Formatwechsel nicht im Terminal. */
+    @Test public void canMonitorStaysOutsideNormalWhitelist() {
+        for (String cmd : new String[] {"ATMA", "AT MA", "ATMR30D", "ATMT30", "ATMA;0100", "ATCRA30D", "ATCF30D",
+                "ATCM7FF", "ATCAF", "ATCAF2", "ATCSM0"}) {
+            assertFalse(cmd, CommandSafety.isAllowed(cmd));
+            assertFalse(cmd, CommandSafety.isAllowedInTerminal(cmd));
+        }
+        assertTrue(CommandSafety.isAllowed(CommandSafety.RAW_FORMAT));
+        assertTrue(CommandSafety.isAllowed(CommandSafety.AUTO_FORMAT));
+        assertFalse(CommandSafety.isAllowedInTerminal("ATCAF0"));
+        assertFalse(CommandSafety.isAllowedInTerminal("ATCAF1"));
+        assertFalse(CommandSafety.changesHeader("ATCAF0"));
+        assertTrue(CommandSafety.blockedReason("ATMA").contains("ADR-002"));
+    }
 }

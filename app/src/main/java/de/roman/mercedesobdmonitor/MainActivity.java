@@ -58,6 +58,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private Button warmupButton;
     private Button profileButton;
     private Button atfButton;
+    private Button canMonitorButton;
     private SparklineView latencyGraph;
     private TextView analysisText;
 
@@ -177,6 +178,8 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         atfButton = button("ATF-Temperatur");
         c350Controls.addView(profileButton, weight());
         c350Controls.addView(atfButton, weight());
+        canMonitorButton = button("Bus mitlesen");
+        c350Controls.addView(canMonitorButton, weight());
         root.addView(c350Controls);
 
         warmupStatus = text("Warmlauf-Check: bereit", 13, Color.LTGRAY);
@@ -249,6 +252,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         monitorTestsButton.setOnClickListener(v -> session.runMonitorTests());
         profileButton.setOnClickListener(v -> session.runVehicleProfile());
         atfButton.setOnClickListener(v -> session.runAtfTemperature());
+        canMonitorButton.setOnClickListener(v -> session.runCanMonitor());
         warmupButton.setOnClickListener(v -> session.toggleWarmupCheck());
         send.setOnClickListener(v -> session.sendTerminal(terminalInput.getText().toString()));
         export.setOnClickListener(v -> session.exportCsv(this));
@@ -433,6 +437,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
             case MONITOR_TESTS -> { b = monitorTestsButton; idle = "Monitortests (Mode 06)"; working = "Lese Monitortests …"; }
             case PROFILE -> { b = profileButton; idle = "Fahrzeugprofil"; working = "Lese Profil …"; }
             case ATF -> { b = atfButton; idle = "ATF-Temperatur"; working = "Lese Getriebe …"; }
+            case CAN_MONITOR -> { b = canMonitorButton; idle = "Bus mitlesen"; working = "Lese Bus (5 s) …"; }
             case INSPECTION -> { b = inspectionButton; idle = "HU/AU-Check"; working = "Lese Readiness …"; }
             default -> { return; }
         }

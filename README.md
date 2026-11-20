@@ -139,6 +139,10 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
   nur `ATSH7E1` → `2130` → `ATSH7DF`, nie im Terminal, Header-Wiederherstellung samt Reconnect mit `ATSH7DF`.
   Formel Byte 11 − 50 ist am C350 noch nicht bestätigt; die Rohantwort wird immer angezeigt.
 - **Steuergerätenamen** (09 0A) im HU/AU-Check.
+- **Bus mitlesen** (Knopf in beiden Apps, Dashboard: ANALYSE) nach [ADR-002](docs/adr-002-can-mitlesen.md): 5 s passiv
+  `ATMA`, sendet nichts an das Fahrzeug. Zeigt, ob der OBD-Port Bus-Botschaften durchreicht, und für bekannte
+  W204-Botschaften (Motoröl, Ölstand, ATF, Gang) die Rohwerte. Grundlage und Bewertung:
+  [docs/mercedes-hacking-docs.md](docs/mercedes-hacking-docs.md).
 
 ## Version 1.0.9
 
@@ -207,6 +211,7 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
 - nur lesende SAE-J1979-Dienste 01, 02, 03, 05, 06, 07, 09 und 0A sind fahrzeugseitig erlaubt
 - Mode 04, Mode 08, UDS-Schreib-/Routine-/Security-Dienste und beliebige Raw-CAN-Kommandos werden nicht übertragen
 - CAN-Header-/Adressierungsbefehle wie ATSH/ATCRA/ATCEA/ATTA/ATCP sind im Terminal gesperrt
+- Mitlesen (ATMA) nur zeitbegrenzt über „Bus mitlesen“; ATMR/ATMT/ATCSM0 und ATCAF0/1 sind im Terminal gesperrt (ADR-002)
 - DTC-Scan mit eigenem Ergebnisdialog und exklusivem ELM327-Zugriff
 - WLAN-Fallback über alle verfügbaren WiFi-Network-Handles
 - echte Protokollanzeige nach ECU-Erkennung via ATDP/ATDPN
