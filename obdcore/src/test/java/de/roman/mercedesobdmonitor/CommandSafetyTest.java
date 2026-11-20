@@ -1,5 +1,6 @@
 package de.roman.mercedesobdmonitor;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -36,7 +37,7 @@ public class CommandSafetyTest {
     }
 
     @Test public void blocksRawAddressingAndCommandStacking() {
-        assertFalse(CommandSafety.isAllowed("ATSH7E0"));
+        assertFalse(CommandSafety.isAllowed("ATSH7E2"));   // ATSH7E0 ist seit ADR-004 als exaktes Tupel frei
         assertFalse(CommandSafety.isAllowed("ATCRA7E8"));
         assertFalse(CommandSafety.isAllowed("ATCEA18"));
         assertFalse(CommandSafety.isAllowed("010C\r04"));
@@ -73,5 +74,44 @@ public class CommandSafetyTest {
         assertTrue(CommandSafety.terminalBlockedReason("at caf1").contains("ADR-002"));
         assertTrue(CommandSafety.terminalBlockedReason("ATSH7E1").contains("ADR-001"));
         assertTrue(CommandSafety.terminalBlockedReason("ATMA").contains("ADR-002"));
+    }
+
+    /** ADR-004: exakte Tupel, headerabhängig, nie im Terminal; Rückweg nur über 7DF. */
+    @Test public void adr004OnlyExactReadsOnTheRightHeader() {
+        String obd = CommandSafety.DEFAULT_HEADER;
+        assertTrue(CommandSafety.isAllowed("ATSH7E0", obd));
+        assertFalse(CommandSafety.isAllowed("1A86", obd));                 // nie funktional an alle
+        assertFalse(CommandSafety.isAllowed("1802FF00", obd));
+        String engine = CommandSafety.headerAfter("ATSH7E0", obd);
+        assertEquals("7E0", engine);
+        assertTrue(CommandSafety.isAllowed("1A86", engine));
+        assertFalse(CommandSafety.isAllowed("1802FF00", engine));          // Fehlerspeicher nur Getriebe
+        assertFalse(CommandSafety.isAllowed("2130", engine));
+        assertFalse(CommandSafety.isAllowed("ATSH7E1", engine));           // erst zurück auf 7DF
+        assertFalse(CommandSafety.isAllowed("010C", engine));
+        assertTrue(CommandSafety.isAllowed("ATSH7DF", engine));
+        String tcu = CommandSafety.headerAfter("ATSH7E1", obd);
+        assertTrue(CommandSafety.isAllowed("1A86", tcu));
+        assertTrue(CommandSafety.isAllowed("1802FF00", tcu));
+        assertTrue(CommandSafety.changesHeader("ATSH7E0"));
+        for (String cmd : new String[] {"ATSH7E0", "1A86", "1802FF00"}) {
+            assertFalse(cmd, CommandSafety.isAllowedInTerminal(cmd));
+            assertTrue(cmd, CommandSafety.terminalBlockedReason(cmd).contains("ADR-004"));
+        }
+        // keine Nachbarn: andere Identifier, Statusvarianten, Löschen, Sitzungen
+        for (String cmd : new String[] {"1A87", "1A90", "1A", "1800FF00", "1803FF00", "1802FF", "14FF00", "1092",
+                "1081", "3E01", "2701", "3101", "3B90", "ATSH7E2", "ATSH7E8", "ATSH6E0"}) {
+            assertFalse(cmd, CommandSafety.isAllowed(cmd));
+            assertFalse(cmd, CommandSafety.isAllowed(cmd, tcu));
+        }
+    }
+
+    /** UDS ReadDataByIdentifier (0x22) ist nicht freigegeben: der C350 spricht KWP2000, Gegenstück ist 0x21. */
+    @Test public void udsReadDataByIdentifierStaysBlocked() {
+        for (String cmd : new String[] {"22F190", "22F186", "220100", "22"}) {
+            assertFalse(cmd, CommandSafety.isAllowed(cmd));
+            assertFalse(cmd, CommandSafety.isAllowed(cmd, "7E1"));
+            assertFalse(cmd, CommandSafety.isAllowed(cmd, "7E0"));
+        }
     }
 }

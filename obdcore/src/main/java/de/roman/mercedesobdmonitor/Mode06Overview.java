@@ -389,7 +389,9 @@ public final class Mode06Overview {
         if (sensor1Weaker1 > 0) {
             lines.add("  Hinweis: Die Vorkat-Sonde von Bank 1 liegt näher an ihren Grenzen als die von Bank 2. Das passt "
                     + "zu einer lastunabhängig höheren Korrektur von Bank 1 (Trim-Karte): Sonde B1S1, Abgasleck vor der "
-                    + "Sonde (Krümmer/Flansch Zyl. 1–3) zuerst prüfen (Richtwert, keine Diagnose).");
+                    + "Sonde (Krümmer/Flansch Zyl. 1–3) zuerst prüfen (Richtwert, keine Diagnose). Der Kraftstoffdruck "
+                    + "ist für beide Bänke derselbe (rücklauffreie Anlage, 3,8 bar laut M272-Schulungsunterlage), "
+                    + "scheidet als Ursache einer einseitigen Abweichung also weitgehend aus.");
         }
         return lines;
     }

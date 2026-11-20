@@ -67,7 +67,7 @@ public final class Elm327Client implements Closeable {
         if (cmd.isEmpty()) throw new IllegalArgumentException("Leerer ELM327-Befehl");
         if (!CommandSafety.isAllowed(cmd, header)) {
             throw new IOException("Read-Only-Schutz: " + (CommandSafety.isAllowed(cmd)
-                    ? "Befehl passt nicht zum aktuellen Header " + header + " (ADR-001)"
+                    ? "Befehl passt nicht zum aktuellen Header " + header + " (ADR-001/ADR-004)"
                     : CommandSafety.blockedReason(cmd)));
         }
         drainAvailable();

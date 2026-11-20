@@ -426,7 +426,10 @@ public final class StarterTest {
         b.append("\nHinweise: ATRV misst am OBD-Stecker (Pin 16) mit etwa ±0,2 V Toleranz");
         if (iv > 0) b.append(", Abtastung alle ~").append(iv).append(" ms – die kurze Einschaltspitze kann tiefer liegen");
         b.append(". Nach einer Fahrt liegt die Ruhespannung durch Oberflächenladung höher; aussagekräftig ist ein Start "
-                + "nach mehreren Stunden Standzeit. Richtwerte für 12-V-Bleibatterien, keine Herstellerangaben.");
+                + "nach mehreren Stunden Standzeit. Die Lichtmaschine des M272 regelt das Motorsteuergerät über LIN "
+                + "(M272-Schulungsunterlage); ein Wert knapp über 13 V kann bei warmer, voller Batterie gewollt sein – "
+                + "dann nach einigen Minuten mit eingeschalteten Verbrauchern wiederholen. Richtwerte für "
+                + "12-V-Bleibatterien, keine Herstellerangaben.");
         return b.toString().trim();
     }
 

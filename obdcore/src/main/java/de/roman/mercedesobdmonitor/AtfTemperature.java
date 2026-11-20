@@ -61,7 +61,12 @@ public final class AtfTemperature {
             if (msg.startsWith("7F21") && rejected == null) rejected = msg;
             else if (other.isEmpty()) other = msg;
         }
-        if (data == null && rejected != null) return new Reading(null, "Steuergerät lehnt die Anfrage ab (7F)", spaced(rejected));
+        if (data == null && rejected != null) {
+            int code = rejected.length() >= 6 ? Integer.parseInt(rejected.substring(4, 6), 16) : -1;
+            return new Reading(null, "Steuergerät lehnt die Anfrage ab (7F"
+                    + (code >= 0 ? String.format(Locale.GERMANY, ", Code %02X: %s", code, KwpReadout.nrc(code)) : "") + ")",
+                    spaced(rejected));
+        }
         if (data == null) return new Reading(null, "unerwartete Antwort", spaced(other));
         byte[] bytes = bytes(data);
         if (bytes.length < BYTE_INDEX + 1) return new Reading(null, "Antwort zu kurz", spaced(data), bytes);

@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * zeichnet sich daraus neu. Bewusst ohne gespeicherten Context.
  */
 public final class ObdSession {
-    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS, PROFILE, ATF, STARTER, CAN_MONITOR }
+    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS, PROFILE, ATF, STARTER, CAN_MONITOR, KWP }
 
     /** UI-Callbacks; alle Aufrufe im Main-Thread. */
     public interface Listener {
@@ -882,6 +882,52 @@ public final class ObdSession {
             r.merge(target, part);
             if (!VehicleScan.anyHasNext(part, base)) break;
         }
+    }
+
+    /** ADR-004: Testfreigabe, ausgeliefert aus; die Apps setzen sie aus ihren Einstellungen. */
+    private volatile boolean adr004Enabled;
+
+    public void setAdr004Enabled(boolean enabled) {
+        adr004Enabled = enabled;
+    }
+
+    public boolean isAdr004Enabled() {
+        return adr004Enabled;
+    }
+
+    /** Kennung von Motor und Getriebe und Getriebe-Fehlerspeicher (ADR-004, nur lesend, nur mit Testfreigabe). */
+    public void runKwpIdentDtc() {
+        if (!adr004Enabled) {
+            toast("Herstellerabfragen (ADR-004) sind in den Einstellungen ausgeschaltet");
+            return;
+        }
+        runExclusiveDiagnosis(Op.KWP, "Kennung + Getriebe-Fehler (ADR-004)", this::readKwpIdentDtc);
+    }
+
+    private String readKwpIdentDtc(Elm327Client c) throws IOException {
+        if (!LinkPolicy.isCan11Bit(protocolNumber)) {
+            return "Kennung und Getriebe-Fehler gehen nur über CAN mit 11-bit-Kennungen. Erkanntes Protokoll: " + protocol;
+        }
+        StringBuilder sb = new StringBuilder();
+        boolean restored = false;
+        try {
+            diagCommand(c, CommandSafety.ENGINE_HEADER, 1500);
+            sb.append(KwpReadout.ident("Motor (7E0)", diagCommand(c, CommandSafety.IDENT_REQUEST, 3000).raw));
+            diagCommand(c, CommandSafety.OBD_HEADER, 1500);
+            sleepQuiet(100);
+            diagCommand(c, CommandSafety.ATF_HEADER, 1500);
+            sb.append("\n\n").append(KwpReadout.ident("Getriebe (7E1)", diagCommand(c, CommandSafety.IDENT_REQUEST, 3000).raw));
+            sleepQuiet(100);
+            sb.append("\n\n").append(KwpReadout.dtcs(diagCommand(c, CommandSafety.TCU_DTC_REQUEST, 3000).raw));
+            diagCommand(c, CommandSafety.OBD_HEADER, 1500);
+            restored = true;
+        } finally {
+            // wie ADR-001: der Header darf nie auf einem Steuergerät stehen bleiben
+            if (!restored || !CommandSafety.DEFAULT_HEADER.equals(c.header())) closeClientIfCurrent(c);
+        }
+        sb.append("\n\nTestfreigabe ADR-004: Formate nach Referenz (ecu_diagnostics), am C350 ungeprüft. ")
+                .append("Bitte Rohantworten in docs/adr-004-kwp-kennung-fehlerspeicher.md eintragen.");
+        return sb.toString();
     }
 
     private String readAtfTemperature(Elm327Client c) throws IOException {

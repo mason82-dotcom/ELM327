@@ -37,6 +37,16 @@ public final class CommandSafety {
     private static final Set<String> ADR001_EXACT = Set.of(ATF_HEADER, ATF_REQUEST, OBD_HEADER);
 
     /**
+     * ADR-004 (docs/adr-004-kwp-kennung-fehlerspeicher.md, Testfreigabe): Daimler-Kennung {@code 1A 86} an Motor
+     * (7E0) oder Getriebe (7E1) und Getriebe-Fehlerspeicher {@code 18 02 FF 00} (nur 7E1). Exakte Zeichenketten,
+     * nicht im Terminal; der Ablauf stellt den Header im finally wieder her (ObdSession#readKwpIdentDtc).
+     */
+    public static final String ENGINE_HEADER = "ATSH7E0";
+    public static final String IDENT_REQUEST = "1A86";
+    public static final String TCU_DTC_REQUEST = "1802FF00";
+    private static final Set<String> ADR004_EXACT = Set.of(ENGINE_HEADER, IDENT_REQUEST, TCU_DTC_REQUEST);
+
+    /**
      * ADR-002 (docs/adr-002-can-mitlesen.md): passives Mitlesen der Bus-Botschaften am OBD-Port.
      * {@code ATMA} sendet nichts an das Fahrzeug, läuft aber ohne '>'-Prompt weiter, bis ein Zeichen kommt.
      * Deshalb ist es bewusst NICHT über {@link #isAllowed(String)} erreichbar, sondern nur über
@@ -73,7 +83,7 @@ public final class CommandSafety {
         // Reject command stacking / embedded line breaks before any other test.
         if (cmd.indexOf('\r') >= 0 || cmd.indexOf('\n') >= 0 || cmd.indexOf(';') >= 0) return false;
 
-        if (ADR001_EXACT.contains(cmd) || ADR002_EXACT.contains(cmd)) return true;
+        if (ADR001_EXACT.contains(cmd) || ADR002_EXACT.contains(cmd) || ADR004_EXACT.contains(cmd)) return true;
         if (SAFE_AT_EXACT.contains(cmd) || SAFE_TIMEOUT.matcher(cmd).matches()
                 || SAFE_PROTOCOL.matcher(cmd).matches()) return true;
 
@@ -100,7 +110,9 @@ public final class CommandSafety {
         if (!isAllowed(command)) return false;
         String cmd = normalize(command);
         boolean transmission = "7E1".equals(currentHeader);
-        if (ATF_REQUEST.equals(cmd)) return transmission;
+        boolean engine = "7E0".equals(currentHeader);
+        if (ATF_REQUEST.equals(cmd) || TCU_DTC_REQUEST.equals(cmd)) return transmission;
+        if (IDENT_REQUEST.equals(cmd)) return transmission || engine;
         // On the transmission header, or when the adapter state is unknown (header command without a
         // confirmed answer), only the way back to the standard header is open.
         if (!DEFAULT_HEADER.equals(currentHeader)) return OBD_HEADER.equals(cmd) || "ATZ".equals(cmd);
@@ -113,7 +125,7 @@ public final class CommandSafety {
     /** Ob dieser Befehl den Header ändern kann. */
     public static boolean changesHeader(String command) {
         String cmd = normalize(command);
-        return ATF_HEADER.equals(cmd) || OBD_HEADER.equals(cmd) || "ATZ".equals(cmd);
+        return ATF_HEADER.equals(cmd) || ENGINE_HEADER.equals(cmd) || OBD_HEADER.equals(cmd) || "ATZ".equals(cmd);
     }
 
     /**
@@ -123,13 +135,15 @@ public final class CommandSafety {
      */
     public static boolean isAllowedInTerminal(String command) {
         String cmd = normalize(command);
-        return isAllowed(cmd) && !ADR001_EXACT.contains(cmd) && !ADR002_EXACT.contains(cmd);
+        return isAllowed(cmd) && !ADR001_EXACT.contains(cmd) && !ADR002_EXACT.contains(cmd)
+                && !ADR004_EXACT.contains(cmd);
     }
 
     /** Grund, warum {@code command} im Terminal nicht läuft (nur sinnvoll, wenn {@link #isAllowedInTerminal} false ist). */
     public static String terminalBlockedReason(String command) {
         String cmd = normalize(command);
         if (ADR001_EXACT.contains(cmd)) return "nur über „ATF-Temperatur“ (ADR-001, mit Header-Wiederherstellung)";
+        if (ADR004_EXACT.contains(cmd)) return "nur über „Kennung + Getriebe-Fehler“ (ADR-004, Testfreigabe)";
         return blockedReason(cmd);
     }
 
@@ -137,6 +151,7 @@ public final class CommandSafety {
     public static String headerAfter(String command, String currentHeader) {
         String cmd = normalize(command);
         if (ATF_HEADER.equals(cmd)) return "7E1";
+        if (ENGINE_HEADER.equals(cmd)) return "7E0";
         if (OBD_HEADER.equals(cmd) || "ATZ".equals(cmd)) return DEFAULT_HEADER;
         return currentHeader;
     }
@@ -146,6 +161,8 @@ public final class CommandSafety {
         if (ATF_REQUEST.equals(cmd)) {
             return "21 30 (ATF-Temperatur) ist nur an das Getriebesteuergerät (Header 7E1) erlaubt.";
         }
+        if (TCU_DTC_REQUEST.equals(cmd)) return "18 02 FF 00 ist nur an das Getriebesteuergerät (Header 7E1) erlaubt (ADR-004).";
+        if (IDENT_REQUEST.equals(cmd)) return "1A 86 ist nur an Motor (7E0) oder Getriebe (7E1) erlaubt (ADR-004).";
         if (cmd.startsWith("ATMA") || cmd.startsWith("ATMR") || cmd.startsWith("ATMT")) {
             return "Mitlesen (ATMA) läuft nur zeitbegrenzt über „Bus mitlesen“ (ADR-002); Filter-Varianten sind gesperrt.";
         }
@@ -158,7 +175,7 @@ public final class CommandSafety {
         if (cmd.startsWith("ATSH") || cmd.startsWith("ATCRA") || cmd.startsWith("ATCEA")
                 || cmd.startsWith("ATTA") || cmd.startsWith("ATCP")) {
             return "Änderungen an CAN-Headern/Adressierung sind im Read-Only-Modus gesperrt "
-                    + "(einzige Ausnahme: ATF-Temperatur nach ADR-001).";
+                    + "(Ausnahmen: ATF-Temperatur nach ADR-001, Kennung/Getriebe-Fehler nach ADR-004).";
         }
         return "Befehl ist nicht in der Read-Only-Whitelist freigegeben.";
     }
