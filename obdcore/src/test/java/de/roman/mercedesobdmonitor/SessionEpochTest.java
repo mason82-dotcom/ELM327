@@ -26,6 +26,39 @@ public class SessionEpochTest {
         assertFalse(SessionEpoch.matches(7, 7, false, false));
     }
 
+    @Test public void connectionStatusAndInvalidationAllowCurrentDisconnectedSession() {
+        // Status „Getrennt“ darf bei inactive=false nicht versehentlich verschwinden.
+        assertTrue(SessionEpoch.matchesGeneration(19, 19));
+        assertFalse(SessionEpoch.matches(19, 19, false, true));
+    }
+
+    @Test public void stalePollInvalidationCannotClearNewSession() {
+        AtomicInteger generation = new AtomicInteger(4);
+        java.util.Map<Integer, Double> values = new java.util.HashMap<>();
+        values.put(0x0C, 1650.0);
+        Runnable queuedFromOldPoll = () -> {
+            if (SessionEpoch.matchesGeneration(4, generation.get())) values.clear();
+        };
+        generation.incrementAndGet(); // Neuverbinden
+        values.put(0x0C, 1950.0);
+        queuedFromOldPoll.run();
+        assertTrue("neuer Messwert darf nicht gelöscht werden", values.containsKey(0x0C));
+        assertFalse(SessionEpoch.matchesGeneration(4, generation.get()));
+    }
+
+    @Test public void lateOldConnectionStatusCannotReplaceCurrentStatus() {
+        AtomicInteger generation = new AtomicInteger(10);
+        java.util.concurrent.atomic.AtomicReference<String> status =
+                new java.util.concurrent.atomic.AtomicReference<>("Verbunden");
+        Runnable oldReconnect = () -> {
+            if (SessionEpoch.matchesGeneration(10, generation.get())) status.set("Reconnect …");
+        };
+        generation.incrementAndGet();
+        status.set("Getrennt");
+        oldReconnect.run();
+        org.junit.Assert.assertEquals("Getrennt", status.get());
+    }
+
     @Test public void queuedUiCallbackRechecksGenerationWhenExecuted() {
         AtomicInteger current = new AtomicInteger(11);
         AtomicInteger deliveries = new AtomicInteger();
