@@ -1,4 +1,4 @@
-# ADR-007 – isoliertes W204-Service-Labor (Mode 04, Dach, Codierung, EEPROM)
+# ADR-008 – isoliertes W204-Service-Labor (Mode 04, Dach, Codierung, EEPROM)
 
 **Status:** Experimenteller Entwicklungszweig, ausdrücklich **nicht** auf `main`; erste Revision vom 20.11.2026.
 **Fahrzeug:** Mercedes C350 S204/W204, M272, Baujahr 2008, 7G-Tronic (konkrete Steuergeräte-Varianten noch festzustellen).

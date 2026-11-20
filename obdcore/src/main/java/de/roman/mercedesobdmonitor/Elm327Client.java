@@ -63,6 +63,13 @@ public final class Elm327Client implements Closeable {
         return now() - start;
     }
 
+    /** ADR-007: nur während der Kennungssuche gesetzt (DiagnosticJobs, im finally zurück). */
+    private boolean localIdScan;
+
+    public synchronized void setLocalIdScan(boolean on) {
+        localIdScan = on;
+    }
+
     /** Aktueller CAN-Header des Adapters (ADR-001); nach ATZ und jeder neuen Verbindung „7DF“. */
     private volatile String header = CommandSafety.DEFAULT_HEADER;
 
@@ -74,24 +81,18 @@ public final class Elm327Client implements Closeable {
         ensureConnected();
         String cmd = CommandSafety.normalize(command);
         if (cmd.isEmpty()) throw new IllegalArgumentException("Leerer ELM327-Befehl");
-        if (!CommandSafety.isAllowed(cmd, header)) {
+        if (!CommandSafety.isAllowed(cmd, header, localIdScan)) {
             throw new IOException("Read-Only-Schutz: " + (CommandSafety.isAllowed(cmd)
-                    ? "Befehl passt nicht zum aktuellen Header " + header + " (ADR-001/ADR-004)"
+                    ? "Befehl passt nicht zum aktuellen Header " + header + " (ADR-001/004/007)"
                     : CommandSafety.blockedReason(cmd)));
         }
         return exchangeCommand(cmd, timeoutMs);
     }
 
-    /**
-     * Einzige Schreibausnahme im separaten Service-Labor: exakt Mode 04.
-     * Kein öffentlicher Write-/Raw-Befehl und keine Erweiterung von CommandSafety.
-     * Ein vor Freigabe verbrauchtes Ticket bleibt auch bei Timeout dauerhaft verbraucht.
-     */
+    /** Exact one-shot experimental service exception; general safety gate stays read-only. */
     synchronized CommandResult clearEmissionsOnce(ServiceMode04Gate.Ticket ticket, int timeoutMs)
             throws IOException {
         ensureConnected();
-        // Schon der Versuch verbraucht die Freigabe, auch bei ungültigem Header.
-        // Damit ist auch eine versehentliche Wiederverwendung nach einer Header-Reparatur ausgeschlossen.
         if (ticket == null || !ticket.consume())
             throw new IOException("Service-Labor: Einmalfreigabe fehlt oder wurde verbraucht");
         if (!CommandSafety.DEFAULT_HEADER.equals(header))
@@ -99,7 +100,7 @@ public final class Elm327Client implements Closeable {
         return exchangeCommand("04", timeoutMs);
     }
 
-    /** Nur unter dem Socket-Monitor: Sender und Prompt-Leser bleiben atomar. */
+    /** ELM327 command exchange occurs under the same client monitor lock. */
     private CommandResult exchangeCommand(String cmd, int timeoutMs) throws IOException {
         drainAvailable();
         // Until the adapter confirms a header command, its header is unknown: only ATSH7DF/ATZ may follow.

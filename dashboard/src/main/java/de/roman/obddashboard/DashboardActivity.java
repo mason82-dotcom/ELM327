@@ -144,6 +144,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             trendPid = savedInstanceState.getInt("trendPid", 0x0C);
         }
         session.attachTestPlan(this);
+        session.attachLocalIdScanStore(this);
         session.setWarningsEnabled(true);   // Kühlmittel-/Bordnetzwarnungen mit Ton (auch im Hintergrund)
         // ADR-004: Testfreigabe aus den Einstellungen, ausgeliefert aus
         session.setAdr004Enabled(getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_ADR004, false));
@@ -453,7 +454,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         logActions.addView(button("PRÜFPLAN", v -> show(Page.PLAN)), weighted());
         page.addView(logActions);
         android.widget.CheckBox adr004 = new android.widget.CheckBox(this);
-        adr004.setText("Herstellerabfragen nach ADR-004 (Test): Kennung 1A 86, Getriebe-Fehler 18 02 FF 00 – Knopf unter ANALYSE");
+        adr004.setText("Herstellerabfragen nach ADR-004/007 (Test): Kennung 1A 86, Getriebe-Fehler 18 02 FF 00, Kennungssuche Motor 21 xx – Knöpfe unter ANALYSE");
         adr004.setTextColor(Palette.LIGHT);
         adr004.setTextSize(13);
         adr004.setChecked(session.isAdr004Enabled());
@@ -628,8 +629,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
 
     // ------------------------------------------------------------------ Analyse (C350/M272)
 
-    private TextView analysisText, atfText, profileText, canMonitorText, kwpText;
-    private Button kwpButton;
+    private TextView analysisText, atfText, profileText, canMonitorText, kwpText, lidScanText;
+    private Button kwpButton, lidScanButton;
     private static final String PREF_ADR004 = "adr004_enabled";
 
     private View buildAnalysis() {
@@ -650,18 +651,24 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         content.addView(profileText);
         content.addView(canMonitorText);
         content.addView(kwpText);
+        lidScanText = resultText(results.containsKey(ResultRouter.Target.LID_SCAN) ? results.get(ResultRouter.Target.LID_SCAN)
+                : "Kennungssuche Motor: Testfreigabe ADR-007 (21 01–21 FE an 7E0, nur lesend, etwa 1 min) – sucht die "
+                + "Motoröltemperatur. Kalt und warm je einmal.");
+        content.addView(lidScanText);
         Button profileButton = opButton(ObdSession.Op.PROFILE, "PROFIL LESEN", v -> session.runVehicleProfile());
         profileButton.setContentDescription("Fahrzeugprofil lesen");
         Button canButton = opButton(ObdSession.Op.CAN_MONITOR, "BUS MITLESEN", v -> session.runCanMonitor());
         canButton.setContentDescription("CAN-Bus fünf Sekunden passiv mitlesen");
         kwpButton = opButton(ObdSession.Op.KWP, "KENNUNG + FEHLER", v -> session.runKwpIdentDtc());
         kwpButton.setContentDescription("Steuergeräte-Kennung und Getriebe-Fehlerspeicher lesen (Testfreigabe ADR-004)");
+        lidScanButton = button(LID_IDLE, v -> session.toggleEngineLocalIdScan());
+        lidScanButton.setContentDescription("Lokale Kennungen des Motorsteuergeräts lesen (Testfreigabe ADR-007)");
         updateAdr004Visibility();
         Button importButton = button("LOG IMPORT", v -> pickTrimLog());
         importButton.setContentDescription("CSV-Log importieren (Trim-Verlauf)");
         View page = subPage("ANALYSE / NUR LESEN", Page.ANALYSIS,
                 new View[] {text("Aus Standardwerten berechnet · Schwellen sind Richtwerte, keine Herstellerangaben", 13, Palette.WARN)},
-                new View[0], content, opButton(ObdSession.Op.ATF, "ATF LESEN", v -> session.runAtfTemperature()), profileButton, canButton, kwpButton, importButton);
+                new View[0], content, opButton(ObdSession.Op.ATF, "ATF LESEN", v -> session.runAtfTemperature()), profileButton, canButton, kwpButton, lidScanButton, importButton);
         updateAnalysis();
         return page;
     }
@@ -1035,11 +1042,16 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     }
 
     private static final String STARTER_IDLE = "Starttest";
+    private static final String LID_IDLE = "KENNUNGSSUCHE";
+    private static final String LID_RUNNING = "SUCHE STOPPEN";
     private static final String STARTER_RUNNING = "Starttest abbrechen";
 
     @Override
     public void onBusy(ObdSession.Op op, boolean busy) {
         busyOps.put(op, busy);
+        if (op == ObdSession.Op.LID_SCAN && lidScanButton != null) {
+            lidScanButton.setText(busy ? LID_RUNNING : LID_IDLE);   // bleibt bedienbar: zweiter Druck stoppt
+        }
         if (op == ObdSession.Op.STARTER && starterButton != null) {
             starterButton.setText(busy ? STARTER_RUNNING : STARTER_IDLE);
             if (busy) starterText.setText("Starttest läuft …");
@@ -1101,7 +1113,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
                 refreshResults();
                 show(Page.TRIM);
                 break;
-            case PROFILE: case ATF: case CAN_MONITOR: case KWP:
+            case PROFILE: case ATF: case CAN_MONITOR: case KWP: case LID_SCAN:
                 results.put(target, message);
                 refreshResults();
                 show(Page.ANALYSIS);
@@ -1142,6 +1154,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         if (can != null && canMonitorText != null) canMonitorText.setText(can);
         String kwp = results.get(ResultRouter.Target.KWP);
         if (kwp != null && kwpText != null) kwpText.setText(kwp);
+        String lid = results.get(ResultRouter.Target.LID_SCAN);
+        if (lid != null && lidScanText != null) lidScanText.setText(lid);
     }
 
     /** ADR-004: Knopf und Ergebnisfeld nur mit eingeschalteter Testfreigabe. */
@@ -1149,6 +1163,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         int v = session.isAdr004Enabled() ? View.VISIBLE : View.GONE;
         if (kwpButton != null) kwpButton.setVisibility(v);
         if (kwpText != null) kwpText.setVisibility(v);
+        if (lidScanButton != null) lidScanButton.setVisibility(v);
+        if (lidScanText != null) lidScanText.setVisibility(v);
     }
 
     private void dialog(String title, String message) {

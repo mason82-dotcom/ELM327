@@ -5,7 +5,7 @@
 > eine **ausdrücklich bestätigte, einmalige Mode-04-Ausnahme**, die Emissions-Diagnosedaten
 > verändert. Dachöffnen/-schließen ist **nur eine Offline-Simulation**; Codierung,
 > EEPROM und weitere Stellglieder sind **ausschließlich Forschungs-/Dokumentationsfunktionen**.
-> Details: [ADR-007](docs/adr-007-service-labor-w204.md) und [UX-Vertrag](UX-CONTRACT.md).
+> Details: [ADR-008](docs/adr-008-service-labor-w204.md) und [UX-Vertrag](UX-CONTRACT.md).
 
 
 Zwei Android-Apps, die über einen ELM327-WLAN-Adapter die Diagnosedose eines **Mercedes C350 T-Modell S204 (M272,
@@ -56,6 +56,9 @@ Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantwort
 - Drehzahl, Tempo, Kühlmittel, Last, Drosselklappe, Luftmasse, Saugrohrdruck, Ansaugluft, STFT/LTFT beider Bänke,
   Steuergerätespannung, Soll-Lambda, Umgebungsdruck; Dashboard mit Rundinstrumenten und Verlaufskurven.
 - Werte des Motorsteuergeräts (7E8), auch wenn das Getriebe dieselben PIDs beantwortet.
+- **Kennungssuche Motor (Test, ADR-007):** liest einmal alle lokalen Kennungen `21 01`–`21 FE` des Motorsteuergeräts
+  und nennt Kandidaten für die Motoröltemperatur; ein zweiter Lauf bei anderer Temperatur bestätigt sie. Nur mit
+  Testschalter, nur lesend, etwa 1 min, zweiter Druck stoppt.
 - **Warnungen (Dashboard):** Leiste über allen Seiten bei hoher Kühlmitteltemperatur (gelb ab 108 °C, rot ab 115 °C),
   schwacher Batterie bei Zündung an (unter 11,8 V), zu wenig Ladung (unter 13,0 V) oder Überspannung (über 15,0 V) bei
   laufendem Motor. Rot mit Ton (auch wenn eine andere App vorn ist), „Ton aus“ je Meldung. Orientierungswerte, keine
@@ -96,6 +99,7 @@ Jede Ausnahme ist eine eigene Entscheidung mit exakt festgelegten Befehlen und R
 | [ADR-004](docs/adr-004-kwp-kennung-fehlerspeicher.md) | Kennung `1A 86` (7E0/7E1), Getriebe-Fehler `18 02 FF 00` (7E1) – Testfreigabe |
 | [ADR-005](docs/adr-005-bluetooth.md) | Transport über Bluetooth (SPP) – keine neuen Befehle |
 | [ADR-006](docs/adr-006-autostart.md) | Automatisch verbinden (App-Start, Radiostart) – keine neuen Befehle |
+| [ADR-008](docs/adr-007-kennungssuche-motor.md) | Kennungssuche `21 01`–`21 FE` nur an 7E0 und nur im Suchmodus (Test, Schalter aus) |
 
 Gesperrt bleiben Fehlerlöschen, Sitzungswechsel, Security Access, Stellglieder, Routinen, Schreiben und Flashen.
 
