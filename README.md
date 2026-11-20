@@ -16,6 +16,16 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.10.0 (Monitor) / 0.14.0 (Dashboard): Prüfplan für den Termin am Auto
+
+- **Prüfplan** (Dashboard: INFO → PRÜFPLAN, Monitor-App: Abschnitt „Prüfplan“): Checkliste der offenen
+  Fahrzeugtests – ATF kalt, ATF warm in P/R/N/D (4 Lesungen), Kennung + Getriebe-Fehler (ADR-004), Starttest,
+  Bus mitlesen bei laufendem Motor, Monitortests und Aussetzer warm (Mode 06), Fehlercodes. Jedes
+  Diagnose-Ergebnis wird mit Zeit, Kühlmitteltemperatur und Drehzahl gespeichert und hakt den passenden Schritt
+  ab (kalt < 40 °C, warm ≥ 70 °C).
+- **TEILEN** gibt einen einzigen Text mit Checkliste und allen Ergebnissen samt Rohantworten aus; **LEEREN** fragt
+  mit Anzahl nach. Gespeichert im App-Speicher (`pruefplan.txt`, höchstens 60 Ergebnisse).
+
 ## Version 1.9.0 (Monitor) / 0.13.0 (Dashboard): Trim-Anteile gemeinsam / je Bank
 
 - **Trim-Karte** (Analyse in beiden Apps) zerlegt die Korrektur in den Anteil, den beide Bänke gemeinsam haben

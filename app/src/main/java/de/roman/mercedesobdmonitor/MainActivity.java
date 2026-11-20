@@ -66,6 +66,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private SparklineView latencyGraph;
     private TextView analysisText;
     private TextView tripsText;
+    private TextView planText;
 
     /**
      * Gemeinsame Auswertung mit dem Dashboard (Verbrauch, Lambda, Trim-Karte und -Verlauf, Kat-Tendenz, E-Gas,
@@ -80,6 +81,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        session.attachTestPlan(this);
         controller = new AnalysisController(this, PREFS, 1000);
         buildUi();
         loadSettings();
@@ -92,6 +94,41 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         controller.setListener(this::updateAnalysis);
         updateAnalysis();
         refreshTrips();
+        refreshPlan();
+    }
+
+    @Override
+    public void onResult(ObdSession.Op op, String title, String message) {
+        onDialog(title, message);
+        refreshPlan();
+    }
+
+    private void refreshPlan() {
+        if (planText != null) planText.setText(session.testPlanChecklist());
+    }
+
+    /** Löschen mit Bestätigung, die die Anzahl nennt (nicht rückgängig zu machen). */
+    private void confirmClearPlan() {
+        int n = session.testPlanSize();
+        if (n == 0) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Prüfplan leeren?")
+                .setMessage(n + (n == 1 ? " gespeichertes Ergebnis wird" : " gespeicherte Ergebnisse werden")
+                        + " gelöscht. Vorher teilen, wenn du sie noch brauchst.")
+                .setPositiveButton("Leeren", (d, w) -> {
+                    session.clearTestPlan();
+                    refreshPlan();
+                })
+                .setNegativeButton("Abbrechen", null)
+                .show();
+    }
+
+    private String appVersion() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            return "?";
+        }
     }
 
     @Override
@@ -252,6 +289,28 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         tripControls.addView(refreshTrips, weight());
         tripControls.addView(shareTrips, weight());
         root.addView(tripControls);
+
+        TextView planTitle = text("Prüfplan – nächster Termin am Auto", 18, Color.WHITE);
+        planTitle.setTypeface(null, Typeface.BOLD);
+        planTitle.setPadding(0, dp(14), 0, dp(2));
+        root.addView(planTitle);
+        TextView planNote = text("Hakt die offenen Fahrzeugtests anhand der Ergebnisse ab und sammelt alle Rohantworten "
+                + "in einem Bericht zum Teilen.", 12, Color.LTGRAY);
+        planNote.setPadding(0, 0, 0, dp(6));
+        root.addView(planNote);
+        planText = text("", 13, Color.rgb(210, 214, 220));
+        planText.setTextIsSelectable(true);
+        planText.setPadding(dp(8), dp(8), dp(8), dp(8));
+        planText.setBackgroundColor(Color.rgb(29, 33, 40));
+        root.addView(planText);
+        LinearLayout planControls = row();
+        Button sharePlan = button("Prüfplan teilen");
+        Button clearPlan = button("Prüfplan leeren");
+        planControls.addView(sharePlan, weight());
+        planControls.addView(clearPlan, weight());
+        root.addView(planControls);
+        sharePlan.setOnClickListener(v -> startActivity(session.testPlanShareIntent("Monitor " + appVersion())));
+        clearPlan.setOnClickListener(v -> confirmClearPlan());
 
         LinearLayout logControls = row();
         Button export = button("CSV exportieren");
