@@ -15,6 +15,11 @@ import java.util.List;
  * Bluetooth-Gerät. Gespeichert in den App-Einstellungen; „Verbinden“ nimmt den gewählten Weg.
  */
 public final class AdapterChoice {
+    /** Gemeinsame Schlüssel und Vorgaben beider Apps für Adresse und Port (Review: vorher dreifach kopiert). */
+    public static final String KEY_HOST = "host";
+    public static final String KEY_PORT = "port";
+    public static final String DEFAULT_HOST = "192.168.0.10";
+    public static final String DEFAULT_PORT = "35000";
     public static final String KEY_BT_ADDRESS = "adapter_bt_address";
     public static final String KEY_BT_NAME = "adapter_bt_name";
     /** Anfragecode für BLUETOOTH_CONNECT aus {@link #pick}; die Activity leitet ihn an {@link #onPermissionResult}. */
@@ -194,10 +199,47 @@ public final class AdapterChoice {
     }
 
     /** Verbindet über den gewählten Weg. */
-    public static boolean connect(Activity a, ObdSession session, String prefsName, String host, int port) {
-        SharedPreferences p = prefs(a, prefsName);
+    public static boolean connect(Context c, ObdSession session, String prefsName, String host, int port) {
+        SharedPreferences p = prefs(c, prefsName);
         String addr = p.getString(KEY_BT_ADDRESS, "");
-        if (addr.isEmpty()) return session.connect(a, host, port);
-        return session.connectBluetooth(a, addr, p.getString(KEY_BT_NAME, ""));
+        if (addr.isEmpty()) return session.connect(c, host, port);
+        return session.connectBluetooth(c, addr, p.getString(KEY_BT_NAME, ""));
+    }
+
+    // ------------------------------------------------------------------ ADR-006: automatisch verbinden
+
+    /** Einstellung „Automatisch verbinden“ (App-Start und Radiostart), ausgeliefert aus. */
+    public static final String KEY_AUTO_CONNECT = "auto_connect";
+
+    public static boolean autoConnect(Context c, String prefsName) {
+        return prefs(c, prefsName).getBoolean(KEY_AUTO_CONNECT, false);
+    }
+
+    public static void setAutoConnect(Context c, String prefsName, boolean on) {
+        prefs(c, prefsName).edit().putBoolean(KEY_AUTO_CONNECT, on).apply();
+    }
+
+    /** Ergebnis von {@link #connectFromSettings}. */
+    public enum AutoResult {
+        /** Verbindungsaufbau gestartet. */
+        STARTED,
+        /** Gerade nicht möglich (Bluetooth fährt hoch/aus, Diagnose läuft) – später erneut versuchen. */
+        RETRY,
+        /** Berechtigung fehlt oder Einstellungen ungültig – weitere Versuche helfen nicht. */
+        GIVE_UP
+    }
+
+    /**
+     * Verbindet mit den gespeicherten Einstellungen – ohne Activity, z. B. aus dem Dienst nach dem Radiostart.
+     * Unterscheidet vorübergehende von dauerhaften Hindernissen (Review: Bluetooth beim Booten noch aus ist der
+     * erwartete Fall, kein Grund aufzugeben).
+     */
+    public static AutoResult connectFromSettings(Context c, ObdSession session, String prefsName) {
+        if (!missingPermissions(c, prefsName).isEmpty()) return AutoResult.GIVE_UP;
+        SharedPreferences p = prefs(c, prefsName);
+        String host = p.getString(KEY_HOST, DEFAULT_HOST);
+        Integer port = port(c, prefsName, p.getString(KEY_PORT, DEFAULT_PORT));
+        if (port == null || (!usesBluetooth(c, prefsName) && host.isEmpty())) return AutoResult.GIVE_UP;
+        return connect(c, session, prefsName, host, port) ? AutoResult.STARTED : AutoResult.RETRY;
     }
 }

@@ -54,6 +54,20 @@ public final class AnalysisController {
     }
 
     /** Vor dem Verbinden: alte Verbindung sichern, Karte und Kat-Tendenz neu, neuer Verlaufseintrag. */
+    /** Kennung der Sitzung, deren Werte die Karte gerade sammelt; -1 = noch keine. */
+    private int connectionId = -1;
+
+    /**
+     * Hat der Dienst ohne diese Oberfläche neu verbunden (z. B. nach dem Radiostart, ADR-006), beginnt hier eine neue
+     * Verbindung – sonst landeten ihre Werte im Eintrag der vorigen (Review).
+     */
+    public void syncConnection(int sessionId, boolean active) {
+        if (active && sessionId != connectionId) {
+            if (connectionId != -1) newConnection();
+            connectionId = sessionId;
+        }
+    }
+
     public void newConnection() {
         recorder.endConnection(analysis.trimMap);
         analysis.resetConnection();

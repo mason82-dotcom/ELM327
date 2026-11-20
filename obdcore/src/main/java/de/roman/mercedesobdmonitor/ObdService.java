@@ -25,6 +25,12 @@ import android.os.SystemClock;
 public final class ObdService extends Service {
     public static final String ACTION_START = "de.roman.mercedesobdmonitor.action.START";
     public static final String ACTION_DISCONNECT = "de.roman.mercedesobdmonitor.action.DISCONNECT";
+    /** ADR-006: nach dem Radiostart verbinden, bis es klappt (höchstens {@link #AUTO_WINDOW_MS}). */
+    public static final String ACTION_AUTO_CONNECT = "de.roman.mercedesobdmonitor.action.AUTO_CONNECT";
+    /** Name der App-Einstellungen mit Adresse, Port und Adapterwahl. */
+    public static final String EXTRA_PREFS = "prefs";
+    static final long AUTO_RETRY_MS = 20_000;
+    static final long AUTO_WINDOW_MS = 10 * 60 * 1000L;
 
     private static final String CHANNEL_ID = "obd_connection";
     private static final int NOTIFICATION_ID = 1;
@@ -39,6 +45,11 @@ public final class ObdService extends Service {
     private String lastStatus = "";
     private String lastStats = "";
     private long lastNotifyAt;
+    /** Einstellungen fürs automatische Verbinden; null = kein Auto-Verbinden offen. */
+    private String autoPrefs;
+    private long autoDeadline;
+    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable autoAttempt = this::autoAttempt;
 
     @Override
     public void onCreate() {
@@ -57,9 +68,23 @@ public final class ObdService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
         if (ACTION_DISCONNECT.equals(action)) {
+            // Auto-Verbinden zuerst beenden, sonst hielte es den Vordergrund bis zum nächsten Versuch (Review)
+            stopAutoConnect();
             // Der Observer beendet danach den Vordergrundbetrieb.
             session.disconnect();
             if (!foreground) stopSelf();
+        } else if (ACTION_AUTO_CONNECT.equals(action)) {
+            // startForeground() muss nach startForegroundService() immer kommen, auch ohne gültigen Auftrag (Review)
+            if (!enterForeground()) return START_NOT_STICKY;
+            String prefs = intent.getStringExtra(EXTRA_PREFS);
+            if (prefs == null) {
+                if (!session.isActive()) leaveForeground();
+                return START_NOT_STICKY;
+            }
+            autoPrefs = prefs;
+            autoDeadline = SystemClock.elapsedRealtime() + AUTO_WINDOW_MS;
+            handler.removeCallbacks(autoAttempt);
+            handler.post(autoAttempt);
         } else if (ACTION_START.equals(action)) {
             // Nach startForegroundService() muss startForeground() immer aufgerufen werden,
             // auch wenn die Verbindung inzwischen schon wieder gescheitert ist.
@@ -68,8 +93,41 @@ public final class ObdService extends Service {
         return START_NOT_STICKY;
     }
 
+    /**
+     * Ein Versuch des automatischen Verbindens. Steht die Sitzung, übernimmt deren eigenes Wiederverbinden; nach
+     * „Trennen“ oder Ablauf des Fensters endet das Auto-Verbinden.
+     */
+    private void autoAttempt() {
+        String prefs = autoPrefs;
+        if (prefs == null) return;
+        // Einstellung wird bei jedem Versuch neu gelesen: Abschalten unter INFO beendet ein laufendes Fenster (Review)
+        if (session.wasUserDisconnect() || SystemClock.elapsedRealtime() > autoDeadline
+                || !AdapterChoice.autoConnect(this, prefs)) {
+            stopAutoConnect();
+            if (!session.isActive()) leaveForeground();
+            return;
+        }
+        if (session.isActive()) {
+            // Steht die Sitzung, hält sie die Verbindung selbst (Wiederverbinden) – kein weiteres Abfragen (Review)
+            stopAutoConnect();
+            return;
+        }
+        if (AdapterChoice.connectFromSettings(this, session, prefs) == AdapterChoice.AutoResult.GIVE_UP) {
+            stopAutoConnect();
+            leaveForeground();
+            return;
+        }
+        handler.postDelayed(autoAttempt, AUTO_RETRY_MS);   // gestartet oder vorübergehend nicht möglich
+    }
+
+    private void stopAutoConnect() {
+        autoPrefs = null;
+        handler.removeCallbacks(autoAttempt);
+    }
+
     @Override
     public void onDestroy() {
+        handler.removeCallbacks(autoAttempt);
         releaseWakeLock();
         session.setObserver(null);
         super.onDestroy();
@@ -77,7 +135,8 @@ public final class ObdService extends Service {
 
     private void onSessionChanged(boolean active, String status, String stats) {
         if (!active) {
-            if (foreground) leaveForeground();
+            // Beim Auto-Verbinden bleibt der Dienst bis zum nächsten Versuch im Vordergrund (ADR-006)
+            if (foreground && autoPrefs == null) leaveForeground();
             return;
         }
         boolean statusChanged = !status.equals(lastStatus);
@@ -102,8 +161,10 @@ public final class ObdService extends Service {
                 startForeground(NOTIFICATION_ID, n);
             }
         } catch (RuntimeException e) {
-            // z. B. ForegroundServiceStartNotAllowedException oder fehlende Typ-Berechtigung.
-            session.disconnect("Hintergrunddienst konnte nicht gestartet werden: " + e.getMessage());
+            // z. B. ForegroundServiceStartNotAllowedException oder fehlende Typ-Berechtigung. Nur eine laufende Sitzung
+            // trennen: beim Auto-Verbinden gäbe es keine, und disconnect() würde als „vom Benutzer getrennt“ zählen
+            // und das spätere automatische Verbinden beim App-Start verhindern (Review).
+            if (session.isActive()) session.disconnect("Hintergrunddienst konnte nicht gestartet werden: " + e.getMessage());
             stopSelf();
             return false;
         }

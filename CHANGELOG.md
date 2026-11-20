@@ -2,6 +2,13 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Dashboard 0.16.0 (Monitor 1.11.1): Automatisch verbinden fürs Radio
+
+- **Automatisch verbinden** ([ADR-006](docs/adr-006-autostart.md), INFO, ausgeliefert aus): beim Öffnen der App und
+  nach dem Start des Radios. Nach dem Radiostart verbindet der Hintergrunddienst ohne geöffnete App (alle 20 s,
+  höchstens 10 min), danach hält die Sitzung die Verbindung. „Trennen“ beendet es. Im Emulator per Neustart geprüft.
+- Monitor 1.11.1: nur gemeinsamer Kern (Verbinden aus gespeicherten Einstellungen).
+
 ## Version 1.11.0 (Monitor) / 0.15.0 (Dashboard): Bluetooth-ELM327
 
 - **Bluetooth** ([ADR-005](docs/adr-005-bluetooth.md)): „Adapter: … · ändern“ (Monitor-App unter Adresse/Port,
