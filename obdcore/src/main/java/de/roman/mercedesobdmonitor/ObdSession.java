@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * zeichnet sich daraus neu. Bewusst ohne gespeicherten Context.
  */
 public final class ObdSession {
-    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS, PROFILE, ATF, STARTER, CAN_MONITOR, KWP }
+    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS, PROFILE, ATF, STARTER, CAN_MONITOR, KWP, LID_SCAN }
 
     /** UI-Callbacks; alle Aufrufe im Main-Thread. */
     public interface Listener {
@@ -718,6 +718,9 @@ public final class ObdSession {
         }
         @Override public boolean starterCancelled() { return starterCancel; }
         @Override public boolean dtcCancelled() { return dtcAbortRequested; }
+        @Override public boolean localIdScanCancelled() { return lidScanCancel || !adr004Enabled; }
+        @Override public String previousLocalIdScan() { return readLidScanFile(); }
+        @Override public void saveLocalIdScan(String text) { writeLidScanFile(text); }
         @Override public double recentAmbient() { return ObdSession.this.recentAmbient(); }
         @Override public boolean livePid(int pid) { return activePids.isEmpty() || containsPid(pid); }
         @Override public long now() { return SystemClock.elapsedRealtime(); }
@@ -873,7 +876,7 @@ public final class ObdSession {
     private volatile boolean adr004Enabled;
 
     public void setAdr004Enabled(boolean enabled) {
-        adr004Enabled = enabled;
+        adr004Enabled = enabled;   // aus: eine laufende Kennungssuche (ADR-007) endet bei der nächsten Kennung
     }
 
     public boolean isAdr004Enabled() {
@@ -887,6 +890,55 @@ public final class ObdSession {
             return;
         }
         runExclusiveDiagnosis(Op.KWP, "Kennung + Getriebe-Fehler (ADR-004)", jobs::readKwpIdentDtc);
+    }
+
+    private volatile boolean lidScanCancel;
+    private java.io.File lidScanFile;
+
+    /**
+     * Kennungssuche 21 01–21 FE am Motor (ADR-007, nur lesend, Testfreigabe wie ADR-004; bis etwa 1 min). Ein zweiter
+     * Aufruf während der Suche stoppt sie; die bis dahin gelesenen Antworten bleiben im Bericht.
+     */
+    public void toggleEngineLocalIdScan() {
+        if (isLocalIdScanRunning()) {
+            lidScanCancel = true;
+            return;
+        }
+        if (!adr004Enabled) {
+            toast("Herstellerabfragen (ADR-004/007) sind in den Einstellungen ausgeschaltet");
+            return;
+        }
+        lidScanCancel = false;
+        runExclusiveDiagnosis(Op.LID_SCAN, "Kennungssuche Motor (ADR-007)", jobs::readEngineLocalIds);
+    }
+
+    public boolean isLocalIdScanRunning() {
+        return exclusiveRequest.get() && activeDiagnosisOp == Op.LID_SCAN;
+    }
+
+    /** Ablage des letzten Laufs für den Vergleich kalt/warm (App-Speicher). */
+    public void attachLocalIdScanStore(Context context) {
+        lidScanFile = new java.io.File(context.getApplicationContext().getFilesDir(), "kennungssuche.txt");
+    }
+
+    private String readLidScanFile() {
+        java.io.File f = lidScanFile;
+        if (f == null || !f.isFile()) return null;
+        try {
+            return new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private void writeLidScanFile(String text) {
+        java.io.File f = lidScanFile;
+        if (f == null) return;
+        try {
+            java.nio.file.Files.write(f.toPath(), text.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            append("Kennungssuche nicht gespeichert: " + e.getMessage());
+        }
     }
 
     private interface Diagnosis {
@@ -1617,6 +1669,11 @@ public final class ObdSession {
     private void recordForPlan(Op op, String message) {
         if (op == null) return;
         Double coolant = latestValues.get(0x05), rpm = latestValues.get(0x0C);
+        // Die Kennungssuche liest 01 05 selbst; der Live-Wert kann fehlen oder alt sein (kalt/warm im Prüfplan).
+        if (op == Op.LID_SCAN) {
+            double own = LocalIdScan.coolantFromReport(message);
+            if (!Double.isNaN(own)) coolant = own;
+        }
         synchronized (testPlan) {
             testPlan.record(new TestPlan.Record(op, System.currentTimeMillis(), coolant == null ? Double.NaN : coolant,
                     rpm == null ? Double.NaN : rpm, message));

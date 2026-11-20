@@ -114,6 +114,12 @@ public final class ObdPid {
         };
     }
 
+    /** Eintrag aus {@link #defaultPids()}; wirft bei unbekanntem PID. */
+    public static ObdPid of(int pid) {
+        for (ObdPid p : defaultPids()) if (p.pid == pid) return p;
+        throw new IllegalArgumentException("Unbekannter PID " + pid);
+    }
+
     public static List<ObdPid> defaultPids() {
         List<ObdPid> p = new ArrayList<>();
         p.add(new ObdPid(0x0C, "Motordrehzahl", "U/min", 0, Formula.RPM));
