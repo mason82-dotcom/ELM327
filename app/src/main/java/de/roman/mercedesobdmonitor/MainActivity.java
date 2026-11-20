@@ -58,9 +58,11 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private Button warmupButton;
     private Button profileButton;
     private Button atfButton;
+    private Button starterButton;
     private Button canMonitorButton;
     private SparklineView latencyGraph;
     private TextView analysisText;
+    private TextView tripsText;
 
     /**
      * Gemeinsame Auswertung mit dem Dashboard (Verbrauch, Lambda, Trim-Karte und -Verlauf, Kat-Tendenz, E-Gas,
@@ -86,6 +88,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         session.setUiListener(this);
         controller.setListener(this::updateAnalysis);
         updateAnalysis();
+        refreshTrips();
     }
 
     @Override
@@ -178,9 +181,13 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         atfButton = button("ATF-Temperatur");
         c350Controls.addView(profileButton, weight());
         c350Controls.addView(atfButton, weight());
-        canMonitorButton = button("Bus mitlesen");
-        c350Controls.addView(canMonitorButton, weight());
         root.addView(c350Controls);
+        LinearLayout c350Controls2 = row();
+        starterButton = button("Starttest");
+        c350Controls2.addView(starterButton, weight());
+        canMonitorButton = button("Bus mitlesen");
+        c350Controls2.addView(canMonitorButton, weight());
+        root.addView(c350Controls2);
 
         warmupStatus = text("Warmlauf-Check: bereit", 13, Color.LTGRAY);
         warmupStatus.setPadding(0, dp(3), 0, dp(4));
@@ -214,6 +221,26 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         root.addView(analysisText);
         Button importLog = button("Log importieren (Trim-Verlauf)");
         root.addView(importLog, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        TextView tripsTitle = text("Fahrtenbuch", 18, Color.WHITE);
+        tripsTitle.setTypeface(null, Typeface.BOLD);
+        tripsTitle.setPadding(0, dp(14), 0, dp(2));
+        root.addView(tripsTitle);
+        TextView tripsNote = text("Aus den CSV-Logs dieser App und importierten Logs · Verbrauch aus Luftmasse und Soll-λ "
+                + "(Richtwert, kein Tankbeleg)", 13, Color.rgb(255, 204, 118));
+        tripsNote.setPadding(0, 0, 0, dp(6));
+        root.addView(tripsNote);
+        tripsText = text(controller.tripReport(AnalysisController.TRIP_ROWS), 13, Color.rgb(210, 214, 220));
+        tripsText.setTextIsSelectable(true);
+        tripsText.setPadding(dp(8), dp(8), dp(8), dp(8));
+        tripsText.setBackgroundColor(Color.rgb(29, 33, 40));
+        root.addView(tripsText);
+        LinearLayout tripControls = row();
+        Button refreshTrips = button("Fahrten aktualisieren");
+        Button shareTrips = button("Fahrten teilen (CSV)");
+        tripControls.addView(refreshTrips, weight());
+        tripControls.addView(shareTrips, weight());
+        root.addView(tripControls);
 
         LinearLayout logControls = row();
         Button export = button("CSV exportieren");
@@ -252,12 +279,15 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         monitorTestsButton.setOnClickListener(v -> session.runMonitorTests());
         profileButton.setOnClickListener(v -> session.runVehicleProfile());
         atfButton.setOnClickListener(v -> session.runAtfTemperature());
+        starterButton.setOnClickListener(v -> session.toggleStarterTest());
         canMonitorButton.setOnClickListener(v -> session.runCanMonitor());
         warmupButton.setOnClickListener(v -> session.toggleWarmupCheck());
         send.setOnClickListener(v -> session.sendTerminal(terminalInput.getText().toString()));
         export.setOnClickListener(v -> session.exportCsv(this));
         newLog.setOnClickListener(v -> session.startNewLog());
         importLog.setOnClickListener(v -> pickTrimLog());
+        refreshTrips.setOnClickListener(v -> refreshTrips());
+        shareTrips.setOnClickListener(v -> controller.shareTrips(this));
 
         setContentView(scroll);
     }
@@ -384,6 +414,11 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         controller.showIn(analysisText);
     }
 
+    /** Logs im Hintergrund nachlesen; solange bleibt der gespeicherte Stand sichtbar. */
+    private void refreshTrips() {
+        controller.refreshTripsInto(tripsText, this);
+    }
+
     private void pickTrimLog() {
         controller.pickLog(this, REQ_TRIM_LOG);
     }
@@ -391,7 +426,8 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        controller.onActivityResult(requestCode, REQ_TRIM_LOG, resultCode, data);
+        controller.onActivityResult(requestCode, REQ_TRIM_LOG, resultCode, data,
+                () -> controller.showTripsIn(tripsText));
     }
 
     @Override
@@ -437,6 +473,11 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
             case MONITOR_TESTS -> { b = monitorTestsButton; idle = "Monitortests (Mode 06)"; working = "Lese Monitortests …"; }
             case PROFILE -> { b = profileButton; idle = "Fahrzeugprofil"; working = "Lese Profil …"; }
             case ATF -> { b = atfButton; idle = "ATF-Temperatur"; working = "Lese Getriebe …"; }
+            case STARTER -> {
+                // bleibt bedienbar: zweiter Druck bricht ab
+                starterButton.setText(busy ? "Starttest abbrechen" : "Starttest");
+                return;
+            }
             case CAN_MONITOR -> { b = canMonitorButton; idle = "Bus mitlesen"; working = "Lese Bus (5 s) …"; }
             case INSPECTION -> { b = inspectionButton; idle = "HU/AU-Check"; working = "Lese Readiness …"; }
             default -> { return; }

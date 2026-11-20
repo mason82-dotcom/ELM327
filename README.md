@@ -16,6 +16,35 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.7.0 (Monitor) / 0.11.0 (Dashboard): Starttest und Bus mitlesen
+
+- **Starttest** (Monitor-App: Knopf „Starttest“, Dashboard: TESTS): Ruhespannung, tiefster Wert und Dauer beim
+  Anlassen, danach Ladespannung – nur aus `ATRV`. Ein zweiter Druck bricht ab. Werte ab 3 V gelten beim Anlassen
+  als Messung (gerade ein sehr tiefer Einbruch ist der Befund); bleibt die Spannung nach dem Start unter dem Wert
+  davor, endet das Anlassen nach 1,5 s und der Bericht bewertet die Ladung statt „sehr lang angelassen“.
+- **Bus mitlesen** nach [ADR-002](docs/adr-002-can-mitlesen.md): 5 s passiv `ATMA`. Beendet ein Adapter das Mitlesen
+  nicht sauber (der ELM327-Simulator tut das), bleiben die gelesenen Frames im Bericht und nur die Verbindung wird
+  neu aufgebaut; eine vom Datenlimit abgeschnittene Zeile zählt nicht als Frame.
+- **Fahrtenbuch:** gespeichert werden Teilstücke je Log, verbunden wird nur an einem offenen Ende (Log endete bei
+  laufendem Motor). 60 s Motor aus beim Tanken bleiben zwei Fahrten.
+
+## Version 1.4.0 (Monitor) / 0.8.0 (Dashboard): Fahrtenbuch
+
+- **Fahrtenbuch** (Dashboard → ALLE WERTE → FAHRTEN, Monitor-App → Abschnitt „Fahrtenbuch“): je Fahrt Motorlaufzeit,
+  Strecke, Ø-Verbrauch, Leerlaufanteil, Höchsttempo und Trim-Differenz B1−B2, dazu die Summe der letzten 30 Tage;
+  als CSV teilbar. Quelle sind die CSV-Logs, die der Dienst durchgehend schreibt (auch ohne sichtbare Oberfläche),
+  sowie importierte Logs. Eine Fahrt beginnt mit laufendem Motor und endet nach 30 s Motor aus, 2 min ohne Werte oder
+  bei einem Neustart; unter 1 min Motorlaufzeit wird verworfen. Teilstücke eines Logwechsels werden verbunden.
+- **Rechnung** (`TripComputer`): Strecke aus dem Tempo (Trapez), Kraftstoff aus Luftmasse und Soll-λ (wie die Analyse,
+  Schub = 0), nur über Abstände bis 15 s – bei 5 s gingen im normalen Abfragetakt bis zur Hälfte der Strecke verloren.
+  Ohne Luftmasse (≥ 50 % der Laufzeit) bleibt der Verbrauch unbekannt statt 0.
+- **Validiert** gegen eine unabhängige Nachrechnung am Log vom 19.11.2026: 4,72 km / 0,71 l (15,0 l/100 km) und
+  4,56 km / 0,55 l (12,0 l/100 km); Laufzeit stimmt mit 01 1F überein. Der Verbrauch bleibt ein Richtwert
+  (Dichte 0,745 kg/l, ohne Trim-Korrektur), kein Tankbeleg.
+- Log-Import: Trim-Verlauf und Fahrtenbuch nutzen dieselbe Aufteilung in Fahrten.
+- Hinweis: Logs speichern Ortszeit ohne Zeitzone. Wird ein Log nach einem Zeitzonenwechsel erneut eingelesen, kann
+  eine Fahrt doppelt erscheinen.
+
 ## Version 1.3.1 (Monitor) / 0.7.2 (Dashboard): Bankvergleich in Mode 06
 
 - **Monitortests (Mode 06)** enthalten einen **Bankvergleich**: Jeder Test, den beide Bänke mit Grenzwert liefern
@@ -88,7 +117,7 @@ Auswertung des zweiten Logs (19.11.2026), Details in [docs/c350-log-20261119.md]
   07.11. und 19.11. gleich weit (5,7–8,2 %) über Bank 2.
 - **Log wiedereinlesen:** Das CSV trennt mehrere Antworten mit Leerzeichen; der Parser trennt solche Header-Zeilen
   jetzt ebenfalls und wertet auch dann 7E8.
-- Regressionstest `C350Log20261119Test` mit 4 768 echten Rohantworten.
+- Regressionstest `C350Log20261119Test` mit 5 587 echten Rohantworten.
 
 ## Version 1.2.0 (Monitor) / 0.4.0 (Dashboard): Werte vom Motorsteuergerät
 
@@ -139,6 +168,11 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
   nur `ATSH7E1` → `2130` → `ATSH7DF`, nie im Terminal, Header-Wiederherstellung samt Reconnect mit `ATSH7DF`.
   Formel Byte 11 − 50 ist am C350 noch nicht bestätigt; die Rohantwort wird immer angezeigt.
 - **Steuergerätenamen** (09 0A) im HU/AU-Check.
+- **Starttest** (Knopf in beiden Apps, Dashboard: TESTS): Batterie und Anlassen aus der Adapterspannung (nur `ATRV`,
+  OBD-Stecker Pin 16). Ruhespannung (Zündung an, Motor aus), tiefster Wert und Dauer beim Anlassen mit
+  temperaturabhängigem Richtwert (BCI-Tabelle, Außentemperatur aus 01 46), danach Ladespannung. Reißt die
+  WLAN-Verbindung beim Anlassen ab, wird das als Hinweis auf einen starken Einbruch berichtet. Richtwerte, keine
+  Herstellerangaben.
 - **Bus mitlesen** (Knopf in beiden Apps, Dashboard: ANALYSE) nach [ADR-002](docs/adr-002-can-mitlesen.md): 5 s passiv
   `ATMA`, sendet nichts an das Fahrzeug. Zeigt, ob der OBD-Port Bus-Botschaften durchreicht, und für bekannte
   W204-Botschaften (Motoröl, Ölstand, ATF, Gang) die Rohwerte. Grundlage und Bewertung:
@@ -249,8 +283,8 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
 
 GitHub Actions testet und lintet alle drei Module und baut bei jedem Push auf `main` zwei Debug-APKs:
 
-- `Mercedes_OBD2_Monitor_v1.3.1-debug` (Modul `:app`)
-- `OBD_Dashboard_v0.7.2-debug` (Modul `:dashboard`)
+- `Mercedes_OBD2_Monitor_v1.4.0-debug` (Modul `:app`)
+- `OBD_Dashboard_v0.8.0-debug` (Modul `:dashboard`)
 
 | Modul | Inhalt |
 |---|---|

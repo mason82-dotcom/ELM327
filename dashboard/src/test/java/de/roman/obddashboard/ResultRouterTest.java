@@ -12,6 +12,7 @@ public class ResultRouterTest {
         assertEquals(ResultRouter.Target.MODE06, ResultRouter.route(ObdSession.Op.MISFIRE, "Aussetzer-Analyse"));
         assertEquals(ResultRouter.Target.INSPECTION, ResultRouter.route(ObdSession.Op.INSPECTION, "HU/AU-Vorab-Check"));
         assertEquals(ResultRouter.Target.MONITOR_TESTS, ResultRouter.route(ObdSession.Op.MONITOR_TESTS, "Monitortests (Mode 06)"));
+        assertEquals(ResultRouter.Target.STARTER, ResultRouter.route(ObdSession.Op.STARTER, "Starttest"));
         assertEquals(ResultRouter.Target.CAN_MONITOR, ResultRouter.route(ObdSession.Op.CAN_MONITOR, "Bus mitlesen"));
     }
 

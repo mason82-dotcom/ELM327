@@ -14,16 +14,14 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Spielt ein CSV-Log der Monitor-App ({@link CsvLogWriter#HEADER}) durch die Trim-Karte, damit ältere Fahrten im
- * {@link TrimHistory Trim-Verlauf} erscheinen (Android-frei, testbar). Gewertet wird – wie live im Dashboard – je
- * STFT-Bank-2-Wert eine Probe aus dem letzten Wert jeder PID ({@link EngineAnalysis.TrimMap#offer}). Eine Pause
- * ab {@link #TRIP_GAP_MS} beginnt eine neue Fahrt, denn der Wertestand davor gilt nicht mehr.
+ * Spielt ein CSV-Log der Monitor-App ({@link CsvLogWriter#HEADER}) durch den {@link TripComputer} (Android-frei,
+ * testbar): Er teilt das Log in Fahrten (Motor läuft; Ende nach 30 s Motor aus, 2 min Lücke oder Neustart) und liefert
+ * je Fahrt das Fahrtenbuch und – mit einer Trim-Karte wie live im Dashboard – den Eintrag für den
+ * {@link TrimHistory Trim-Verlauf}. Eine einzige Aufteilung: beide zählen dieselben Fahrten (Review).
  */
 public final class LogReplay {
     private LogReplay() { }
 
-    /** Pause, ab der eine neue Fahrt beginnt (Motor aus, Verbindung neu). */
-    public static final long TRIP_GAP_MS = 5 * 60_000L;
     /** Byte-Order-Mark, die manche Editoren beim Speichern voranstellen. */
     static final char BOM = (char) 0xFEFF;
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS", Locale.US);
@@ -31,6 +29,8 @@ public final class LogReplay {
     /** Ergebnis: je Fahrt mit genug Werten ein Verlaufseintrag, dazu Zählwerte für die Rückmeldung. */
     public static final class Result {
         public final List<TrimHistory.Entry> entries = new ArrayList<>();
+        /** Fahrten für das Fahrtenbuch ({@link TripComputer}). */
+        public final List<TripComputer.Trip> drives = new ArrayList<>();
         public int rows;
         public int skippedRows;
         public int trips;
@@ -82,9 +82,9 @@ public final class LogReplay {
         for (ObdPid p : ObdPid.defaultPids()) pids.put(p.pid, p);
 
         Result r = new Result();
-        Map<Integer, Double> last = new HashMap<>();
-        EngineAnalysis.TrimMap map = new EngineAnalysis.TrimMap();
-        long tripStart = 0, previous = 0;
+        // Eine einzige Aufteilung in Fahrten (TripComputer): Fahrtenbuch und Trim-Verlauf zählen dieselben Fahrten
+        TripComputer tripComputer = new TripComputer();
+        long previous = 0;
         ZoneOffset offset = null;   // Offset der Vorzeile: hält die doppelte Stunde der Zeitumstellung fortlaufend
         String line;
         while ((line = in.readLine()) != null) {
@@ -96,7 +96,7 @@ public final class LogReplay {
             try {
                 ZonedDateTime local = ZonedDateTime.ofLocal(LocalDateTime.parse(f.get(iTs), TS), zone, offset);
                 // springt die Ortszeit in der doppelten Stunde zurück, ist es die zweite Hälfte (Winterzeit)
-                if (r.trips > 0 && local.toInstant().toEpochMilli() < previous) local = local.withLaterOffsetAtOverlap();
+                if (previous != 0 && local.toInstant().toEpochMilli() < previous) local = local.withLaterOffsetAtOverlap();
                 t = local.toInstant().toEpochMilli();
                 offset = local.getOffset();
                 pid = Integer.parseInt(f.get(iPid).trim(), 16);
@@ -111,25 +111,14 @@ public final class LogReplay {
                 r.skippedRows++;
                 continue;
             }
-            if (r.trips == 0 || t - previous >= TRIP_GAP_MS || t < previous) {
-                if (r.trips > 0) addTrip(r, tripStart, previous, map);
-                r.trips++;
-                tripStart = t;
-                last.clear();
-                map = new EngineAnalysis.TrimMap();
-            }
             previous = t;
             r.rows++;
-            last.put(pid, value);
-            if (pid == 0x08) map.offer(last::get);
+            tripComputer.onSample(t, pid, value);
         }
-        if (r.trips > 0) addTrip(r, tripStart, previous, map);
+        r.drives.addAll(tripComputer.finish());
+        r.trips = r.drives.size();
+        for (TripComputer.Trip d : r.drives) if (d.trimEntry != null) r.entries.add(d.trimEntry);
         return r;
-    }
-
-    private static void addTrip(Result r, long start, long end, EngineAnalysis.TrimMap map) {
-        TrimHistory.Entry e = TrimHistory.snapshot(start, end, map);
-        if (e != null) r.entries.add(e);
     }
 
     /** Semikolon-getrennt, Felder optional in "…" mit "" als Anführungszeichen (wie {@link CsvLogWriter}). */

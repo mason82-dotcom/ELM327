@@ -18,8 +18,8 @@ android {
         applicationId = 'de.roman.obddashboard'
         minSdk = 26
         targetSdk = 37
-        versionCode = 14
-        versionName = '0.9.0'
+        versionCode = 16
+        versionName = '0.11.0'
     }
 
     buildTypes {
