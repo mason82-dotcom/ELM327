@@ -54,16 +54,23 @@ jobs:
         run: ./gradlew :app:assembleDebug :dashboard:assembleDebug --stacktrace
 
       - name: Rename APKs
+        id: apk
+        # Version aus build.gradle lesen (vorher fest v1.4.0/v0.8.0 und dadurch seit 1.5.0 falsch benannt)
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Mercedes_OBD2_Monitor_v1.4.0-debug.apk
-          cp dashboard/build/outputs/apk/debug/dashboard-debug.apk OBD_Dashboard_v0.8.0-debug.apk
+          app_v=$(sed -n "s/^ *versionName = '\(.*\)'.*/\1/p" app/build.gradle)
+          dash_v=$(sed -n "s/^ *versionName = '\(.*\)'.*/\1/p" dashboard/build.gradle)
+          test -n "$app_v" && test -n "$dash_v"
+          echo "app=Mercedes_OBD2_Monitor_v${app_v}-debug" >> "$GITHUB_OUTPUT"
+          echo "dash=OBD_Dashboard_v${dash_v}-debug" >> "$GITHUB_OUTPUT"
+          cp app/build/outputs/apk/debug/app-debug.apk "Mercedes_OBD2_Monitor_v${app_v}-debug.apk"
+          cp dashboard/build/outputs/apk/debug/dashboard-debug.apk "OBD_Dashboard_v${dash_v}-debug.apk"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Mercedes_OBD2_Monitor_v1.4.0-debug
-          path: Mercedes_OBD2_Monitor_v1.4.0-debug.apk
+          name: ${{ steps.apk.outputs.app }}
+          path: ${{ steps.apk.outputs.app }}.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: OBD_Dashboard_v0.8.0-debug
-          path: OBD_Dashboard_v0.8.0-debug.apk
+          name: ${{ steps.apk.outputs.dash }}
+          path: ${{ steps.apk.outputs.dash }}.apk
