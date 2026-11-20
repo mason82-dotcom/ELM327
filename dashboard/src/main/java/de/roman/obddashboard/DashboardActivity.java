@@ -48,7 +48,6 @@ import java.util.Map;
  * geprüften Kern {@link ObdSession} (Modul :obdcore). Keine Codierung, kein Löschen, keine Stellglieder.
  */
 public final class DashboardActivity extends Activity implements ObdSession.Listener {
-    private static final String LOCAL_NET_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK";
     private static final String PREFS = "dashboard";
     private static final String PREF_NOTIFICATIONS_ASKED = "notifications_asked";
     private static final int REQ_NET = 41;
@@ -749,17 +748,11 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         }
         if (!ensurePermissions()) return;
         String host = hostInput.getText().toString().trim();
-        int port;
-        try {
-            port = Integer.parseInt(portInput.getText().toString().trim());
-            if (port < 1 || port > 65535) throw new NumberFormatException();
-        } catch (NumberFormatException e) {
-            if (!AdapterChoice.usesBluetooth(this, PREFS)) {
-                status.setText("Ungültiger TCP-Port (INFO-Seite)");
-                show(Page.INFO);
-                return;
-            }
-            port = 35000;   // Bluetooth braucht keinen Port
+        Integer port = AdapterChoice.port(this, PREFS, portInput.getText().toString());
+        if (port == null) {
+            status.setText("Ungültiger TCP-Port (INFO-Seite)");
+            show(Page.INFO);
+            return;
         }
         saveSettings();
         if (!AdapterChoice.connect(this, session, PREFS, host, port)) return;
@@ -769,17 +762,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     }
 
     private boolean ensurePermissions() {
-        List<String> needed = new ArrayList<>();
-        if (AdapterChoice.usesBluetooth(this, PREFS)) {
-            // ADR-005: Bluetooth braucht nur BLUETOOTH_CONNECT, keine Berechtigung fürs lokale Netz
-            if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
-                needed.add(Manifest.permission.BLUETOOTH_CONNECT);
-        } else {
-            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED)
-                needed.add(Manifest.permission.NEARBY_WIFI_DEVICES);
-            if (Build.VERSION.SDK_INT >= 37 && checkSelfPermission(LOCAL_NET_PERMISSION) != PackageManager.PERMISSION_GRANTED)
-                needed.add(LOCAL_NET_PERMISSION);
-        }
+        // je nach Adapter Bluetooth- oder WLAN-Berechtigungen (ADR-005)
+        List<String> needed = AdapterChoice.missingPermissions(this, PREFS);
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         boolean askNotifications = Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -796,6 +780,11 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == AdapterChoice.REQ_BT) {
+            AdapterChoice.onPermissionResult(this, PREFS, android.R.style.Theme_Material_Dialog_Alert, grantResults,
+                    this::updateAdapterLabel);
+            return;
+        }
         if (requestCode != REQ_NET) return;
         if (grantResults.length == 0) return; // request interrupted/cancelled: nothing was refused
         boolean ok = true;
@@ -804,9 +793,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             ok &= grantResults[i] == PackageManager.PERMISSION_GRANTED;
         }
         if (ok) toggleConnection();
-        else Toast.makeText(this, AdapterChoice.usesBluetooth(this, PREFS)
-                ? "Ohne Bluetooth-Berechtigung ist keine Verbindung zum ELM327 möglich"
-                : "Ohne Berechtigung für das lokale Netzwerk ist keine Verbindung zum ELM327 möglich", Toast.LENGTH_LONG).show();
+        else Toast.makeText(this, AdapterChoice.deniedText(this, PREFS), Toast.LENGTH_LONG).show();
     }
 
     private static final int REQUEST_TRIM_LOG = 42;   // 41 = REQ_NET (Berechtigungen)

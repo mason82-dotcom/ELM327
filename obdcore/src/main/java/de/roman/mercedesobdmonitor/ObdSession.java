@@ -227,7 +227,8 @@ public final class ObdSession {
             return false;
         }
         // Ab hier gehört der Transport zur neuen Sitzung; eine abgelehnte Anfrage ändert den laufenden nicht.
-        bluetooth = transport;
+        // Ein noch laufender Aufbau der alten Sitzung (Bluetooth bis 8 s) endet sofort (Review).
+        replaceTransport(transport);
         // Application-Context: ConnectivityManager hielt auf älteren Android-Versionen die Activity fest.
         connectivity = context.getApplicationContext().getSystemService(ConnectivityManager.class);
         csv.setDirectory(CsvLogger.logDirectory(context.getApplicationContext()));
@@ -242,18 +243,25 @@ public final class ObdSession {
         state.driveCycleText = null;
         if (listener != null) listener.onPassive(state);
         // Status vor „aktiv“ setzen, damit die Benachrichtigung nicht kurz „Getrennt“ zeigt.
-        showStatus("Verbinde mit " + target(host, port) + " …");
+        showStatus("Verbinde mit " + target(host, port, transport) + " …");
         setActive(true);
 
-        io.execute(() -> connectAndStart(session, host, port));
+        io.execute(() -> connectAndStart(session, host, port, transport));
         return true;
     }
 
     /**
-     * ADR-005: Bluetooth-Adapter (gekoppelt, SPP) statt WLAN. null = WLAN. Hält nur den Öffner (kein Context);
-     * gilt für diese Verbindung und ihr automatisches Wiederverbinden.
+     * ADR-005: Transport der aktuellen Sitzung (null = WLAN), nur um einen laufenden Aufbau beim Trennen oder bei
+     * einer neuen Verbindung abzubrechen. Die Abläufe selbst bekommen ihren Transport als Parameter (Review: ein
+     * gemeinsames Feld ließ eine ältere Sitzung den Transport der neuen lesen).
      */
-    private volatile ElmLink.Opener bluetooth;
+    private final java.util.concurrent.atomic.AtomicReference<ElmLink.Opener> activeTransport =
+            new java.util.concurrent.atomic.AtomicReference<>();
+
+    private void replaceTransport(ElmLink.Opener next) {
+        ElmLink.Opener old = activeTransport.getAndSet(next);
+        if (old != null && old != next) old.cancel();
+    }
 
     /**
      * Verbindet über einen gekoppelten Bluetooth-ELM327 (ADR-005). Der Aufrufer hat BLUETOOTH_CONNECT geprüft.
@@ -291,19 +299,20 @@ public final class ObdSession {
         invalidateAllLive();
         if (reason != null) append(reason);
         append("Verbindung getrennt");
+        replaceTransport(null);   // laufenden Bluetooth-Aufbau abbrechen (Review)
         closeClient();
         csv.flush();
         setActive(false);
     }
 
-    private void connectAndStart(int session, String host, int port) {
+    private void connectAndStart(int session, String host, int port, ElmLink.Opener transport) {
         try {
             if (session != sessionGeneration.get()) return;
             // Protocol of a previous adapter/car must not be shown or used for this connection.
             protocolIsCan = null;
-            showStatus("Verbinde mit " + target(host, port) + " …");
-            long connectMs = connectWithFallback(host, port, session);
-            append((bluetooth != null ? bluetooth.describe() : "TCP") + " verbunden in " + connectMs + " ms");
+            showStatus("Verbinde mit " + target(host, port, transport) + " …");
+            long connectMs = connectWithFallback(host, port, session, transport);
+            append((transport != null ? transport.describe() : "TCP") + " verbunden in " + connectMs + " ms");
 
             command(session, "ATZ", 3000);
             command(session, "ATE0", 1500);
@@ -314,12 +323,12 @@ public final class ObdSession {
             command(session, "ATSP0", 1500);
             command(session, "ATST64", 1500);
 
-            elmId = clean(command(session, "ATI", 1800).raw);
-            adapterVoltage = clean(command(session, "ATRV", 1800).raw);
+            elmId = ElmText.clean(command(session, "ATI", 1800).raw);
+            adapterVoltage = ElmText.clean(command(session, "ATRV", 1800).raw);
 
             detectPids(session);
-            String dp = clean(command(session, "ATDP", 1800).raw);
-            String dpn = clean(command(session, "ATDPN", 1800).raw);
+            String dp = ElmText.clean(command(session, "ATDP", 1800).raw);
+            String dpn = ElmText.clean(command(session, "ATDPN", 1800).raw);
             protocol = describeProtocol(dp, dpn);
             protocolIsCan = ObdParser.isCanProtocol(dpn);
             protocolNumber = dpn;
@@ -336,7 +345,7 @@ public final class ObdSession {
             append("Versorgung: " + adapterVoltage);
             if (session != sessionGeneration.get()) return;
             monitoring.set(true);
-            monitorLoop(session, host, port);
+            monitorLoop(session, host, port, transport);
         } catch (Exception e) {
             if (session != sessionGeneration.get()) return;
             ioErrors.incrementAndGet();
@@ -408,7 +417,7 @@ public final class ObdSession {
         }
     }
 
-    private void monitorLoop(int session, String host, int port) {
+    private void monitorLoop(int session, String host, int port, ElmLink.Opener transport) {
         int pollCycle = 0;
         while (monitoring.get() && !userDisconnect && session == sessionGeneration.get()) {
             // Age limit on every path (slow PIDs, paused polling during diagnoses, any future branch).
@@ -416,7 +425,7 @@ public final class ObdSession {
                 invalidatePid(session, old);
             }
             if (exclusiveRequest.get()) {
-                sleepQuiet(40);
+                ElmText.sleepQuiet(40);
                 continue;
             }
 
@@ -425,7 +434,7 @@ public final class ObdSession {
                 // Während des Reconnects kommen keine Messwerte, die den Puffer leeren würden.
                 csv.flush();
                 invalidateAllLive();
-                reconnectAfterFailure(session, host, port);
+                reconnectAfterFailure(session, host, port, transport);
                 continue;
             }
 
@@ -507,7 +516,7 @@ public final class ObdSession {
                 } finally {
                     if (!fresh) invalidatePid(session, pid.pid);
                 }
-                sleepQuiet(25);
+                ElmText.sleepQuiet(25);
             }
             if (driveCyclePid && cycle % DRIVE_CYCLE_EVERY == 0 && monitoring.get() && !userDisconnect
                     && !exclusiveRequest.get() && session == sessionGeneration.get()) {
@@ -515,7 +524,7 @@ public final class ObdSession {
                 if (current != null && current.isConnected()) pollDriveCycle(session, current);
             }
             updatePassiveDiagnostics();
-            sleepQuiet(70);
+            ElmText.sleepQuiet(70);
         }
     }
 
@@ -551,10 +560,6 @@ public final class ObdSession {
         }
     }
 
-    private static void sleepQuiet(long ms) {
-        ElmText.sleepQuiet(ms);
-    }
-
     /** Diagnoseabläufe; greifen über diesen Host auf die Sitzung zu. */
     private final DiagnosticJobs jobs = new DiagnosticJobs(new DiagnosticJobs.Host() {
         @Override public void log(String line) { append(line); }
@@ -574,13 +579,13 @@ public final class ObdSession {
         @Override public long now() { return SystemClock.elapsedRealtime(); }
     });
 
-    private void reconnectAfterFailure(int session, String host, int port) {
+    private void reconnectAfterFailure(int session, String host, int port, ElmLink.Opener transport) {
         if (userDisconnect || !monitoring.get() || session != sessionGeneration.get()) return;
         showStatus("Verbindung unterbrochen · Reconnect …");
         try {
-            sleepQuiet(2000);
+            ElmText.sleepQuiet(2000);
             if (session != sessionGeneration.get()) return;
-            connectWithFallback(host, port, session);
+            connectWithFallback(host, port, session, transport);
             for (String init : LinkPolicy.reconnectInit(protocolNumber)) {
                 command(session, init, 1500);
             }
@@ -797,8 +802,8 @@ public final class ObdSession {
 
     private Elm327Client.CommandResult diagCommand(Elm327Client c, String cmd, int timeoutMs) throws IOException {
         Elm327Client.CommandResult r = c.sendCommand(cmd, timeoutMs);
-        append(cmd + " → " + clean(r.raw));
-        sleepQuiet(60);
+        append(cmd + " → " + ElmText.clean(r.raw));
+        ElmText.sleepQuiet(60);
         return r;
     }
 
@@ -1099,13 +1104,11 @@ public final class ObdSession {
     // ---------------------------------------------------------------- Netzwerk
 
     /** Ziel für Status und Benachrichtigung: „192.168.0.10:35000“ oder „Bluetooth OBDII“. */
-    private String target(String host, int port) {
-        ElmLink.Opener bt = bluetooth;
-        return bt != null ? bt.describe() : host + ":" + port;
+    private static String target(String host, int port, ElmLink.Opener transport) {
+        return transport != null ? transport.describe() : host + ":" + port;
     }
 
-    private long connectWithFallback(String host, int port, int session) throws IOException {
-        ElmLink.Opener bt = bluetooth;
+    private long connectWithFallback(String host, int port, int session, ElmLink.Opener bt) throws IOException {
         if (bt != null) {
             // ADR-005: kein WLAN-Routing; RFCOMM-Aufbau dauert bei Nachbauten bis zu einigen Sekunden.
             if (session != sessionGeneration.get()) throw new IOException("Veraltete Diagnose-Session");
@@ -1407,7 +1410,4 @@ public final class ObdSession {
         if (observer != null) observer.onSessionChanged(active, state.status, state.stats);
     }
 
-    private static String clean(String s) {
-        return ElmText.clean(s);
-    }
 }

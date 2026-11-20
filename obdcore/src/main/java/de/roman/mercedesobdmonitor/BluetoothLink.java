@@ -84,26 +84,42 @@ final class BluetoothLink implements ElmLink {
         if (!hasPermission(c)) throw new IOException("Bluetooth-Berechtigung fehlt");
         BluetoothAdapter a = adapter(c);
         if (!BluetoothAdapter.checkBluetoothAddress(address)) throw new IOException("Ungültige Bluetooth-Adresse " + address);
+        // schon hier, damit „Verbinden“ gar nicht erst startet (Review: vorher erst auf dem I/O-Faden)
+        if (!a.isEnabled()) throw new IOException("Bluetooth ist ausgeschaltet – bitte einschalten");
         BluetoothDevice device = a.getRemoteDevice(address);
         String label = "Bluetooth " + (name == null || name.isEmpty() ? address : name);
         java.util.concurrent.atomic.AtomicReference<BluetoothSocket> pending = new java.util.concurrent.atomic.AtomicReference<>();
+        // Ein Abbruch gilt für diesen Öffner endgültig (je Verbindung ein neuer Öffner) – auch zwischen den Versuchen
+        AtomicBoolean cancelled = new AtomicBoolean();
         return new Opener() {
             @Override
             public ElmLink open(int timeoutMs) throws IOException {
+                if (cancelled.get()) throw new IOException(label + ": Verbindungsaufbau abgebrochen");
                 if (!a.isEnabled()) throw new IOException("Bluetooth ist ausgeschaltet");
                 // eine Frist für beide Versuche zusammen (Review: vorher bis zur doppelten Zeit)
                 long deadline = System.nanoTime() + timeoutMs * 1_000_000L;
                 IOException first;
                 try {
-                    return connect(device.createRfcommSocketToServiceRecord(SPP), remaining(deadline), label, pending);
+                    ElmLink link = connect(device.createRfcommSocketToServiceRecord(SPP), remaining(deadline), label, pending);
+                    if (cancelled.get()) {
+                        link.close();
+                        throw new IOException(label + ": Verbindungsaufbau abgebrochen");
+                    }
+                    return link;
                 } catch (IOException e) {
                     first = e;
                 }
+                if (cancelled.get()) throw new IOException(label + ": Verbindungsaufbau abgebrochen");
                 int left = remaining(deadline);
                 if (left < 500) throw new IOException(label + " nicht erreichbar: " + first.getMessage());
                 // Manche ELM327-Nachbauten verlangen eine unverschlüsselte Verbindung.
                 try {
-                    return connect(device.createInsecureRfcommSocketToServiceRecord(SPP), left, label, pending);
+                    ElmLink link = connect(device.createInsecureRfcommSocketToServiceRecord(SPP), left, label, pending);
+                    if (cancelled.get()) {
+                        link.close();
+                        throw new IOException(label + ": Verbindungsaufbau abgebrochen");
+                    }
+                    return link;
                 } catch (IOException e) {
                     throw new IOException(label + " nicht erreichbar: " + first.getMessage()
                             + " / ohne Verschlüsselung: " + e.getMessage());
@@ -117,6 +133,7 @@ final class BluetoothLink implements ElmLink {
 
             @Override
             public void cancel() {
+                cancelled.set(true);
                 BluetoothSocket s = pending.getAndSet(null);
                 if (s != null) {
                     try { s.close(); } catch (IOException ignored) { }
@@ -178,7 +195,8 @@ final class BluetoothLink implements ElmLink {
     @Override public InputStream input() { return in; }
     @Override public OutputStream output() throws IOException { return socket.getOutputStream(); }
     @Override public void setReadTimeout(int ms) { in.setTimeout(ms); }
-    @Override public boolean isOpen() { return !closed && socket.isConnected(); }
+    /** BluetoothSocket.isConnected() bleibt nach einem Abriss true; maßgeblich ist, ob der Lesestrom noch lebt. */
+    @Override public boolean isOpen() { return !closed && socket.isConnected() && in.alive(); }
     @Override public String describe() { return text; }
 
     @Override
