@@ -894,6 +894,11 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     public void onStatus(String text) {
         status.setText(text);
+        // Ein abgebrochener DTC-Scan darf nicht dauerhaft als „Lese …“ stehen bleiben.
+        if ("Getrennt".equals(text) && dtcState != null
+                && dtcState.getText().toString().startsWith("Lese Fehlercodes")) {
+            dtcState.setText("DTC-Scan abgebrochen · Verbindung getrennt. Erneut verbinden und LESEN wählen.");
+        }
         if (starterText != null && text != null && text.startsWith("Starttest:") && session.isStarterTestRunning()) {
             starterText.setText(text.substring("Starttest: ".length()));
         }
