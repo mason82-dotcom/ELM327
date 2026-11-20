@@ -739,6 +739,9 @@ public final class ObdSession {
 
     private void reconnectAfterFailure(int session, String host, int port, ElmLink.Opener transport) {
         if (userDisconnect || !monitoring.get() || session != sessionGeneration.get()) return;
+        // Nach Adapterverlust sind weder ein vorheriger DTC-Snapshot noch die
+        // flüchtige Service-Freigabe einer wiederaufgebauten Verbindung zuzuordnen.
+        revokeServiceLab();
         showStatusForConnection(session, "Verbindung unterbrochen · Reconnect …");
         try {
             ElmText.sleepQuiet(2000);
@@ -821,6 +824,7 @@ public final class ObdSession {
                 && SystemClock.elapsedRealtime() - lastValidDtcReadAt <= ServiceMode04Gate.MAX_DTC_READ_AGE_MS;
         if (!evidence) return "NICHT ausgeführt: aktuelle DTC-Bestandsaufnahme fehlt.";
 
+        boolean attempted = false;
         try {
             // Nicht auf historische Livewerte vertrauen: den Zustand unmittelbar vor Mode 04 lesen.
             double rpm = readServicePid(c, 0x0C);
@@ -836,6 +840,7 @@ public final class ObdSession {
             lastValidDtcReadGeneration = -1;  // bei unklarem Status erneut lesen erforderlich
             lastValidDtcReadAt = -1;
             append("Service-Labor: einmaliger Mode-04-Versuch, kein Retry");
+            attempted = true;
             Elm327Client.CommandResult response = c.clearEmissionsOnce(ticket, 3500);
             if (!ServiceMode04Gate.positiveAck(response.raw)) {
                 closeClientIfCurrent(c);
@@ -848,7 +853,9 @@ public final class ObdSession {
                     + "Nach Reconnect 03/07/0A und Readiness manuell neu lesen.";
         } catch (IOException e) {
             closeClientIfCurrent(c);
-            return "STATUS UNKLAR: Vorprüfung oder Mode-04-Versuch fehlgeschlagen. "
+            if (!attempted) return "NICHT ausgeführt: Vorprüf-Abfrage fehlgeschlagen. "
+                    + "Kein Mode 04 gesendet. Verbindung neu aufbauen und neu prüfen. Ursache: " + e.getMessage();
+            return "STATUS UNKLAR: Mode-04-Versuch fehlgeschlagen. "
                     + "Nicht automatisch wiederholen; nach Reconnect manuell neu auslesen. Ursache: " + e.getMessage();
         }
     }
@@ -1036,15 +1043,6 @@ public final class ObdSession {
                         // also after a parser error; an I/O error here drops the connection like any other
                         if (c.isConnected()) leaveDiagnosis(c);
                     }
-                }
-                // Nur vollständiger 03/07/0A-Bericht zählt als Bestandsaufnahme für Service Mode 04.
-                if (op == Op.DTC && !dtcAbortRequested && report.contains("Gespeichert:")
-                        && report.contains("Pending:") && report.contains("Permanent:")
-                        && !report.contains("Timeout") && !report.contains("Kommunikationsfehler")
-                        && !report.contains("übersprungen") && !report.contains("abgebrochen")
-                        && !report.contains("nicht gelesen")) {
-                    lastValidDtcReadGeneration = acceptedSession;
-                    lastValidDtcReadAt = SystemClock.elapsedRealtime();
                 }
                 // Review #35–#37: Ab hier ist das Ergebnis vollständig; STOP kommt zu spät und verwirft es nicht.
                 synchronized (ObdSession.this) {
@@ -1694,6 +1692,15 @@ public final class ObdSession {
         ui.post(() -> {
             if (!diagnosisIsCurrent(generation)) return;
             recordForPlan(op, message);
+            if (op == Op.DTC && message.contains("Gespeichert:") && message.contains("Pending:")
+                    && message.contains("Permanent:") && !message.contains("Timeout")
+                    && !message.contains("Kommunikationsfehler") && !message.contains("übersprungen")
+                    && !message.contains("abgebrochen") && !message.contains("nicht gelesen")
+                    && !message.contains("fehlgeschlagen")) {
+                // Erst nachdem der Diagnosebericht in den Prüfplan übernommen wurde.
+                lastValidDtcReadGeneration = generation;
+                lastValidDtcReadAt = SystemClock.elapsedRealtime();
+            }
             deliverNow(op, title, message);
         });
     }
