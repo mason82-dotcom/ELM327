@@ -168,6 +168,8 @@ public class Elm327ClientTest {
         assertTrue(Elm327Client.headerAcknowledged("ATZ", "ELM327 v1.5"));
         assertFalse(Elm327Client.headerAcknowledged("ATZ", "?"));
         assertFalse(Elm327Client.headerAcknowledged("ATZ", "ATZ"));
+        assertFalse(Elm327Client.headerAcknowledged("ATZ", "NO DATA"));
+        assertFalse(Elm327Client.headerAcknowledged("ATZ", "STOPPED"));
     }
 
     @Test
