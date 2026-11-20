@@ -16,6 +16,15 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.8.1 (Monitor) / 0.12.1 (Dashboard): M272-Hinweise nach Servicebulletin
+
+- Auswertung des MBClub-Threads „The Complete M272 Engine Thread“ (7 Seiten) und des Mercedes-Bulletins
+  S-B-03.30/08i: [docs/m272-forum-auswertung.md](docs/m272-forum-auswertung.md). Kernpunkt: die
+  Ausgleichswelle betrifft die Baureihe 204 laut Bulletin nicht; Versteller-Magnete (bis Motornummer
+  2729..30 759427) und Öl am Magnetstecker (bis 895140) schon.
+- DTC-Hinweise: Löschtest bei P0016–P0019, Motornummer-Grenzen bei P0010–P0024, Y-Stück der
+  Kurbelgehäuseentlüftung unter dem Luftmassenmesser bei „mager“.
+
 ## Version 1.8.0 (Monitor) / 0.12.0 (Dashboard): Kennung und Getriebe-Fehler (Test), schnelleres Fahrtenbuch
 
 - **Kennung + Getriebe-Fehler** ([ADR-004](docs/adr-004-kwp-kennung-fehlerspeicher.md), Testfreigabe, ausgeliefert
