@@ -48,7 +48,9 @@ import java.util.Map;
  * geprüften Kern {@link ObdSession} (Modul :obdcore). Keine Codierung, kein Löschen, keine Stellglieder.
  */
 public final class DashboardActivity extends Activity implements ObdSession.Listener {
-    private static final String PREFS = "dashboard";
+    static final String PREFS = "dashboard";
+    /** ADR-006: je Prozess höchstens ein automatischer Verbindungsversuch beim App-Start. */
+    private static boolean autoConnectTried;
     private static final String PREF_NOTIFICATIONS_ASKED = "notifications_asked";
     private static final int REQ_NET = 41;
     private static final int TREND_POINTS = 240;
@@ -165,6 +167,19 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         session.setUiListener(this);
         controller.setListener(() -> { if (page == Page.ANALYSIS) updateAnalysis(); });
         if (page == Page.TRIPS) refreshTrips();   // zurück auf der offenen FAHRTEN-Seite: neue Fahrt nachlesen
+        controller.syncConnection(session.sessionId(), session.isActive());
+        maybeAutoConnect();
+    }
+
+    /**
+     * ADR-006: Mit „Automatisch verbinden“ verbindet die App beim Öffnen selbst – einmal je Prozess, nicht nach einem
+     * „Trennen“ des Benutzers und nur, wenn keine Sitzung läuft (z. B. schon vom Radiostart).
+     */
+    private void maybeAutoConnect() {
+        if (autoConnectTried) return;
+        autoConnectTried = true;   // nur der erste Start des Prozesses zählt, auch wenn der Haken später gesetzt wird
+        if (!AdapterChoice.autoConnect(this, PREFS) || session.isActive() || session.wasUserDisconnect()) return;
+        connectIfIdle();
     }
 
     @Override
@@ -390,8 +405,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         LinearLayout settings = row();
         settings.setGravity(Gravity.CENTER_VERTICAL);
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        hostInput = input(host != null ? host : p.getString("host", "192.168.0.10"), "ELM327-Adresse", false);
-        portInput = input(port != null ? port : p.getString("port", "35000"), "Port", true);
+        hostInput = input(host != null ? host : p.getString(AdapterChoice.KEY_HOST, AdapterChoice.DEFAULT_HOST), "ELM327-Adresse", false);
+        portInput = input(port != null ? port : p.getString(AdapterChoice.KEY_PORT, AdapterChoice.DEFAULT_PORT), "Port", true);
         settings.addView(hostInput, new LinearLayout.LayoutParams(0, dp(52), 2f));
         settings.addView(portInput, new LinearLayout.LayoutParams(0, dp(52), 1f));
         page.addView(settings);
@@ -430,6 +445,13 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             updateAdr004Visibility();
         });
         page.addView(adr004);
+        android.widget.CheckBox auto = new android.widget.CheckBox(this);
+        auto.setText("Automatisch verbinden – beim Öffnen der App und nach dem Start des Radios (ADR-006)");
+        auto.setTextColor(Palette.LIGHT);
+        auto.setTextSize(13);
+        auto.setChecked(AdapterChoice.autoConnect(this, PREFS));
+        auto.setOnCheckedChangeListener((v, checked) -> AdapterChoice.setAutoConnect(this, PREFS, checked));
+        page.addView(auto);
         page.addView(text("Feste Read-only-Befehlsfreigabe · keine Schreib-, Stellglied- oder Löschfunktion", 12, Palette.TEAL));
         ScrollView scroll = new ScrollView(this);
         console = text("", 12, Palette.MUTED);
@@ -746,6 +768,12 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             controller.connectionEnded();
             return;
         }
+        connectIfIdle();
+    }
+
+    /** Verbindet, trennt aber nie – auch nicht, wenn inzwischen der Dienst verbunden hat (Review). */
+    private void connectIfIdle() {
+        if (session.isActive()) return;
         if (!ensurePermissions()) return;
         String host = hostInput.getText().toString().trim();
         Integer port = AdapterChoice.port(this, PREFS, portInput.getText().toString());
@@ -758,6 +786,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         if (!AdapterChoice.connect(this, session, PREFS, host, port)) return;
         // Neue Verbindung, evtl. anderes Fahrzeug: die alte behält ihren Verlaufseintrag, Karte und Kat-Tendenz neu
         controller.newConnection();
+        controller.syncConnection(session.sessionId(), true);
         startForegroundService(new Intent(this, ObdService.class).setAction(ObdService.ACTION_START));
     }
 
@@ -792,7 +821,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             if (Manifest.permission.POST_NOTIFICATIONS.equals(permissions[i])) continue;
             ok &= grantResults[i] == PackageManager.PERMISSION_GRANTED;
         }
-        if (ok) toggleConnection();
+        if (ok) connectIfIdle();
         else Toast.makeText(this, AdapterChoice.deniedText(this, PREFS), Toast.LENGTH_LONG).show();
     }
 
@@ -821,8 +850,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private void saveSettings() {
         if (hostInput == null) return;
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putString("host", hostInput.getText().toString().trim())
-                .putString("port", portInput.getText().toString().trim()).apply();
+                .putString(AdapterChoice.KEY_HOST, hostInput.getText().toString().trim())
+                .putString(AdapterChoice.KEY_PORT, portInput.getText().toString().trim()).apply();
     }
 
     /** Diagnose-Knöpfe nur mit Verbindung und nicht während ihrer eigenen Abfrage (statt Toast im Nachhinein). */

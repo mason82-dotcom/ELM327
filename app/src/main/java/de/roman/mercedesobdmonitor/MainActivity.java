@@ -152,8 +152,8 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         root.addView(safety);
 
         LinearLayout endpoint = row();
-        hostInput = edit("192.168.0.10", false);
-        portInput = edit("35000", true);
+        hostInput = edit(AdapterChoice.DEFAULT_HOST, false);
+        portInput = edit(AdapterChoice.DEFAULT_PORT, true);
         endpoint.addView(hostInput, new LinearLayout.LayoutParams(0, dp(48), 2f));
         endpoint.addView(portInput, new LinearLayout.LayoutParams(0, dp(48), 1f));
         root.addView(endpoint);
@@ -572,15 +572,15 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
 
     private void saveSettings() {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putString("host", hostInput.getText().toString().trim())
-                .putString("port", portInput.getText().toString().trim())
+                .putString(AdapterChoice.KEY_HOST, hostInput.getText().toString().trim())
+                .putString(AdapterChoice.KEY_PORT, portInput.getText().toString().trim())
                 .apply();
     }
 
     private void loadSettings() {
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        hostInput.setText(p.getString("host", "192.168.0.10"));
-        portInput.setText(p.getString("port", "35000"));
+        hostInput.setText(p.getString(AdapterChoice.KEY_HOST, AdapterChoice.DEFAULT_HOST));
+        portInput.setText(p.getString(AdapterChoice.KEY_PORT, AdapterChoice.DEFAULT_PORT));
         updateAdapterLabel();
         boolean adr004 = p.getBoolean(PREF_ADR004, false);
         adr004Box.setChecked(adr004);

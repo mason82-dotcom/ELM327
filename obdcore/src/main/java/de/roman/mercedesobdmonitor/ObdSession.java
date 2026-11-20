@@ -278,6 +278,16 @@ public final class ObdSession {
         return start(context, opener.describe(), 0, opener);
     }
 
+    /** Kennung der aktuellen Sitzung; ändert sich mit jedem Verbinden und Trennen (Analyse erkennt neue Verbindungen). */
+    public int sessionId() {
+        return sessionGeneration.get();
+    }
+
+    /** true nach „Trennen“ durch den Benutzer – dann verbindet auch das automatische Verbinden nicht neu (ADR-006). */
+    public boolean wasUserDisconnect() {
+        return userDisconnect;
+    }
+
     /** Vom Benutzer ausgelöstes Trennen (App oder Benachrichtigung). */
     public void disconnect() {
         disconnect(null);
