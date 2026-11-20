@@ -829,10 +829,13 @@ public final class ObdSession {
 
         boolean attempted = false;
         try {
-            // Nicht auf historische Livewerte vertrauen: den Zustand unmittelbar vor Mode 04 lesen.
+            // Fail-closed: vor dem Sendeversuch die drei motorseitigen Livewerte explizit
+            // über ATH1/7E8 identifizieren; 7E9 darf nicht als Motor-aus-Nachweis dienen.
+            c.sendCommand("ATH1", 1500);
             double rpm = readServicePid(c, 0x0C);
             double speed = readServicePid(c, 0x0D);
             double voltage = readServicePid(c, 0x42);
+            c.sendCommand("ATH0", 1500); // Mode-04-ACK im gewohnten Header-losen Antwortformat
             long now = SystemClock.elapsedRealtime();
             ServiceMode04Gate.Preflight check = new ServiceMode04Gate.Preflight(
                     diagnosisIsCurrent(generation), c.isConnected(), armed, true, evidence,
@@ -866,8 +869,8 @@ public final class ObdSession {
     private double readServicePid(Elm327Client c, int id) throws IOException {
         for (ObdPid pid : ObdPid.defaultPids()) {
             if (pid.pid != id) continue;
-            Double v = pid.parse(c.sendCommand(pid.command(), 2200).raw);
-            if (v == null || !Double.isFinite(v)) throw new IOException("Keine gültige Antwort für " + pid.command());
+            Double v = ServiceMode04Gate.engineOnlyPid(pid, c.sendCommand(pid.command(), 2200).raw);
+            if (v == null) throw new IOException("Keine bestätigte Motor-ECU-Antwort (7E8) für " + pid.command());
             return v;
         }
         throw new IOException("Unbekannte Vorprüf-PID " + id);
