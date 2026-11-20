@@ -149,7 +149,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         root.addView(sub);
 
         TextView safety = text("SERVICE-LABOR-BRANCH · Standard nur lesen · Mode 04 einzeln bestätigt", 13,
-                Color.rgb(129, 199, 132));
+                Color.rgb(255, 204, 118));
         safety.setPadding(0, dp(6), 0, dp(4));
         root.addView(safety);
 
