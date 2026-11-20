@@ -734,7 +734,10 @@ public final class ObdSession {
             return;
         }
         starterCancel = false;
-        runExclusiveDiagnosis(Op.STARTER, "Starttest", this::readStarterTest);
+        // Schon ab der Annahme als laufend gelten: ein zweiter Druck, während der Auftrag noch wartet (laufende
+        // Abfrage, synchronized), bricht ab statt „läuft bereits“ zu melden.
+        starterRunning = true;
+        if (!runExclusiveDiagnosis(Op.STARTER, "Starttest", this::readStarterTest)) starterRunning = false;
     }
 
     public boolean isStarterTestRunning() {
@@ -758,7 +761,7 @@ public final class ObdSession {
             append("Starttest: ATRV-Abtastung läuft (Konsole schweigt bis zum Ende)");
             while (!t.finished()) {
                 if (starterCancel) {
-                    t.abort("vom Benutzer abgebrochen.");
+                    t.abort("vom Benutzer abgebrochen.", false);
                     break;
                 }
                 long now = SystemClock.elapsedRealtime();
@@ -769,13 +772,13 @@ public final class ObdSession {
                 } catch (SocketTimeoutException e) {
                     // Später eintreffende Antwort verwerfen; ohne Prompt ist der Adapter weg (Unterspannung?).
                     if (!c.resync(1500)) {
-                        t.abort("Adapter antwortet nicht mehr.");
+                        t.abort("Adapter antwortet nicht mehr.", true);
                         linkLost = true;
                         break;
                     }
                     t.tick(SystemClock.elapsedRealtime());
                 } catch (IOException e) {
-                    t.abort("Verbindung zum Adapter verloren (" + e.getMessage() + ").");
+                    t.abort("Verbindung zum Adapter verloren (" + e.getMessage() + ").", true);
                     linkLost = true;
                     break;
                 }
@@ -792,6 +795,9 @@ public final class ObdSession {
                     if (d != null) rpm = ((d[0] & 0xFF) * 256 + (d[1] & 0xFF)) / 4.0;
                 } catch (SocketTimeoutException e) {
                     if (!c.resync(1500)) linkLost = true;
+                } catch (IOException e) {
+                    // Messung ist vollständig: Bericht behalten, nur die Verbindung neu aufbauen
+                    linkLost = true;
                 }
             }
             // Nach einem Abriss wertet runExclusiveDiagnosis nichts mehr aus: Bericht liefern, Verbindung neu aufbauen.
@@ -867,19 +873,20 @@ public final class ObdSession {
      * Führt eine Read-Only-Diagnose mit exklusivem Adapterzugriff aus (Live-Polling pausiert)
      * und zeigt das Ergebnis als Dialog. Timeouts werden wie beim DTC-Scan behandelt.
      */
-    private void runExclusiveDiagnosis(Op op, String title, Diagnosis job) {
+    /** @return false, wenn der Auftrag nicht angenommen wurde (keine Verbindung, anderer Vorgang läuft) */
+    private boolean runExclusiveDiagnosis(Op op, String title, Diagnosis job) {
         Elm327Client c = client;
         if (c == null || !c.isConnected()) {
             toast("Keine ELM327-Verbindung");
-            return;
+            return false;
         }
         if (fuelTrimTest.isRunning()) {
             toast("Fuel-Trim-Test läuft – bitte zuerst beenden");
-            return;
+            return false;
         }
         if (!exclusiveRequest.compareAndSet(false, true)) {
             toast("Diagnosevorgang läuft bereits");
-            return;
+            return false;
         }
         setBusy(op, true);
         showStatus(title + " läuft …");
@@ -911,12 +918,18 @@ public final class ObdSession {
                 report = title + " fehlgeschlagen (Auswertung):\n" + e;
             } finally {
                 exclusiveRequest.set(false);
+                // Scheitert schon enterDiagnosis, läuft readStarterTest nie – der Zustand darf nicht hängen bleiben.
+                if (op == Op.STARTER) {
+                    starterRunning = false;
+                    starterCancel = false;
+                }
             }
             setBusy(op, false);
             showStatus(statusAfterDiagnosis(title + " beendet · Reconnect läuft …"));
             updateStats();
             showResult(op, title, report);
         });
+        return true;
     }
 
     /** Diagnose-Parser erwarten Antworten ohne Header; das Live-Polling auf 11-bit-CAN läuft mit ATH1. */

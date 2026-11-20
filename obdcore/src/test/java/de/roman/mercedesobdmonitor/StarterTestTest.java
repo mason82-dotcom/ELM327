@@ -166,7 +166,7 @@ public class StarterTestTest {
         StarterTest t = new StarterTest(5);
         play(t, 0, new double[][] {{3500, 12.4}, {2000, 12.4}, {160, 9.0}});
         assertEquals(StarterTest.Phase.CRANK, t.phase());
-        t.abort("Adapter antwortet nicht mehr.");
+        t.abort("Adapter antwortet nicht mehr.", true);
         assertTrue(t.abortedWhileCranking());
         String r = t.report(Double.NaN);
         assertTrue(r, r.contains("setzen unter etwa 8–9 V zurück"));
@@ -200,7 +200,43 @@ public class StarterTestTest {
         for (int i = 0; i < 8; i++) t.offer(now + i * 500L, 12.5);
         assertEquals(StarterTest.Phase.WAIT_CRANK, t.phase());
         assertTrue(t.status(now + 4000).startsWith("Starttest: JETZT MOTOR STARTEN"));
-        t.abort("Test");
+        t.abort("Test", false);
         assertTrue(t.status(now + 5000).startsWith("Starttest: "));
+    }
+
+    @Test
+    public void userCancelWhileCrankingIsNoFinding() {
+        StarterTest t = new StarterTest(5);
+        play(t, 0, new double[][] {{3500, 12.4}, {2000, 12.4}, {160, 9.0}});
+        t.abort("vom Benutzer abgebrochen.", false);
+        assertFalse(t.abortedWhileCranking());
+        assertFalse(t.report(Double.NaN).contains("setzen unter etwa 8–9 V zurück"));
+    }
+
+    /** Ein Einbruch unter 5 V ist der wichtigste Befund und darf nicht als ungültige Probe verschwinden. */
+    @Test
+    public void veryDeepDipIsMeasured() {
+        StarterTest t = healthyStart(20, 4.5, 1200, 14.2);
+        assertEquals(StarterTest.Phase.DONE, t.phase());
+        assertEquals(4.5, t.crankMin(), 1e-9);
+        String r = t.report(700);
+        assertTrue(r, r.contains("tiefster Wert 4,5 V"));
+        assertTrue(r, r.contains("zu tief"));
+        // in Ruhe bleibt ein solcher Wert unplausibel
+        StarterTest idle = new StarterTest(20);
+        idle.offer(0, 4.5);
+        assertEquals(StarterTest.Phase.REST, idle.phase());
+    }
+
+    /** Motor läuft, Lichtmaschine lädt nicht: Anlassen endet normal, Befund ist die Ladung, nicht „sehr lang“. */
+    @Test
+    public void nonChargingAlternatorEndsCrank() {
+        StarterTest t = new StarterTest(15);
+        play(t, 0, new double[][] {{3500, 12.5}, {2000, 12.5}, {1000, 9.8}, {12_000, 12.0}});
+        assertEquals(StarterTest.Phase.DONE, t.phase());
+        assertTrue("Anlassdauer " + t.crankMs(), t.crankMs() >= 900 && t.crankMs() <= 1200);
+        String r = t.report(700);
+        assertFalse(r, r.contains("sehr lang"));
+        assertTrue(r, r.contains("lädt nicht ausreichend"));
     }
 }

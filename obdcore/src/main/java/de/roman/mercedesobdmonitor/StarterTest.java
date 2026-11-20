@@ -33,6 +33,12 @@ public final class StarterTest {
     static final double CRANK_DROP = 0.8;
     /** Anlassen beendet, sobald die Spannung zweimal hintereinander höchstens so weit unter dem Bezug liegt. */
     static final double CRANK_END = 0.3;
+    /**
+     * Anlassen ebenfalls beendet, wenn die Spannung so lange über der Erkennungsschwelle bleibt: der Motor läuft,
+     * erreicht aber den Wert vor dem Start nicht (Lichtmaschine lädt nicht). Sonst liefe CRANK bis
+     * {@link #MAX_CRANK_MS} und der Bericht spräche von sehr langem Anlassen statt von der Ladung.
+     */
+    static final long RECOVER_MS = 1500;
     /** Längeres Anlassen wird nicht weiter verfolgt. */
     static final long MAX_CRANK_MS = 20_000;
     /** Messdauer nach dem Anlassen; die Ladespannung ist der Median der zweiten Hälfte. */
@@ -43,6 +49,8 @@ public final class StarterTest {
     static final double REST_MAX = 13.2;
     /** Darunter ist die Probe kein Bordnetzwert (Adapter misst Unsinn). */
     static final double PLAUSIBLE_MIN = 5.0;
+    /** Beim Anlassen gilt ein tieferer Wert noch als Messung: gerade ein sehr tiefer Einbruch ist der Befund. */
+    static final double CRANK_PLAUSIBLE_MIN = 3.0;
     static final double PLAUSIBLE_MAX = 18.0;
 
     private Phase phase = Phase.REST;
@@ -61,6 +69,9 @@ public final class StarterTest {
     private long crankStart = -1;
     private long crankEnd = -1;
     private long pendingEnd = -1;
+    private long recoverSince = -1;
+    /** true: Abbruch durch Verbindungsverlust (nicht durch den Benutzer). */
+    private boolean linkLost;
     private double crankMin = Double.NaN;
     private int crankSamples;
     /** true = Motor sprang an, ohne dass ein Einbruch gemessen wurde (Einbruch kürzer als ein Abtastschritt). */
@@ -98,7 +109,8 @@ public final class StarterTest {
         if (finished()) return phase;
         if (first < 0) first = t;
         last = t;
-        boolean valid = !Double.isNaN(volts) && volts >= PLAUSIBLE_MIN && volts <= PLAUSIBLE_MAX;
+        double min = phase == Phase.WAIT_CRANK || phase == Phase.CRANK ? CRANK_PLAUSIBLE_MIN : PLAUSIBLE_MIN;
+        boolean valid = !Double.isNaN(volts) && volts >= min && volts <= PLAUSIBLE_MAX;
         if (!valid) {
             invalidSamples++;
             long since = lastValid >= 0 ? lastValid : first;
@@ -180,6 +192,16 @@ public final class StarterTest {
 
     private void crank(long t, double v) {
         if (v < crankMin) crankMin = v;
+        if (v > preCrank - CRANK_DROP) {
+            if (recoverSince < 0) recoverSince = t;
+            else if (t - recoverSince >= RECOVER_MS) {
+                crankEnd = pendingEnd >= 0 ? pendingEnd : recoverSince;
+                startCharge(t, v);
+                return;
+            }
+        } else {
+            recoverSince = -1;
+        }
         if (v >= preCrank - CRANK_END) {
             if (pendingEnd < 0) {
                 pendingEnd = t;
@@ -229,17 +251,18 @@ public final class StarterTest {
     }
 
     /**
-     * Abbruch von außen (Verbindung verloren, Benutzer). Während des Anlassens ist ein Verbindungsabbruch selbst ein
-     * Befund: viele WLAN-Adapter setzen bei Unterspannung zurück.
+     * Abbruch von außen. Während des Anlassens ist ein Verbindungsabbruch ({@code linkLost}) selbst ein Befund:
+     * viele WLAN-Adapter setzen bei Unterspannung zurück. Ein Abbruch durch den Benutzer ist keiner.
      */
-    public void abort(String reason) {
+    public void abort(String reason, boolean linkLost) {
         if (finished()) return;
+        this.linkLost = linkLost;
         fail(reason);
     }
 
-    /** Wurde beim Abbruch gerade angelassen? */
+    /** Riss die Verbindung ab, während gerade angelassen wurde? */
     public boolean abortedWhileCranking() {
-        return phase == Phase.FAILED && crankStart >= 0 && chargeStart < 0;
+        return phase == Phase.FAILED && linkLost && crankStart >= 0 && chargeStart < 0;
     }
 
     // ---------------------------------------------------------------- Kennwerte
