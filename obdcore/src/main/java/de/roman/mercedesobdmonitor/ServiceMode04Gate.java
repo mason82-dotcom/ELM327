@@ -87,8 +87,9 @@ public final class ServiceMode04Gate {
     public static boolean positiveAck(String raw) {
         if (raw == null) return false;
         String upper = raw.toUpperCase(Locale.US);
+        String withoutWhitespace = upper.replaceAll("\\s+", "");
         if (upper.contains("ERROR") || upper.contains("NO DATA") || upper.contains("STOPPED")
-                || upper.contains("?") || upper.contains("7F04")) return false;
+                || upper.contains("?") || withoutWhitespace.contains("7F04")) return false;
         String lines = upper.replace('>', ' ').replace('\r', '\n');
         for (String line : lines.split("\\n+")) {
             String cleaned = line.replace(" ", "").replace("\t", "");
