@@ -146,6 +146,15 @@ public final class ObdSession {
     private final Map<Integer, Long> latestAt = new ConcurrentHashMap<>();
     private final FuelTrimTest fuelTrimTest = new FuelTrimTest();
     private final WarmupCheck warmupCheck = new WarmupCheck();
+    private final RoofLab roofLab = new RoofLab();
+
+    /** Vollständig offline; die Dach-Simulation besitzt keinen ELM327-Transport. */
+    public String simulateRoof(RoofLab.Action action) { return roofLab.execute(action); }
+
+    public String toggleRoofLabObstacle() {
+        roofLab.setObstacle(!roofLab.isBlocked());
+        return "SIMULATION: Hindernis " + (roofLab.isBlocked() ? "gesetzt" : "entfernt");
+    }
     /** Steuergerät meldet PID 41 (Monitorstatus dieser Fahrt) als unterstützt. */
     private volatile boolean driveCyclePid;
 
