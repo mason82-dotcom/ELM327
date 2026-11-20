@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * zeichnet sich daraus neu. Bewusst ohne gespeicherten Context.
  */
 public final class ObdSession {
-    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS, PROFILE, ATF }
+    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS, PROFILE, ATF, STARTER }
 
     /** UI-Callbacks; alle Aufrufe im Main-Thread. */
     public interface Listener {
@@ -714,6 +714,93 @@ public final class ObdSession {
     /** ATF-Temperatur der 7G-Tronic auf Knopfdruck (ADR-001). */
     public void runAtfTemperature() {
         runExclusiveDiagnosis(Op.ATF, "ATF-Temperatur (7G-Tronic)", this::readAtfTemperature);
+    }
+
+    /** Antwortzeit je ATRV-Probe im Starttest; ATRV misst im Adapter, ohne Fahrzeugbus. */
+    static final int STARTER_ATRV_TIMEOUT_MS = 800;
+    /** Außentemperatur aus dem Live-Polling nur, wenn sie frisch ist. */
+    static final long STARTER_AMBIENT_MAX_AGE_MS = 120_000;
+    private volatile boolean starterCancel;
+    private volatile boolean starterRunning;
+
+    /**
+     * Starter- und Batterietest (nur ATRV, liest die Adapterspannung, nichts am Fahrzeug): Ruhespannung,
+     * Einbruch beim Anlassen, Ladespannung. Läuft er schon, bricht ein zweiter Aufruf ihn ab.
+     */
+    public void toggleStarterTest() {
+        if (starterRunning) {
+            starterCancel = true;
+            showStatus("Starttest wird abgebrochen …");
+            return;
+        }
+        starterCancel = false;
+        runExclusiveDiagnosis(Op.STARTER, "Starttest", this::readStarterTest);
+    }
+
+    public boolean isStarterTestRunning() {
+        return starterRunning;
+    }
+
+    private double recentAmbient() {
+        Double v = latestValues.get(0x46);
+        Long at = latestAt.get(0x46);
+        if (v == null || at == null || SystemClock.elapsedRealtime() - at > STARTER_AMBIENT_MAX_AGE_MS) return Double.NaN;
+        return v;
+    }
+
+    private String readStarterTest(Elm327Client c) throws IOException {
+        starterRunning = true;
+        try {
+            StarterTest t = new StarterTest(recentAmbient());
+            boolean linkLost = false;
+            long lastStatus = -1;
+            int probes = 0;
+            append("Starttest: ATRV-Abtastung läuft (Konsole schweigt bis zum Ende)");
+            while (!t.finished()) {
+                if (starterCancel) {
+                    t.abort("vom Benutzer abgebrochen.");
+                    break;
+                }
+                long now = SystemClock.elapsedRealtime();
+                try {
+                    Elm327Client.CommandResult r = c.sendCommand("ATRV", STARTER_ATRV_TIMEOUT_MS);
+                    probes++;
+                    t.offer(SystemClock.elapsedRealtime(), StarterTest.parseVolts(r.raw));
+                } catch (SocketTimeoutException e) {
+                    // Später eintreffende Antwort verwerfen; ohne Prompt ist der Adapter weg (Unterspannung?).
+                    if (!c.resync(1500)) {
+                        t.abort("Adapter antwortet nicht mehr.");
+                        linkLost = true;
+                        break;
+                    }
+                    t.tick(SystemClock.elapsedRealtime());
+                } catch (IOException e) {
+                    t.abort("Verbindung zum Adapter verloren (" + e.getMessage() + ").");
+                    linkLost = true;
+                    break;
+                }
+                if (lastStatus < 0 || now - lastStatus >= 250) {
+                    showStatus(t.status(now));
+                    lastStatus = now;
+                }
+            }
+            append("Starttest: " + probes + " ATRV-Proben, alle ~" + t.sampleIntervalMs() + " ms");
+            double rpm = Double.NaN;
+            if (!linkLost && t.phase() == StarterTest.Phase.DONE) {
+                try {
+                    byte[] d = ObdParser.mode01Data(diagCommand(c, "010C", 2000).raw, 0x0C, 2);
+                    if (d != null) rpm = ((d[0] & 0xFF) * 256 + (d[1] & 0xFF)) / 4.0;
+                } catch (SocketTimeoutException e) {
+                    if (!c.resync(1500)) linkLost = true;
+                }
+            }
+            // Nach einem Abriss wertet runExclusiveDiagnosis nichts mehr aus: Bericht liefern, Verbindung neu aufbauen.
+            if (linkLost) closeClientIfCurrent(c);
+            return t.report(rpm);
+        } finally {
+            starterRunning = false;
+            starterCancel = false;
+        }
     }
 
     private String readVehicleProfile(Elm327Client c) throws IOException {

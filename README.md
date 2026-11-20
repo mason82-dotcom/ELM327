@@ -156,6 +156,11 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
   nur `ATSH7E1` → `2130` → `ATSH7DF`, nie im Terminal, Header-Wiederherstellung samt Reconnect mit `ATSH7DF`.
   Formel Byte 11 − 50 ist am C350 noch nicht bestätigt; die Rohantwort wird immer angezeigt.
 - **Steuergerätenamen** (09 0A) im HU/AU-Check.
+- **Starttest** (Knopf in beiden Apps, Dashboard: TESTS): Batterie und Anlassen aus der Adapterspannung (nur `ATRV`,
+  OBD-Stecker Pin 16). Ruhespannung (Zündung an, Motor aus), tiefster Wert und Dauer beim Anlassen mit
+  temperaturabhängigem Richtwert (BCI-Tabelle, Außentemperatur aus 01 46), danach Ladespannung. Reißt die
+  WLAN-Verbindung beim Anlassen ab, wird das als Hinweis auf einen starken Einbruch berichtet. Richtwerte, keine
+  Herstellerangaben.
 
 ## Version 1.0.9
 

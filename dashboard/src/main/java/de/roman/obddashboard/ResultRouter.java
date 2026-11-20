@@ -9,7 +9,7 @@ import de.roman.mercedesobdmonitor.ObdSession;
  * Fuel-Trim-Tests und des Warmlauf-Checks bleiben Dialoge, weil sie eine Handlung verlangen.
  */
 public final class ResultRouter {
-    public enum Target { DTC_DETAILS, MODE06, INSPECTION, MONITOR_TESTS, TRIM, PROFILE, ATF, DIALOG }
+    public enum Target { DTC_DETAILS, MODE06, INSPECTION, MONITOR_TESTS, TRIM, PROFILE, ATF, STARTER, DIALOG }
 
     private ResultRouter() { }
 
@@ -23,6 +23,7 @@ public final class ResultRouter {
                 case MONITOR_TESTS: return Target.MONITOR_TESTS;
                 case PROFILE: return Target.PROFILE;
                 case ATF: return Target.ATF;
+                case STARTER: return Target.STARTER;
                 default: break;
             }
         }

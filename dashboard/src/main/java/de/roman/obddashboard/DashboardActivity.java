@@ -120,7 +120,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private TextView status, linkState, operating, idleState, busState, voltage, driveCycle, stats, console;
     private TextView connectHint, wifiHint;
     private TextView dtcState, dtcDetails, mode06Text, inspectionText, trimStatus, warmupStatus, trimReport;
-    private Button connectButton, fuelButton, warmupButton;
+    private Button connectButton, fuelButton, warmupButton, starterButton;
+    private TextView starterText;
     private TrendView trendView;
     private TextView trendTitle;
     private EditText hostInput, portInput;
@@ -581,9 +582,18 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         trimReport = resultText("20 s Leerlauf, danach 15 s bei ca. 2500 U/min. Keine Stellgliedansteuerung.");
         fuelButton = button("Fuel-Trim-Test", v -> session.toggleFuelTrimTest());
         warmupButton = button("Warmlauf-Check", v -> session.toggleWarmupCheck());
-        return subPage("FUEL-TRIM-TEST / WARMLAUF", Page.TRIM,
+        starterText = resultText(results.containsKey(ResultRouter.Target.STARTER) ? results.get(ResultRouter.Target.STARTER)
+                : "Starttest: Zündung an, Motor aus, Test starten; bei „JETZT MOTOR STARTEN“ normal anlassen. "
+                + "Misst nur die Spannung am OBD-Stecker (ATRV).");
+        starterText.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        starterButton = button(STARTER_IDLE, v -> session.toggleStarterTest());
+        starterButton.setContentDescription("Starter- und Batterietest starten oder abbrechen");
+        LinearLayout content = column();
+        content.addView(trimReport);
+        content.addView(starterText);
+        return subPage("TESTS: TRIM / WARMLAUF / START", Page.TRIM,
                 new View[] {text("Passiv: nur lesen, Drehzahl wird von Hand gehalten · nur bei stehendem Fahrzeug", 13, Palette.WARN)},
-                new View[] {trimStatus, warmupStatus}, trimReport, fuelButton, warmupButton);
+                new View[] {trimStatus, warmupStatus}, content, fuelButton, warmupButton, starterButton);
     }
 
     private View buildDtcDetails() {
@@ -792,6 +802,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     public void onStatus(String text) {
         status.setText(text);
+        if (starterText != null && text != null && text.startsWith("Starttest:") && session.isStarterTestRunning()) {
+            starterText.setText(text.substring("Starttest: ".length()));
+        }
         linkState.setText(text);
         updateConnectionUi();
         updateWifiHint(text);
@@ -885,9 +898,16 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         trimStatus.setText(statusText);
     }
 
+    private static final String STARTER_IDLE = "Starttest";
+    private static final String STARTER_RUNNING = "Starttest abbrechen";
+
     @Override
     public void onBusy(ObdSession.Op op, boolean busy) {
         busyOps.put(op, busy);
+        if (op == ObdSession.Op.STARTER && starterButton != null) {
+            starterButton.setText(busy ? STARTER_RUNNING : STARTER_IDLE);
+            if (busy) starterText.setText("Starttest läuft …");
+        }
         updateOpButtons();
         if (op == ObdSession.Op.DTC && busy) dtcState.setText("Lese Fehlercodes 03 / 07 / 0A …");
         if (op == ObdSession.Op.MISFIRE && busy) mode06Text.setText("Lese Mode 06 (Aussetzer) …");
@@ -919,6 +939,11 @@ public final class DashboardActivity extends Activity implements ObdSession.List
                 results.put(target, text);
                 refreshResults();
                 show(target == ResultRouter.Target.INSPECTION ? Page.INSPECTION : Page.MODE06);
+                break;
+            case STARTER:
+                results.put(target, message);
+                refreshResults();
+                show(Page.TRIM);
                 break;
             case PROFILE: case ATF:
                 results.put(target, message);
@@ -953,6 +978,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         if (t != null) trimReport.setText(t);
         String atf = results.get(ResultRouter.Target.ATF);
         if (atf != null && atfText != null) atfText.setText(atf);
+        String starter = results.get(ResultRouter.Target.STARTER);
+        if (starter != null && starterText != null) starterText.setText(starter);
         String prof = results.get(ResultRouter.Target.PROFILE);
         if (prof != null && profileText != null) profileText.setText(prof);
     }
