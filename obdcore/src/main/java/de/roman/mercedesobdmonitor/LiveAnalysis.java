@@ -89,7 +89,10 @@ public final class LiveAnalysis {
         sb.append("LAMBDA-REGELUNG\n  Bank 1 Δλ ").append(num(dev1, "%.3f")).append(" · Bank 2 Δλ ").append(num(dev2, "%.3f"))
                 .append("\n  ").append(EngineAnalysis.lambdaVerdict(dev1, dev2)).append("\n\n");
         sb.append("TRIM-KARTE (STFT+LTFT, geregelt und warm)\n  ").append(trimMap.table().replace("\n", "\n  "))
-                .append("\n  ").append(trimMap.verdict()).append("\n\n");
+                .append("\n  ").append(trimMap.verdict());
+        String split = trimMap.split();
+        if (split != null) sb.append("\n  ").append(split);
+        sb.append("\n\n");
         if (history != null) {
             sb.append("TRIM-VERLAUF (je Verbindung, neueste zuerst; Leerlauf/Teillast/hohe Last)\n  ")
                     .append(history.table(zone, 5).replace("\n", "\n  "))

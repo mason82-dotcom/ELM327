@@ -16,6 +16,16 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.9.0 (Monitor) / 0.13.0 (Dashboard): Trim-Anteile gemeinsam / je Bank
+
+- **Trim-Karte** (Analyse in beiden Apps) zerlegt die Korrektur in den Anteil, den beide Bänke gemeinsam haben
+  (Ursache vor der Bankaufteilung), und den Zusatz einer Bank. Der gemeinsame Anteil wird eingeordnet: fällt er
+  mit der Last → Falschluft hinter dem Luftmassenmesser (beim M272 z. B. das Y-Stück der Kurbelgehäuseentlüftung,
+  siehe [Forenauswertung](docs/m272-forum-auswertung.md)); lastunabhängig → eher LMM-Kennlinie oder
+  Kraftstoffdruck; steigt er mit der Last → Kraftstoffversorgung/LMM.
+- Am C350 (Log 07.11.2026): gemeinsam +2,5 % Leerlauf / +3,8 % Last (klein, lastunabhängig), Bank 1 zusätzlich
+  +6,7 % / +7,7 %. Ein gerissener Entlüftungsschlauch erklärt dieses Bild nicht; der Unterschied liegt bei Bank 1.
+
 ## Version 1.8.1 (Monitor) / 0.12.1 (Dashboard): M272-Hinweise nach Servicebulletin
 
 - Auswertung des MBClub-Threads „The Complete M272 Engine Thread“ (7 Seiten) und des Mercedes-Bulletins

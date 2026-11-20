@@ -340,6 +340,82 @@ public final class EngineAnalysis {
             return sb.substring(0, sb.length() - 2) + " (Richtwert, keine Diagnose)";
         }
 
+        /** Ab diesem Betrag zählt ein gemeinsamer Anteil beider Bänke. */
+        public static final double COMMON_MIN = 3.0;
+        /** So viel muss der gemeinsame Anteil im Leerlauf über dem unter Last liegen, damit er „mit Last fällt“. */
+        public static final double LOAD_DEPENDENT = 3.0;
+
+        /** Gemeinsamer Anteil beider Bänke im Band: die kleinere Korrektur bei gleichem Vorzeichen, sonst 0; null ohne Daten. */
+        public Double common(Band b) {
+            Double m1 = mean(1, b), m2 = mean(2, b);
+            if (m1 == null || m2 == null) return null;
+            if (Math.signum(m1) != Math.signum(m2)) return 0.0;
+            return Math.abs(m1) < Math.abs(m2) ? m1 : m2;
+        }
+
+        /**
+         * Zerlegung in den Anteil, den beide Bänke gemeinsam haben (Ursache vor der Bankaufteilung: Falschluft hinter dem
+         * Luftmassenmesser, LMM-Kennlinie, Kraftstoffdruck), und den Anteil einer Bank. Falschluft hinter dem LMM ist
+         * eine feste Menge, die im Leerlauf (wenig Luft) viel und unter Last wenig ausmacht; ein lastunabhängiger
+         * gemeinsamer Anteil spricht eher für LMM-Kennlinie oder Kraftstoffdruck. null ohne Leerlauf- oder Lastwerte.
+         */
+        public String split() {
+            Double ci = common(Band.IDLE);
+            Double cl = commonLoaded();
+            if (ci == null && cl == null) return null;
+            StringBuilder sb = new StringBuilder("Anteile: gemeinsam ");
+            sb.append(fmt(ci)).append(" Leerlauf / ").append(fmt(cl)).append(" Last");
+            Double di = diff(Band.IDLE), dl = diffLoaded();
+            boolean idleCounts = di != null && Math.abs(di) >= COMMON_MIN;
+            boolean loadCounts = dl != null && Math.abs(dl) >= COMMON_MIN;
+            if (idleCounts || loadCounts) {
+                // die Bank nach der Differenz, die die Schwelle erreicht (bei beiden: der größeren)
+                double d = !loadCounts ? di : !idleCounts ? dl : Math.abs(di) >= Math.abs(dl) ? di : dl;
+                sb.append(" · Bank ").append(d > 0 ? 1 : 2).append(" zusätzlich ")
+                        .append(fmt(di == null ? null : Math.abs(di))).append(" / ").append(fmt(dl == null ? null : Math.abs(dl)));
+            }
+            sb.append(" – ");
+            if (ci == null || cl == null) {
+                sb.append(ci == null ? "Leerlauf" : "Lastbereich").append(" fehlt für die Einordnung");
+            } else if (Math.abs(ci) < COMMON_MIN && Math.abs(cl) < COMMON_MIN) {
+                sb.append("kein nennenswerter gemeinsamer Anteil: die Ursache liegt bei einer Bank");
+            } else if (ci > 0 && ci - cl >= LOAD_DEPENDENT) {
+                sb.append("gemeinsamer Anteil fällt mit der Last: passt zu Falschluft hinter dem Luftmassenmesser "
+                        + "(beim M272 z. B. Y-Stück der Kurbelgehäuseentlüftung unter dem LMM, Saugrohrdichtungen)");
+            } else if (cl > 0 && cl - ci >= LOAD_DEPENDENT) {
+                sb.append("gemeinsamer Anteil steigt mit der Last: Kraftstoffversorgung oder LMM-Kennlinie, keine Falschluft");
+            } else if (ci >= 0 && cl >= 0) {
+                sb.append("gemeinsamer Anteil lastunabhängig: eher LMM-Kennlinie oder Kraftstoffdruck als Falschluft "
+                        + "(Falschluft wäre im Leerlauf deutlich größer)");
+            } else if (ci <= 0 && cl <= 0) {
+                sb.append("beide Bänke abgemagert korrigiert: Überfettung gemeinsam (Kraftstoffdruck, Tankentlüftung, LMM)");
+            } else {
+                sb.append("gemeinsamer Anteil wechselt zwischen Leerlauf und Last das Vorzeichen: keine klare gemeinsame Ursache");
+            }
+            return sb.append(" (Richtwert)").toString();
+        }
+
+        private Double diff(Band b) {
+            Double m1 = mean(1, b), m2 = mean(2, b);
+            return m1 == null || m2 == null ? null : m1 - m2;
+        }
+
+        private Double commonLoaded() {
+            Double l1 = loaded(1), l2 = loaded(2);
+            if (l1 == null || l2 == null) return null;
+            if (Math.signum(l1) != Math.signum(l2)) return 0.0;
+            return Math.abs(l1) < Math.abs(l2) ? l1 : l2;
+        }
+
+        private Double diffLoaded() {
+            Double l1 = loaded(1), l2 = loaded(2);
+            return l1 == null || l2 == null ? null : l1 - l2;
+        }
+
+        private static String fmt(Double v) {
+            return v == null ? "–" : String.format(Locale.GERMANY, "%+.1f %%", v);
+        }
+
         /** Mittel der Lastbänder Teillast/hohe Last einer Bank (gewichtet), null ohne Daten. */
         private Double loaded(int bank) {
             double s = 0;
