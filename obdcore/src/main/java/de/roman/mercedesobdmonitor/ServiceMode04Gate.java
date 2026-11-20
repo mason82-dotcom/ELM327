@@ -86,7 +86,10 @@ public final class ServiceMode04Gate {
     /** Mode-04-Erfolg ist nur mit eindeutiger ECU-Antwort 44 belegt. */
     public static boolean positiveAck(String raw) {
         if (raw == null) return false;
-        String lines = raw.toUpperCase(Locale.US).replace('>', ' ').replace('\r', '\n');
+        String upper = raw.toUpperCase(Locale.US);
+        if (upper.contains("ERROR") || upper.contains("NO DATA") || upper.contains("STOPPED")
+                || upper.contains("?") || upper.contains("7F04")) return false;
+        String lines = upper.replace('>', ' ').replace('\r', '\n');
         for (String line : lines.split("\\n+")) {
             String cleaned = line.replace(" ", "").replace("\t", "");
             if (cleaned.matches("44(?:00)*")) return true;
