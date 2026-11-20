@@ -90,10 +90,12 @@ public final class Elm327Client implements Closeable {
     synchronized CommandResult clearEmissionsOnce(ServiceMode04Gate.Ticket ticket, int timeoutMs)
             throws IOException {
         ensureConnected();
-        if (!CommandSafety.DEFAULT_HEADER.equals(header))
-            throw new IOException("Service-Labor: Standard-Header 7DF nicht bestätigt");
+        // Schon der Versuch verbraucht die Freigabe, auch bei ungültigem Header.
+        // Damit ist auch eine versehentliche Wiederverwendung nach einer Header-Reparatur ausgeschlossen.
         if (ticket == null || !ticket.consume())
             throw new IOException("Service-Labor: Einmalfreigabe fehlt oder wurde verbraucht");
+        if (!CommandSafety.DEFAULT_HEADER.equals(header))
+            throw new IOException("Service-Labor: Standard-Header 7DF nicht bestätigt");
         return exchangeCommand("04", timeoutMs);
     }
 
