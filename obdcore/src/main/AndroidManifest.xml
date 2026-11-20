@@ -15,6 +15,12 @@
     <!-- Android 17+: mandatory runtime permission for LAN access when targeting API 37+. -->
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
 
+    <!-- ADR-005: ELM327 über Bluetooth Classic (SPP), nur gekoppelte Geräte, keine Suche.
+         Bis Android 11 die alte Berechtigung, ab Android 12 BLUETOOTH_CONNECT (Laufzeit). -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+
     <!-- Verbindung läuft als Foreground-Service weiter (Bildschirm aus / App im Hintergrund).
          Typ connectedDevice verlangt zusätzlich eine Netzwerk-/Geräteberechtigung wie
          CHANGE_NETWORK_STATE (normale Berechtigung, ohne Rückfrage). -->

@@ -8,8 +8,6 @@ import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 
@@ -31,10 +29,8 @@ public final class Elm327Client implements Closeable {
         return clock.getAsLong();
     }
 
-    private final String host;
-    private final int port;
-    private final Network network;
-    private volatile Socket socket;
+    private final ElmLink.Opener opener;
+    private volatile ElmLink link;
     private BufferedInputStream in;
     private BufferedOutputStream out;
     // Geschrieben nur unter dem Lock (ein Schreiber), gelesen ohne: die Statistik darf ein laufendes
@@ -43,21 +39,27 @@ public final class Elm327Client implements Closeable {
     private volatile long rxBytes;
 
     public Elm327Client(String host, int port, Network network) {
-        this.host = host;
-        this.port = port;
-        this.network = network;
+        this(ElmLink.Tcp.opener(host, port, network));
+    }
+
+    /** Beliebiger Transportweg (ADR-005: WLAN oder Bluetooth). */
+    Elm327Client(ElmLink.Opener opener) {
+        this.opener = opener;
+    }
+
+    /** Transportweg für Konsole und Status. */
+    public String describe() {
+        return opener.describe();
     }
 
     public long connect(int timeoutMs) throws IOException {
         header = CommandSafety.DEFAULT_HEADER; // a new ELM327 session starts with the default header
         close();
         long start = now();
-        socket = network != null ? network.getSocketFactory().createSocket() : new Socket();
-        socket.setTcpNoDelay(true);
-        socket.setKeepAlive(true);
-        socket.connect(new InetSocketAddress(host, port), timeoutMs);
-        in = new BufferedInputStream(socket.getInputStream());
-        out = new BufferedOutputStream(socket.getOutputStream());
+        ElmLink l = opener.open(timeoutMs);
+        link = l;
+        in = new BufferedInputStream(l.input());
+        out = new BufferedOutputStream(l.output());
         return now() - start;
     }
 
@@ -85,12 +87,12 @@ public final class Elm327Client implements Closeable {
         out.write(data);
         out.flush();
         txBytes += data.length;
-        socket.setSoTimeout(timeoutMs);
+        link.setReadTimeout(timeoutMs);
         ByteArrayOutputStream buf = new ByteArrayOutputStream(256);
         try {
             while (true) {
                 int b = in.read();
-                if (b < 0) throw new IOException("ELM327 hat die TCP-Verbindung geschlossen");
+                if (b < 0) throw new IOException("ELM327 hat die Verbindung geschlossen");
                 rxBytes++;
                 if (b == '>') break;
                 if (buf.size() < 64 * 1024) buf.write(b);
@@ -180,14 +182,14 @@ public final class Elm327Client implements Closeable {
             while (true) {
                 long left = deadline - now();
                 if (left <= 0) return false;
-                socket.setSoTimeout((int) Math.max(1, left));
+                link.setReadTimeout((int) Math.max(1, left));
                 int n;
                 try {
                     n = in.read(chunk, 0, chunk.length);
                 } catch (SocketTimeoutException e) {
                     return false;
                 }
-                if (n < 0) throw new IOException("ELM327 hat die TCP-Verbindung geschlossen");
+                if (n < 0) throw new IOException("ELM327 hat die Verbindung geschlossen");
                 rxBytes += n;
                 for (int i = 0; i < n; i++) {
                     if (chunk[i] == '>') {
@@ -217,7 +219,7 @@ public final class Elm327Client implements Closeable {
             while (true) {
                 long left = deadline - now();
                 if (left <= 0) return false;
-                socket.setSoTimeout((int) Math.max(1, left));
+                link.setReadTimeout((int) Math.max(1, left));
                 int b = in.read();
                 if (b < 0) return false;
                 rxBytes++;
@@ -243,13 +245,15 @@ public final class Elm327Client implements Closeable {
     }
 
     private void ensureConnected() throws IOException {
-        if (socket == null || !socket.isConnected() || socket.isClosed()) {
-            throw new IOException("TCP-Verbindung ist nicht aktiv");
+        ElmLink l = link;
+        if (l == null || !l.isOpen()) {
+            throw new IOException("Verbindung zum ELM327 ist nicht aktiv");
         }
     }
 
     public boolean isConnected() {
-        return socket != null && socket.isConnected() && !socket.isClosed();
+        ElmLink l = link;
+        return l != null && l.isOpen();
     }
 
     public long getTxBytes() { return txBytes; }
@@ -263,10 +267,9 @@ public final class Elm327Client implements Closeable {
      */
     @Override
     public void close() {
-        Socket s = socket;
-        if (s != null) {
-            try { s.close(); } catch (IOException ignored) { }
-        }
+        ElmLink l = link;
+        if (l != null) l.close();
+        opener.cancel();   // ein noch laufender Aufbau (Bluetooth) endet sofort
     }
 
     private static String sanitize(String s) {

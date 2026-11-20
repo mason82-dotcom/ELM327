@@ -14,8 +14,11 @@ in [CHANGELOG.md](CHANGELOG.md).
 
 ## Schnellstart
 
-1. ELM327-WLAN-Adapter in die Diagnosedose stecken, Zündung an, Handy mit dem WLAN des Adapters verbinden.
-2. App öffnen, Adresse prüfen (Standard `192.168.0.10:35000`; Dashboard: INFO), **Verbinden**.
+1. ELM327 in die Diagnosedose stecken, Zündung an.
+   - **WLAN-Adapter:** Handy/Radio mit dem WLAN des Adapters verbinden, Adresse prüfen (Standard `192.168.0.10:35000`).
+   - **Bluetooth-Adapter:** einmal in den Android-Einstellungen koppeln (PIN meist 1234 oder 0000), dann in der App
+     „Adapter: … · ändern“ (Dashboard: INFO) das Gerät wählen. Gut für Android-Radios, die so ihr WLAN behalten.
+2. **Verbinden**.
 3. Die App erkennt Protokoll und unterstützte Werte selbst; Livewerte erscheinen nach wenigen Sekunden. Werte, die
    gerade nicht frisch gelesen werden, zeigt sie als „–“ statt des letzten Werts.
 
@@ -78,6 +81,7 @@ Jede Ausnahme ist eine eigene Entscheidung mit exakt festgelegten Befehlen und R
 | [ADR-002](docs/adr-002-can-mitlesen.md) | Bus mitlesen: `ATMA` zeitbegrenzt, `ATCAF0/1` |
 | [ADR-003](docs/adr-003-atf-antwort-layout.md) | Auswertung der ATF-Antwort (kein neuer Befehl) |
 | [ADR-004](docs/adr-004-kwp-kennung-fehlerspeicher.md) | Kennung `1A 86` (7E0/7E1), Getriebe-Fehler `18 02 FF 00` (7E1) – Testfreigabe |
+| [ADR-005](docs/adr-005-bluetooth.md) | Transport über Bluetooth (SPP) – keine neuen Befehle |
 
 Gesperrt bleiben Fehlerlöschen, Sitzungswechsel, Security Access, Stellglieder, Routinen, Schreiben und Flashen.
 
