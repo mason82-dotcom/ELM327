@@ -8,7 +8,8 @@ import java.util.Map;
 /**
  * Werkstatthinweise für den Mercedes M272 (C350 S204, T-Modell). Keine Diagnose, sondern
  * typische Ursachen als Prüfreihenfolge. Zylinderzuordnung M272:
- * Bank 1 = Zylinder 1–3, Bank 2 = Zylinder 4–6.
+ * Bank 1 = Zylinder 1–3 = rechte Zylinderbank (Lambdasonden G3/4 vor, G3/6 nach Kat),
+ * Bank 2 = Zylinder 4–6 = linke Zylinderbank (G3/3, G3/5) – laut ME9.7-Fehlertabelle (P0030 = G3/4, P0016 = rechts).
  */
 public final class M272Hints {
     private static final Map<String, String> HINTS = new LinkedHashMap<>();
@@ -36,11 +37,14 @@ public final class M272Hints {
         String leanBoth = "Beide Bänke mager → gemeinsame Ursache vor der Bankaufteilung: Falschluft über "
                 + "Kurbelgehäuseentlüftung (beim M272 reißt oft das Y-Stück des Entlüftungsschlauchs unter dem "
                 + "Luftmassenmesser – Forenbericht, 100–160 Tkm), Saugrohrdichtungen, "
-                + "Luftmassenmesser, Kraftstoffdruck. Fuel-Trim-Test (Leerlauf vs. 2500 U/min) nutzen.";
-        HINTS.put("P0171", "Nur Bank 1 (Zyl. 1–3): Einspritzventil/Dichtung, Lambdasonde oder "
-                + "Falschluft dieser Bank. Mit P0174 zusammen: " + leanBoth);
-        HINTS.put("P0174", "Nur Bank 2 (Zyl. 4–6): Einspritzventil/Dichtung, Lambdasonde oder "
-                + "Falschluft dieser Bank. Mit P0171 zusammen: " + leanBoth);
+                + "Luftmassenmesser und dessen Sitz am Ansaugkrümmer (Schelle), Kraftstoffdruck, Regenerierventil. "
+                + "Fuel-Trim-Test (Leerlauf vs. 2500 U/min) nutzen.";
+        HINTS.put("P0171", "Nur Bank 1 (Zyl. 1–3, rechte Seite, Sonde G3/4): Gemischadaption im Leerlauf oder in der "
+                + "Teillast an der Grenze. Einspritzventile Zyl. 1–3 (Dichtheit/Strahlbild), Falschluft oder Abgasleck "
+                + "rechts vor G3/4, Sonde G3/4. Mit P0174 zusammen: " + leanBoth);
+        HINTS.put("P0174", "Nur Bank 2 (Zyl. 4–6, linke Seite, Sonde G3/3): Gemischadaption im Leerlauf oder in der "
+                + "Teillast an der Grenze. Einspritzventile Zyl. 4–6, Falschluft oder Abgasleck links vor G3/3, Sonde "
+                + "G3/3. Mit P0171 zusammen: " + leanBoth);
         HINTS.put("P2187", "Mager im Leerlauf Bank 1 – typisch Falschluft (Kurbelgehäuseentlüftung, "
                 + "Saugrohr). Bei höherer Drehzahl verschwindend spricht für Falschluft.");
         HINTS.put("P2189", "Mager im Leerlauf Bank 2 – typisch Falschluft (Kurbelgehäuseentlüftung, "

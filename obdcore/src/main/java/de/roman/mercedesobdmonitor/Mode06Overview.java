@@ -188,6 +188,41 @@ public final class Mode06Overview {
         return n != null ? n : String.format(Locale.US, "Monitor 0x%02X", mid);
     }
 
+    /**
+     * Herstellerspezifische Tests des ME9.7 (M272/M273) nach der Mode-06-Referenztabelle im Werkstatthandbuch
+     * (Werte dort nur Beispiele; Grenzen liefert das Steuergerät selbst).
+     */
+    private static final Map<Integer, String> ME97 = new HashMap<>();
+
+    static {
+        for (int[] m : new int[][] {{0x01, 1}, {0x05, 2}}) {
+            ME97.put(m[0] << 8 | 0x83, "Breitbandsonde Rohwert (Ref. 0,30–2,00)");
+            ME97.put(m[0] << 8 | 0x84, "Breitbandsonde Abweichung (Ref. ±0,03)");
+        }
+        for (int mid : new int[] {0x02, 0x06}) {
+            ME97.put(mid << 8 | 0x81, "Sprungsonde untere Spannung");
+            ME97.put(mid << 8 | 0x82, "Sprungsonde obere Spannung");
+            ME97.put(mid << 8 | 0x83, "Sprungsonde Restspannung");
+        }
+        for (int mid : new int[] {0x21, 0x22}) ME97.put(mid << 8 | 0x84, "Sauerstoffspeicher (Ref. 1–16 mg O₂)");
+        for (int mid : new int[] {0x41, 0x45}) ME97.put(mid << 8 | 0x85, "Heizung Sondentemperatur (Ref. 700–1263 °C)");
+        for (int mid : new int[] {0x42, 0x46}) ME97.put(mid << 8 | 0x81, "Heizung Widerstand (Ref. 0–1344 Ω)");
+        for (int mid : new int[] {0x71, 0x72}) {
+            ME97.put(mid << 8 | 0x80, "Sekundärluft Wirkung (Ref. 0,37–2,00)");
+            ME97.put(mid << 8 | 0x81, "Sekundärluft Restwert (Ref. 0–0,20)");
+        }
+        for (int mid : new int[] {0x81, 0x82}) {
+            ME97.put(mid << 8 | 0x80, "Gemischadaption % (Ref. ±4,5 %)");
+            ME97.put(mid << 8 | 0x82, "Gemischadaption Faktor (Ref. 0,70–1,30)");
+        }
+    }
+
+    /** Name eines Tests: ME9.7-Bezeichnung für herstellerspezifische Tests, sonst SAE-Bezeichnung. */
+    public static String testName(int mid, int tid) {
+        String n = ME97.get(mid << 8 | tid);
+        return n != null ? n : tidName(tid);
+    }
+
     public static String tidName(int tid) {
         String n = TIDS.get(tid);
         if (n != null) return n;
@@ -320,7 +355,7 @@ public final class Mode06Overview {
         };
         StringBuilder sb = new StringBuilder(withMonitor ? "" : "  ").append(mark).append(' ');
         if (withMonitor) sb.append(midName(t.mid)).append(" · ");
-        sb.append(tidName(t.tid)).append(": ");
+        sb.append(testName(t.mid, t.tid)).append(": ");
         if (t.status == Status.NOT_RUN) return sb.append("noch nicht gelaufen").toString();
         sb.append(format(t.value, t.uasid));
         if (t.hasMin && t.hasMax) {
@@ -364,7 +399,7 @@ public final class Mode06Overview {
                 int gap = a.reservePercent - b.reservePercent;
                 String mark = Math.abs(gap) >= BANK_GAP_PERCENT ? "⚠" : "·";
                 StringBuilder l = new StringBuilder("  ").append(mark).append(' ')
-                        .append(midName(a.mid).replace(" Bank 1", "")).append(" · ").append(tidName(a.tid)).append(": B1 ")
+                        .append(midName(a.mid).replace(" Bank 1", "")).append(" · ").append(testName(a.mid, a.tid)).append(": B1 ")
                         .append(format(a.value, a.uasid)).append(" (").append(a.reservePercent).append(" %) · B2 ")
                         .append(format(b.value, b.uasid)).append(" (").append(b.reservePercent).append(" %)");
                 if (gap <= -BANK_GAP_PERCENT) {

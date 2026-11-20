@@ -39,10 +39,11 @@ public final class LiveWarnings {
     static final double COOLANT_ALARM_CLEAR = 111;
     static final double COOLANT_CLEAR = 104;
 
-    // Motor läuft: Ladespannung. Gemessen am C350: 14,1–14,6 V.
-    static final double CHARGE_LOW_WARN = 13.0;
+    // Motor läuft: Ladespannung (Obergrenze laut WIS bis 15 V). Gemessen am C350: 14,1–14,6 V. Das ME senkt sie bei voller Batterie im Leerlauf
+    // deutlich ab (WIS GF07.61-P-3003CY) – erst unter der Ruhespannung einer vollen Batterie entlädt sie sich wirklich.
+    static final double CHARGE_LOW_WARN = 12.6;
     static final double CHARGE_LOW_ALARM = 12.2;
-    static final double CHARGE_LOW_CLEAR = 13.3;
+    static final double CHARGE_LOW_CLEAR = 12.9;
     static final double CHARGE_HIGH_ALARM = 15.0;
     static final double CHARGE_HIGH_CLEAR = 14.8;
 
