@@ -101,6 +101,26 @@ public class ServiceMode04GateTest {
                 p(true,true,true,true,50.0,NOW,0.0,NOW,12.4,NOW)));
     }
 
+    @Test public void safetyPreflightRequiresVerifiedEngineEcuNotTransmissionFallback() {
+        ObdPid rpm = ObdPid.defaultPids().stream()
+                .filter(pid -> pid.pid == 0x0C).findFirst().orElseThrow();
+        ObdPid speed = ObdPid.defaultPids().stream()
+                .filter(pid -> pid.pid == 0x0D).findFirst().orElseThrow();
+        ObdPid voltage = ObdPid.defaultPids().stream()
+                .filter(pid -> pid.pid == 0x42).findFirst().orElseThrow();
+        assertEquals(0.0, ServiceMode04Gate.engineOnlyPid(rpm,
+                "7E904410C0000\r7E804410C0000\r"), 1e-9);
+        assertEquals(0.0, ServiceMode04Gate.engineOnlyPid(speed,
+                "7E903410D00"), 1e-9);
+        // Real 20.11.2026 example: 7E9 reports another voltage and arrives first.
+        assertEquals(11.497, ServiceMode04Gate.engineOnlyPid(voltage,
+                "7E90441422AAD 7E80441422CE9"), 1e-6);
+        assertNull(ServiceMode04Gate.engineOnlyPid(rpm, "7E904410C0000"));
+        assertNull(ServiceMode04Gate.engineOnlyPid(rpm, "410C0000"));
+        assertNull(ServiceMode04Gate.engineOnlyPid(rpm, "7E803410D00"));
+        assertNull(ServiceMode04Gate.engineOnlyPid(rpm, "7E804410C0E"));
+    }
+
     @Test public void mainSafetyGateStaysReadOnly() {
         for (String s : new String[] {"04", "08", "3101", "2E0101", "2701", "14FFFFFF"}) {
             assertFalse("Der normale Adapterpfad muss weiter sperren: " + s, CommandSafety.isAllowed(s));
