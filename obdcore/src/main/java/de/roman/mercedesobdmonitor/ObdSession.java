@@ -120,6 +120,8 @@ public final class ObdSession {
     private final AtomicBoolean monitoring = new AtomicBoolean(false);
     private final AtomicBoolean exclusiveRequest = new AtomicBoolean(false);
     private final AtomicInteger sessionGeneration = new AtomicInteger(0);
+    /** Herkunft einer laufenden Diagnose; -1 außerhalb eines exklusiven Auftrags. */
+    private volatile int activeDiagnosisGeneration = -1;
     private final AtomicLong telemetrySequence = new AtomicLong(0);
 
     /** Wird beim Verbinden neu befüllt und parallel vom Polling gelesen. */
@@ -233,6 +235,7 @@ public final class ObdSession {
         connectivity = context.getApplicationContext().getSystemService(ConnectivityManager.class);
         csv.setDirectory(CsvLogger.logDirectory(context.getApplicationContext()));
         final int session = sessionGeneration.incrementAndGet();
+        clearDiagnosisUiForSessionChange();
         userDisconnect = false;
         monitoring.set(false);
         latestValues.clear();
@@ -287,6 +290,7 @@ public final class ObdSession {
     public void disconnect(String reason) {
         sessionGeneration.incrementAndGet();
         userDisconnect = true;
+        clearDiagnosisUiForSessionChange();
         monitoring.set(false);
         protocolIsCan = null;
         latestValues.clear();
@@ -537,6 +541,7 @@ public final class ObdSession {
             if (cycle == null || cycle.monitors.isEmpty()) return;
             final String text = "Fahrzyklus (01 41): " + cycle.summary();
             ui.post(() -> {
+                if (session != sessionGeneration.get() || userDisconnect) return;
                 state.driveCycleText = text;
                 if (listener != null) listener.onPassive(state);
             });
@@ -572,7 +577,10 @@ public final class ObdSession {
         @Override public Boolean protocolIsCan() { return protocolIsCan; }
         @Override public void countTimeouts(long n) { timeouts.addAndGet(n); }
         @Override public void countIoError() { ioErrors.incrementAndGet(); }
-        @Override public void status(String text) { showStatus(text); }
+        @Override public void status(String text) {
+            int generation = activeDiagnosisGeneration;
+            if (generation >= 0) showStatusForSession(generation, text);
+        }
         @Override public boolean starterCancelled() { return starterCancel; }
         @Override public double recentAmbient() { return ObdSession.this.recentAmbient(); }
         @Override public boolean livePid(int pid) { return activePids.isEmpty() || containsPid(pid); }
@@ -733,8 +741,10 @@ public final class ObdSession {
             toast("Diagnosevorgang läuft bereits");
             return false;
         }
-        setBusy(op, true);
-        showStatus(title + " läuft …");
+        final int acceptedSession = sessionGeneration.get();
+        activeDiagnosisGeneration = acceptedSession;
+        setBusyForSession(acceptedSession, op, true);
+        showStatusForSession(acceptedSession, title + " läuft …");
 
         io.execute(() -> {
             String report;
@@ -762,6 +772,7 @@ public final class ObdSession {
                 parserErrors.incrementAndGet();
                 report = title + " fehlgeschlagen (Auswertung):\n" + e;
             } finally {
+                activeDiagnosisGeneration = -1;
                 exclusiveRequest.set(false);
                 // Scheitert schon enterDiagnosis, läuft readStarterTest nie – der Zustand darf nicht hängen bleiben.
                 if (op == Op.STARTER) {
@@ -769,10 +780,13 @@ public final class ObdSession {
                     starterCancel = false;
                 }
             }
-            setBusy(op, false);
-            showStatus(statusAfterDiagnosis(title + " beendet · Reconnect läuft …"));
+            // Trennen oder neuer Verbindungsaufbau entwertet den gesamten Auftrag.
+            // Auch bereits gepostete UI-Callbacks prüfen dieselbe Sitzungskennung erneut.
+            if (!diagnosisIsCurrent(acceptedSession)) return;
+            setBusyForSession(acceptedSession, op, false);
+            showStatusForSession(acceptedSession, statusAfterDiagnosis(title + " beendet · Reconnect läuft …"));
             updateStats();
-            showResult(op, title, report);
+            showResultForSession(acceptedSession, op, title, report);
         });
         return true;
     }
@@ -1292,11 +1306,36 @@ public final class ObdSession {
         });
     }
 
-    private void setBusy(Op op, boolean busy) {
+    /** Sitzungswechsel dürfen weder alte Spinner erneut setzen noch neue Spinner entfernen. */
+    private void setBusyForSession(int generation, Op op, boolean busy) {
         ui.post(() -> {
+            if (!diagnosisIsCurrent(generation)) return;
             if (busy) state.busy.add(op);
             else state.busy.remove(op);
             if (listener != null) listener.onBusy(op, busy);
+        });
+    }
+
+    /** Wird ausschließlich vom Main-Thread bei Trennen/Neuverbinden aufgerufen. */
+    private void clearDiagnosisUiForSessionChange() {
+        for (Op op : new ArrayList<>(state.busy)) {
+            state.busy.remove(op);
+            if (listener != null) listener.onBusy(op, false);
+        }
+        // Ein ohne Activity gespeichertes Ergebnis gehört zur alten Fahrzeugsitzung.
+        pendingDialogs.removeIf(p -> p.op != null);
+    }
+
+    private boolean diagnosisIsCurrent(int generation) {
+        return SessionEpoch.matches(generation, sessionGeneration.get(), active, userDisconnect);
+    }
+
+    private void showStatusForSession(int generation, String text) {
+        ui.post(() -> {
+            if (!diagnosisIsCurrent(generation)) return;
+            state.status = text;
+            if (listener != null) listener.onStatus(text);
+            notifyObserver();
         });
     }
 
@@ -1310,10 +1349,19 @@ public final class ObdSession {
         deliver(null, title, message);
     }
 
-    /** Ergebnis einer Diagnose, eindeutig mit der Operation, die es erzeugt hat. */
-    private void showResult(Op op, String title, String message) {
-        recordForPlan(op, message);
-        deliver(op, title, message);
+    /**
+     * Ergebnis einschließlich Prüfplaneintrag erst im UI-Thread übernehmen.
+     * Der Guard läuft beim tatsächlichen Zustellen, nicht nur beim Beenden der I/O-Arbeit.
+     */
+    private void showResultForSession(int generation, Op op, String title, String message) {
+        ui.post(() -> {
+            if (!diagnosisIsCurrent(generation)) return;
+            recordForPlan(op, message);
+            if (listener != null) listener.onResult(op, title, message);
+            else if (pendingDialogs.size() < MAX_PENDING_DIALOGS) {
+                pendingDialogs.add(new Pending(op, title, message));
+            }
+        });
     }
 
     // ------------------------------------------------------------------ Prüfplan

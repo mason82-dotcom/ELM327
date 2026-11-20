@@ -104,8 +104,16 @@ public final class Elm327Client implements Closeable {
         }
         long elapsed = now() - start;
         String raw = new String(buf.toByteArray(), StandardCharsets.US_ASCII).trim();
-        // Header state follows only confirmed commands (see UNKNOWN_HEADER above).
-        if (CommandSafety.changesHeader(cmd)) header = CommandSafety.headerAfter(cmd, header);
+        // A '>' prompt only confirms the end of a reply, NOT that ATSH was accepted.
+        // A rejected header command must never unlock an ECU-specific manufacturer request.
+        if (CommandSafety.changesHeader(cmd)) {
+            if (!headerAcknowledged(cmd, raw)) {
+                // header was set to UNKNOWN_HEADER before transmission; keep it unknown.
+                throw new IOException("ELM327 hat den Header-/Reset-Befehl nicht bestätigt: "
+                        + cmd + " → " + sanitize(raw));
+            }
+            header = CommandSafety.headerAfter(cmd, header);
+        }
         return new CommandResult(raw, elapsed);
     }
 
@@ -270,6 +278,31 @@ public final class Elm327Client implements Closeable {
         ElmLink l = link;
         if (l != null) l.close();
         opener.cancel();   // ein noch laufender Aufbau (Bluetooth) endet sofort
+    }
+
+    /**
+     * ATSH muss als eigene Antwortzeile OK melden. ATZ liefert stattdessen üblicherweise
+     * einen Identifikationstext; ein leeres oder offensichtlich abgewiesenes Reset ist kein Beleg.
+     * Der Echo-Text (ATE1) darf nicht allein als Bestätigung gelten.
+     */
+    static boolean headerAcknowledged(String cmd, String raw) {
+        if (raw == null || raw.isBlank()) return false;
+        String[] lines = raw.toUpperCase(java.util.Locale.US).split("[\\r\\n]+");
+        boolean ok = false;
+        for (String line : lines) {
+            String reply = line.trim();
+            if ("?".equals(reply) || "ERROR".equals(reply) || reply.startsWith("UNABLE TO CONNECT")) {
+                return false;
+            }
+            if ("OK".equals(reply)) ok = true;
+        }
+        if ("ATZ".equals(cmd)) {
+            // ATZ liefert bei echten ELMs einen Versions-/Interpreter-Banner statt "OK".
+            // "NO DATA", "STOPPED" oder ein bloßes Echo dürfen keinen Header freigeben.
+            String banner = raw.toUpperCase(java.util.Locale.US).trim();
+            return ok || banner.contains("ELM") || banner.contains("OBD");
+        }
+        return ok;
     }
 
     private static String sanitize(String s) {
