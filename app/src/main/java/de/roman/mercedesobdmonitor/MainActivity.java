@@ -58,6 +58,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private Button warmupButton;
     private Button profileButton;
     private Button atfButton;
+    private Button starterButton;
     private SparklineView latencyGraph;
     private TextView analysisText;
     private TextView tripsText;
@@ -179,6 +180,8 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         atfButton = button("ATF-Temperatur");
         c350Controls.addView(profileButton, weight());
         c350Controls.addView(atfButton, weight());
+        starterButton = button("Starttest");
+        c350Controls.addView(starterButton, weight());
         root.addView(c350Controls);
 
         warmupStatus = text("Warmlauf-Check: bereit", 13, Color.LTGRAY);
@@ -271,6 +274,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         monitorTestsButton.setOnClickListener(v -> session.runMonitorTests());
         profileButton.setOnClickListener(v -> session.runVehicleProfile());
         atfButton.setOnClickListener(v -> session.runAtfTemperature());
+        starterButton.setOnClickListener(v -> session.toggleStarterTest());
         warmupButton.setOnClickListener(v -> session.toggleWarmupCheck());
         send.setOnClickListener(v -> session.sendTerminal(terminalInput.getText().toString()));
         export.setOnClickListener(v -> session.exportCsv(this));
@@ -463,6 +467,11 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
             case MONITOR_TESTS -> { b = monitorTestsButton; idle = "Monitortests (Mode 06)"; working = "Lese Monitortests …"; }
             case PROFILE -> { b = profileButton; idle = "Fahrzeugprofil"; working = "Lese Profil …"; }
             case ATF -> { b = atfButton; idle = "ATF-Temperatur"; working = "Lese Getriebe …"; }
+            case STARTER -> {
+                // bleibt bedienbar: zweiter Druck bricht ab
+                starterButton.setText(busy ? "Starttest abbrechen" : "Starttest");
+                return;
+            }
             case INSPECTION -> { b = inspectionButton; idle = "HU/AU-Check"; working = "Lese Readiness …"; }
             default -> { return; }
         }
