@@ -163,6 +163,7 @@ public final class TestPlan {
             case CAN_MONITOR -> "Bus mitlesen";
             case KWP -> "Kennung + Getriebe-Fehler";
             case LID_SCAN -> "Kennungssuche Motor";
+            case SERVICE_CLEAR -> "Service-Labor: Emissionsdaten löschen";
         };
     }
 

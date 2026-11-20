@@ -1,5 +1,13 @@
 # ELM327 – Mercedes OBD2 Monitor
 
+> **Experimenteller Branch `feature/w204-service-lab-mode04-roof-coding-20261120`**
+> Der unveränderte `main`-Branch arbeitet read-only. Dieser Branch enthält ausschließlich
+> eine **ausdrücklich bestätigte, einmalige Mode-04-Ausnahme**, die Emissions-Diagnosedaten
+> verändert. Dachöffnen/-schließen ist **nur eine Offline-Simulation**; Codierung,
+> EEPROM und weitere Stellglieder sind **ausschließlich Forschungs-/Dokumentationsfunktionen**.
+> Details: [ADR-008](docs/adr-008-service-labor-w204.md) und [UX-Vertrag](UX-CONTRACT.md).
+
+
 Zwei Android-Apps, die über einen ELM327-WLAN-Adapter die Diagnosedose eines **Mercedes C350 T-Modell S204 (M272,
 7G-Tronic, Baujahr 2008)** auslesen – **nur lesend**: keine Codierung, kein Löschen von Fehlercodes, keine
 Stellglieder.
@@ -91,7 +99,7 @@ Jede Ausnahme ist eine eigene Entscheidung mit exakt festgelegten Befehlen und R
 | [ADR-004](docs/adr-004-kwp-kennung-fehlerspeicher.md) | Kennung `1A 86` (7E0/7E1), Getriebe-Fehler `18 02 FF 00` (7E1) – Testfreigabe |
 | [ADR-005](docs/adr-005-bluetooth.md) | Transport über Bluetooth (SPP) – keine neuen Befehle |
 | [ADR-006](docs/adr-006-autostart.md) | Automatisch verbinden (App-Start, Radiostart) – keine neuen Befehle |
-| [ADR-007](docs/adr-007-kennungssuche-motor.md) | Kennungssuche `21 01`–`21 FE` nur an 7E0 und nur im Suchmodus (Test, Schalter aus) |
+| [ADR-008](docs/adr-007-kennungssuche-motor.md) | Kennungssuche `21 01`–`21 FE` nur an 7E0 und nur im Suchmodus (Test, Schalter aus) |
 
 Gesperrt bleiben Fehlerlöschen, Sitzungswechsel, Security Access, Stellglieder, Routinen, Schreiben und Flashen.
 

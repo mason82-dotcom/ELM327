@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * zeichnet sich daraus neu. Bewusst ohne gespeicherten Context.
  */
 public final class ObdSession {
-    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS, PROFILE, ATF, STARTER, CAN_MONITOR, KWP, LID_SCAN }
+    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS, PROFILE, ATF, STARTER, CAN_MONITOR, KWP, LID_SCAN, SERVICE_CLEAR }
 
     /** UI-Callbacks; alle Aufrufe im Main-Thread. */
     public interface Listener {
@@ -146,6 +146,15 @@ public final class ObdSession {
     private final Map<Integer, Long> latestAt = new ConcurrentHashMap<>();
     private final FuelTrimTest fuelTrimTest = new FuelTrimTest();
     private final WarmupCheck warmupCheck = new WarmupCheck();
+    private final RoofLab roofLab = new RoofLab();
+
+    /** Vollständig offline; die Dach-Simulation besitzt keinen ELM327-Transport. */
+    public String simulateRoof(RoofLab.Action action) { return roofLab.execute(action); }
+
+    public String toggleRoofLabObstacle() {
+        roofLab.setObstacle(!roofLab.isBlocked());
+        return "SIMULATION: Hindernis " + (roofLab.isBlocked() ? "gesetzt" : "entfernt");
+    }
     /** Steuergerät meldet PID 41 (Monitorstatus dieser Fahrt) als unterstützt. */
     private volatile boolean driveCyclePid;
 
@@ -174,6 +183,9 @@ public final class ObdSession {
     /** Erste Fahrzeuganfrage nach Reconnect bekommt längeren Timeout (Protokollsuche). */
     private volatile boolean firstRequestAfterInit = false;
     private volatile String adapterVoltage = "–";
+    private volatile int serviceArmedGeneration = -1;
+    private volatile int lastValidDtcReadGeneration = -1;
+    private volatile long lastValidDtcReadAt = -1;
 
     // Nur Main-Thread.
     private final State state = new State();
@@ -334,6 +346,7 @@ public final class ObdSession {
             session = sessionGeneration.incrementAndGet();
         }
         clearDiagnosisUiForSessionChange();
+        revokeServiceLab();
         userDisconnect = false;
         monitoring.set(false);
         // Neue Verbindung übernimmt niemals Livewerte oder Anzeigen aus dem Vorgänger.
@@ -403,6 +416,7 @@ public final class ObdSession {
             session = sessionGeneration.incrementAndGet();
         }
         userDisconnect = true;
+        revokeServiceLab();
         clearDiagnosisUiForSessionChange();
         monitoring.set(false);
         protocolIsCan = null;
@@ -728,6 +742,9 @@ public final class ObdSession {
 
     private void reconnectAfterFailure(int session, String host, int port, ElmLink.Opener transport) {
         if (userDisconnect || !monitoring.get() || session != sessionGeneration.get()) return;
+        // Nach Adapterverlust sind weder ein vorheriger DTC-Snapshot noch die
+        // flüchtige Service-Freigabe einer wiederaufgebauten Verbindung zuzuordnen.
+        revokeServiceLab();
         showStatusForConnection(session, "Verbindung unterbrochen · Reconnect …");
         try {
             ElmText.sleepQuiet(2000);
@@ -766,6 +783,97 @@ public final class ObdSession {
 
     public void readDtcs() {
         runExclusiveDiagnosis(Op.DTC, "OBD-II Fehlercodes", jobs::readDtcReport);
+    }
+
+    /** Service-Labor nur flüchtig und für exakt diese Sitzung freischalten. */
+    public void armServiceLab(boolean enabled) {
+        serviceArmedGeneration = enabled && active && !userDisconnect && client != null && client.isConnected()
+                ? sessionGeneration.get() : -1;
+    }
+
+    public boolean isServiceLabArmed() {
+        return serviceArmedGeneration == sessionGeneration.get() && active && !userDisconnect;
+    }
+
+    private void revokeServiceLab() {
+        serviceArmedGeneration = -1;
+        lastValidDtcReadGeneration = -1;
+        lastValidDtcReadAt = -1;
+    }
+
+    /** Nur nach zweistufiger ausdrücklicher UI-Bestätigung auf dem isolierten Service-Branch. */
+    public void clearEmissionCodesConfirmed() {
+        if (!isServiceLabArmed()) {
+            toast("Service-Labor ist in dieser Sitzung nicht freigegeben");
+            return;
+        }
+        if (lastValidDtcReadGeneration != sessionGeneration.get() || lastValidDtcReadAt < 0
+                || SystemClock.elapsedRealtime() - lastValidDtcReadAt > ServiceMode04Gate.MAX_DTC_READ_AGE_MS) {
+            toast("Zuerst DTC 03/07/0A vollständig lesen und Ergebnis sichern");
+            return;
+        }
+        runExclusiveDiagnosis(Op.SERVICE_CLEAR, "Mode 04 – Emissionsdiagnosedaten löschen", this::clearServiceMode04Once);
+    }
+
+    /** Exakt ein Mode-04-Sendeversuch; auch bei unbekannter Antwort kein automatischer Retry. */
+    private String clearServiceMode04Once(Elm327Client c) {
+        boolean armed = isServiceLabArmed();
+        serviceArmedGeneration = -1; // vor jeder I/O-Arbeit verbrauchen
+        final int generation = sessionGeneration.get();
+        if (!armed || !LinkPolicy.isCan11Bit(protocolNumber)) {
+            return "NICHT ausgeführt: Service-Freigabe fehlt oder 11-bit-CAN nicht bestätigt.";
+        }
+        boolean evidence = lastValidDtcReadGeneration == generation && lastValidDtcReadAt >= 0
+                && SystemClock.elapsedRealtime() - lastValidDtcReadAt <= ServiceMode04Gate.MAX_DTC_READ_AGE_MS;
+        if (!evidence) return "NICHT ausgeführt: aktuelle DTC-Bestandsaufnahme fehlt.";
+
+        boolean attempted = false;
+        try {
+            // Fail-closed: vor dem Sendeversuch die drei motorseitigen Livewerte explizit
+            // über ATH1/7E8 identifizieren; 7E9 darf nicht als Motor-aus-Nachweis dienen.
+            c.sendCommand("ATH1", 1500);
+            double rpm = readServicePid(c, 0x0C);
+            double speed = readServicePid(c, 0x0D);
+            double voltage = readServicePid(c, 0x42);
+            c.sendCommand("ATH0", 1500); // Mode-04-ACK im gewohnten Header-losen Antwortformat
+            long now = SystemClock.elapsedRealtime();
+            ServiceMode04Gate.Preflight check = new ServiceMode04Gate.Preflight(
+                    diagnosisIsCurrent(generation), c.isConnected(), armed, true, evidence,
+                    rpm, now, speed, now, voltage, now, now);
+            String blocked = ServiceMode04Gate.blockedReason(check);
+            if (blocked != null) return "NICHT ausgeführt: " + blocked + ".";
+            ServiceMode04Gate.Ticket ticket = ServiceMode04Gate.issue(check);
+            lastValidDtcReadGeneration = -1;  // bei unklarem Status erneut lesen erforderlich
+            lastValidDtcReadAt = -1;
+            append("Service-Labor: einmaliger Mode-04-Versuch, kein Retry");
+            attempted = true;
+            Elm327Client.CommandResult response = c.clearEmissionsOnce(ticket, 3500);
+            if (!ServiceMode04Gate.positiveAck(response.raw)) {
+                closeClientIfCurrent(c);
+                return "STATUS UNKLAR: keine eindeutige 44-Quittung. Nicht wiederholen. "
+                        + "Nach Reconnect Codes neu lesen. Rohantwort: " + ElmText.clean(response.raw);
+            }
+            return "Mode 04 vom Steuergerät mit 44 bestätigt.\n"
+                    + "Emissions-DTCs, Freeze-Frame-Daten und Readiness können zurückgesetzt sein. "
+                    + "Permanente Mode-0A-DTCs werden nicht direkt gelöscht.\n"
+                    + "Nach Reconnect 03/07/0A und Readiness manuell neu lesen.";
+        } catch (IOException e) {
+            closeClientIfCurrent(c);
+            if (!attempted) return "NICHT ausgeführt: Vorprüf-Abfrage fehlgeschlagen. "
+                    + "Kein Mode 04 gesendet. Verbindung neu aufbauen und neu prüfen. Ursache: " + e.getMessage();
+            return "STATUS UNKLAR: Mode-04-Versuch fehlgeschlagen. "
+                    + "Nicht automatisch wiederholen; nach Reconnect manuell neu auslesen. Ursache: " + e.getMessage();
+        }
+    }
+
+    private double readServicePid(Elm327Client c, int id) throws IOException {
+        for (ObdPid pid : ObdPid.defaultPids()) {
+            if (pid.pid != id) continue;
+            Double v = ServiceMode04Gate.engineOnlyPid(pid, c.sendCommand(pid.command(), 2200).raw);
+            if (v == null) throw new IOException("Keine bestätigte Motor-ECU-Antwort (7E8) für " + pid.command());
+            return v;
+        }
+        throw new IOException("Unbekannte Vorprüf-PID " + id);
     }
 
     /** True, solange ein DTC-Auftrag einschließlich seiner Abbruchphase exklusiv arbeitet. */
@@ -1639,6 +1747,11 @@ public final class ObdSession {
         ui.post(() -> {
             if (!diagnosisIsCurrent(generation)) return;
             recordForPlan(op, message);
+            if (op == Op.DTC && ServiceMode04Gate.hasCompleteDtcSnapshot(message)) {
+                // Erst nachdem der Diagnosebericht in den Prüfplan übernommen wurde.
+                lastValidDtcReadGeneration = generation;
+                lastValidDtcReadAt = SystemClock.elapsedRealtime();
+            }
             deliverNow(op, title, message);
         });
     }
