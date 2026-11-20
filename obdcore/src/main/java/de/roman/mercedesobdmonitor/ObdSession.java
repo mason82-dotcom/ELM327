@@ -736,16 +736,22 @@ public final class ObdSession {
             diagCommand(c, CommandSafety.RAW_FORMAT, 1500);
             m = c.monitorPassive(CAN_MONITOR_MS, CAN_MONITOR_MAX_BYTES);
             append(CommandSafety.MONITOR_ALL + " → " + m.raw.length() + " Zeichen in " + m.elapsedMs + " ms"
-                    + (m.endedByAdapter ? " (vom Adapter beendet)" : ""));
-            diagCommand(c, CommandSafety.AUTO_FORMAT, 1500);
-            diagCommand(c, LinkPolicy.DIAG_HEADERS, 1500);
-            restored = true;
+                    + (m.endedByAdapter ? " (vom Adapter beendet)" : "")
+                    + (m.stopTimedOut ? " (kein Prompt nach dem Stopp – Verbindung wird neu aufgebaut)" : ""));
+            if (!m.stopTimedOut) {
+                diagCommand(c, CommandSafety.AUTO_FORMAT, 1500);
+                diagCommand(c, LinkPolicy.DIAG_HEADERS, 1500);
+                restored = true;
+            }
         } finally {
             // ATCAF0 darf nicht stehen bleiben, sonst lesen die OBD-Parser rohe Frames: ohne bestätigte
             // Wiederherstellung Verbindung verwerfen, LinkPolicy.reconnectInit setzt ATCAF1.
             if (!restored) closeClientIfCurrent(c);
         }
-        return CanMonitor.report(CanMonitor.parse(m.raw), m.elapsedMs, m.truncated);
+        String report = CanMonitor.report(CanMonitor.parse(m.raw), m.elapsedMs, m.truncated);
+        return m.stopTimedOut
+                ? report + "\n\nHinweis: Der Adapter hat das Mitlesen nicht sauber beendet; die Verbindung wird neu aufgebaut."
+                : report;
     }
 
     private String readVehicleProfile(Elm327Client c) throws IOException {
@@ -1207,9 +1213,7 @@ public final class ObdSession {
         final int session = sessionGeneration.get();
         if (cmd.isEmpty()) return;
         if (!CommandSafety.isAllowedInTerminal(cmd)) {
-            String reason = CommandSafety.isAllowed(cmd)
-                    ? "nur über „ATF-Temperatur“ (ADR-001, mit Header-Wiederherstellung)"
-                    : CommandSafety.blockedReason(cmd);
+            String reason = CommandSafety.terminalBlockedReason(cmd);
             append("BLOCKIERT > " + cmd + " · " + reason);
             toast("Read-Only-Schutz: " + reason);
             return;

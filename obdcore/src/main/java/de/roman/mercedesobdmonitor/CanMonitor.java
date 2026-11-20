@@ -101,7 +101,19 @@ public final class CanMonitor {
         public boolean unsupported;
     }
 
+    private static final java.util.regex.Pattern HEX = java.util.regex.Pattern.compile("[0-9A-F]+");
+
     private CanMonitor() { }
+
+    /**
+     * Nur vollständige Zeilen behalten: was nach dem letzten CR/LF steht, hat das Datenlimit oder das
+     * Stopp-Zeichen mitten im Frame abgeschnitten und würde als kürzerer, falscher Frame gezählt.
+     */
+    static String completeLines(String raw) {
+        if (raw == null) return "";
+        int cut = Math.max(raw.lastIndexOf('\r'), raw.lastIndexOf('\n'));
+        return (cut < 0 ? "" : raw.substring(0, cut)).trim();
+    }
 
     /** Zerlegt die ATMA-Ausgabe (11-bit, mit Header, mit oder ohne Leerzeichen, ohne DLC-Anzeige). */
     public static Result parse(String raw) {
@@ -116,7 +128,7 @@ public final class CanMonitor {
             if (l.contains("NO DATA")) { r.noData = true; continue; }
             if (l.contains("SEARCHING") || l.contains("STOPPED")) continue;
             String hex = l.replace(" ", "");
-            if (!hex.matches("[0-9A-F]+") || hex.length() < 3 || hex.length() > 3 + 16 || (hex.length() - 3) % 2 != 0) {
+            if (!HEX.matcher(hex).matches() || hex.length() < 3 || hex.length() > 3 + 16 || (hex.length() - 3) % 2 != 0) {
                 r.unparsed++;
                 continue;
             }
@@ -168,6 +180,7 @@ public final class CanMonitor {
         if (r.bufferFull) sb.append("Hinweis: BUFFER FULL – der Adapter kam nicht mit; die Liste ist unvollständig.\n");
         if (truncated) sb.append("Hinweis: Datenmenge begrenzt, der Rest wurde verworfen.\n");
         if (r.frames == 0) {
+            if (r.noData) sb.append("Der Adapter meldet NO DATA.\n");
             sb.append("\nKeine Bus-Botschaften am OBD-Port. Das ist beim W204 zu erwarten, wenn das Gateway nur ")
                     .append("Diagnoseverkehr durchreicht. Passive Werte (Öl, ATF, Gang) sind dann nur per Abfrage ")
                     .append("erreichbar.");

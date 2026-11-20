@@ -126,6 +126,13 @@ public final class CommandSafety {
         return isAllowed(cmd) && !ADR001_EXACT.contains(cmd) && !ADR002_EXACT.contains(cmd);
     }
 
+    /** Grund, warum {@code command} im Terminal nicht läuft (nur sinnvoll, wenn {@link #isAllowedInTerminal} false ist). */
+    public static String terminalBlockedReason(String command) {
+        String cmd = normalize(command);
+        if (ADR001_EXACT.contains(cmd)) return "nur über „ATF-Temperatur“ (ADR-001, mit Header-Wiederherstellung)";
+        return blockedReason(cmd);
+    }
+
     /** Header nach erfolgreich gesendetem Befehl. */
     public static String headerAfter(String command, String currentHeader) {
         String cmd = normalize(command);
@@ -139,7 +146,7 @@ public final class CommandSafety {
         if (ATF_REQUEST.equals(cmd)) {
             return "21 30 (ATF-Temperatur) ist nur an das Getriebesteuergerät (Header 7E1) erlaubt.";
         }
-        if (MONITOR_ALL.equals(cmd) || cmd.startsWith("ATMA") || cmd.startsWith("ATMR") || cmd.startsWith("ATMT")) {
+        if (cmd.startsWith("ATMA") || cmd.startsWith("ATMR") || cmd.startsWith("ATMT")) {
             return "Mitlesen (ATMA) läuft nur zeitbegrenzt über „Bus mitlesen“ (ADR-002); Filter-Varianten sind gesperrt.";
         }
         if (ADR002_EXACT.contains(cmd)) {

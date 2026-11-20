@@ -66,4 +66,12 @@ public class CommandSafetyTest {
         assertFalse(CommandSafety.changesHeader("ATCAF0"));
         assertTrue(CommandSafety.blockedReason("ATMA").contains("ADR-002"));
     }
+
+    /** Das Terminal nennt den passenden Grund: ADR-002 für die Formatwechsel, ADR-001 für die ATF-Sequenz. */
+    @Test public void terminalNamesTheMatchingReason() {
+        assertTrue(CommandSafety.terminalBlockedReason("ATCAF0").contains("ADR-002"));
+        assertTrue(CommandSafety.terminalBlockedReason("at caf1").contains("ADR-002"));
+        assertTrue(CommandSafety.terminalBlockedReason("ATSH7E1").contains("ADR-001"));
+        assertTrue(CommandSafety.terminalBlockedReason("ATMA").contains("ADR-002"));
+    }
 }

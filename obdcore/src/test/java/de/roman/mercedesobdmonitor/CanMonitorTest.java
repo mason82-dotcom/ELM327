@@ -64,4 +64,21 @@ public class CanMonitorTest {
         assertTrue(rep, rep.contains("kennt ATMA nicht"));
         assertFalse(rep, rep.contains("Gateway"));
     }
+
+    /** Datenlimit oder Stopp-Zeichen mitten im Frame: der Rest zählt nicht als kürzerer Frame. */
+    @Test public void dropsCutOffLastLine() {
+        String raw = "30D5A3C6E2800123400\r30D5A3C6E";
+        assertEquals("30D5A3C6E2800123400", CanMonitor.completeLines(raw));
+        CanMonitor.Result r = CanMonitor.parse(CanMonitor.completeLines(raw));
+        assertEquals(1, r.frames);
+        assertEquals(0, r.ids.get(0x30D).changes);
+        assertEquals(8, r.ids.get(0x30D).last.length);
+        assertEquals("", CanMonitor.completeLines("30D5A"));
+        assertEquals("?", CanMonitor.completeLines("?\r\r"));
+    }
+
+    @Test public void reportsNoDataFromAdapter() {
+        assertTrue(CanMonitor.report(CanMonitor.parse("NO DATA\r"), 5000, false).contains("NO DATA"));
+        assertFalse(CanMonitor.report(CanMonitor.parse(""), 5000, false).contains("NO DATA"));
+    }
 }
