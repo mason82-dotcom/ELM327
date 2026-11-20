@@ -589,6 +589,7 @@ public final class ObdSession {
             if (generation >= 0) showStatusForDiagnosis(generation, token, text);
         }
         @Override public boolean starterCancelled() { return starterCancel; }
+        @Override public boolean dtcCancelled() { return dtcAbortRequested; }
         @Override public double recentAmbient() { return ObdSession.this.recentAmbient(); }
         @Override public boolean livePid(int pid) { return activePids.isEmpty() || containsPid(pid); }
         @Override public long now() { return SystemClock.elapsedRealtime(); }
@@ -1372,8 +1373,20 @@ public final class ObdSession {
     private void setBusyForDiagnosis(int generation, long token, Op op, boolean busy) {
         ui.post(() -> {
             if (!diagnosisIsCurrent(generation, token)) return;
-            if (busy) state.busy.add(op);
-            else state.busy.remove(op);
+            if (busy) {
+                // Kommt eine neue Diagnose schneller als die alte Abschluss-Meldung bei der UI an,
+                // räumen wir hier den vorherigen Busy-Zustand auf, statt den alten Callback
+                // (mit absichtlich ungültigem Token) wieder zuzulassen.
+                for (Op old : new ArrayList<>(state.busy)) {
+                    if (old != op) {
+                        state.busy.remove(old);
+                        if (listener != null) listener.onBusy(old, false);
+                    }
+                }
+                state.busy.add(op);
+            } else {
+                state.busy.remove(op);
+            }
             if (listener != null) listener.onBusy(op, busy);
         });
     }
