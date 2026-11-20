@@ -30,8 +30,10 @@ public final class Elm327Client implements Closeable {
     private volatile Socket socket;
     private BufferedInputStream in;
     private BufferedOutputStream out;
-    private long txBytes;
-    private long rxBytes;
+    // Geschrieben nur unter dem Lock (ein Schreiber), gelesen ohne: die Statistik darf ein laufendes
+    // „Bus mitlesen“ (bis ~7 s unter dem Lock) nicht blockieren.
+    private volatile long txBytes;
+    private volatile long rxBytes;
 
     public Elm327Client(String host, int port, Network network) {
         this.host = host;
@@ -98,6 +100,104 @@ public final class Elm327Client implements Closeable {
         return new CommandResult(raw, elapsed);
     }
 
+    /** Ergebnis von {@link #monitorPassive}: Rohtext, Dauer, wie der Lauf geendet hat. */
+    public static final class MonitorResult {
+        /** Nur vollständige Zeilen; eine abgeschnittene letzte Zeile ist verworfen. */
+        public final String raw;
+        public final long elapsedMs;
+        /** true: '>' kam vor Ablauf (z. B. BUFFER FULL, „?“ bei Klonen ohne ATMA); false: per Stopp-Zeichen beendet. */
+        public final boolean endedByAdapter;
+        /** true: mehr Daten als {@code maxBytes} – der Rest wurde verworfen. */
+        public final boolean truncated;
+        /**
+         * true: nach dem Stopp-Zeichen kam kein '>'. Die bis dahin gelesenen Daten gelten, der Adapter ist aber
+         * nicht mehr synchron: der Aufrufer muss die Verbindung verwerfen.
+         */
+        public final boolean stopTimedOut;
+
+        MonitorResult(String raw, long elapsedMs, boolean endedByAdapter, boolean truncated, boolean stopTimedOut) {
+            this.raw = raw;
+            this.elapsedMs = elapsedMs;
+            this.endedByAdapter = endedByAdapter;
+            this.truncated = truncated;
+            this.stopTimedOut = stopTimedOut;
+        }
+    }
+
+    /** Wartezeit auf den '>'-Prompt nach dem Stopp-Zeichen. */
+    static final int MONITOR_STOP_TIMEOUT_MS = 2000;
+
+    /**
+     * ADR-002: Bus-Botschaften passiv mitlesen ({@code ATMA}), höchstens {@code durationMs} lang. ATMA sendet
+     * nichts an das Fahrzeug, läuft aber ohne Prompt weiter; nach Ablauf stoppt ein einzelnes Leerzeichen den
+     * Adapter (kein CR – das würde ATMA wiederholen; ein Leerzeichen ignoriert der ELM327 auch dann, wenn es
+     * den Prompt knapp verpasst). Kommt danach kein '>', liefert das Ergebnis {@code stopTimedOut}: die Daten
+     * bleiben erhalten, der Aufrufer verwirft die Verbindung, der Reconnect initialisiert den Adapter neu.
+     */
+    public synchronized MonitorResult monitorPassive(int durationMs, int maxBytes) throws IOException {
+        ensureConnected();
+        if (durationMs < 100 || durationMs > 30_000) throw new IllegalArgumentException("Mitlesedauer 0,1–30 s");
+        drainAvailable();
+        byte[] data = (CommandSafety.MONITOR_ALL + "\r").getBytes(StandardCharsets.US_ASCII);
+        long start = SystemClock.elapsedRealtime();
+        out.write(data);
+        out.flush();
+        txBytes += data.length;
+        MonitorBuffer buf = new MonitorBuffer(maxBytes);
+        // Blockweise lesen: ein setSoTimeout je Block statt je Byte (voller Bus = Tausende Frames).
+        if (buf.readUntilPrompt(start + durationMs)) {
+            return new MonitorResult(buf.completeLines(), SystemClock.elapsedRealtime() - start, true,
+                    buf.truncated, false);
+        }
+        out.write(' ');
+        out.flush();
+        txBytes++;
+        boolean prompt = buf.readUntilPrompt(SystemClock.elapsedRealtime() + MONITOR_STOP_TIMEOUT_MS);
+        return new MonitorResult(buf.completeLines(), SystemClock.elapsedRealtime() - start, false,
+                buf.truncated, !prompt);
+    }
+
+    /** Lesepuffer für {@link #monitorPassive}; nur unter dem Lock des Clients benutzt. */
+    private final class MonitorBuffer {
+        private final ByteArrayOutputStream buf = new ByteArrayOutputStream(4096);
+        private final byte[] chunk = new byte[2048];
+        private final int maxBytes;
+        boolean truncated;
+
+        MonitorBuffer(int maxBytes) {
+            this.maxBytes = maxBytes;
+        }
+
+        /** true, sobald '>' kam; false bei Ablauf von {@code deadline}. */
+        boolean readUntilPrompt(long deadline) throws IOException {
+            while (true) {
+                long left = deadline - SystemClock.elapsedRealtime();
+                if (left <= 0) return false;
+                socket.setSoTimeout((int) Math.max(1, left));
+                int n;
+                try {
+                    n = in.read(chunk, 0, chunk.length);
+                } catch (SocketTimeoutException e) {
+                    return false;
+                }
+                if (n < 0) throw new IOException("ELM327 hat die TCP-Verbindung geschlossen");
+                rxBytes += n;
+                for (int i = 0; i < n; i++) {
+                    if (chunk[i] == '>') {
+                        // Rest nach dem Prompt gehört zu keiner Antwort mehr; nächster Befehl leert ohnehin.
+                        return true;
+                    }
+                    if (buf.size() < maxBytes) buf.write(chunk[i]);
+                    else truncated = true;
+                }
+            }
+        }
+
+        String completeLines() {
+            return CanMonitor.completeLines(new String(buf.toByteArray(), StandardCharsets.US_ASCII));
+        }
+    }
+
     /**
      * Nach einem Timeout auf den verspäteten '>'-Prompt warten und alles bis dahin
      * verwerfen. Sendet selbst nichts (ein CR würde beim ELM327 den letzten Befehl
@@ -145,8 +245,8 @@ public final class Elm327Client implements Closeable {
         return socket != null && socket.isConnected() && !socket.isClosed();
     }
 
-    public synchronized long getTxBytes() { return txBytes; }
-    public synchronized long getRxBytes() { return rxBytes; }
+    public long getTxBytes() { return txBytes; }
+    public long getRxBytes() { return rxBytes; }
 
     /**
      * Bewusst ohne Lock: ein im I/O-Thread blockierendes read() hält den Monitor;

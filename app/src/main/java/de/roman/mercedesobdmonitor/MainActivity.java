@@ -59,6 +59,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private Button profileButton;
     private Button atfButton;
     private Button starterButton;
+    private Button canMonitorButton;
     private SparklineView latencyGraph;
     private TextView analysisText;
     private TextView tripsText;
@@ -180,9 +181,13 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         atfButton = button("ATF-Temperatur");
         c350Controls.addView(profileButton, weight());
         c350Controls.addView(atfButton, weight());
-        starterButton = button("Starttest");
-        c350Controls.addView(starterButton, weight());
         root.addView(c350Controls);
+        LinearLayout c350Controls2 = row();
+        starterButton = button("Starttest");
+        c350Controls2.addView(starterButton, weight());
+        canMonitorButton = button("Bus mitlesen");
+        c350Controls2.addView(canMonitorButton, weight());
+        root.addView(c350Controls2);
 
         warmupStatus = text("Warmlauf-Check: bereit", 13, Color.LTGRAY);
         warmupStatus.setPadding(0, dp(3), 0, dp(4));
@@ -275,6 +280,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         profileButton.setOnClickListener(v -> session.runVehicleProfile());
         atfButton.setOnClickListener(v -> session.runAtfTemperature());
         starterButton.setOnClickListener(v -> session.toggleStarterTest());
+        canMonitorButton.setOnClickListener(v -> session.runCanMonitor());
         warmupButton.setOnClickListener(v -> session.toggleWarmupCheck());
         send.setOnClickListener(v -> session.sendTerminal(terminalInput.getText().toString()));
         export.setOnClickListener(v -> session.exportCsv(this));
@@ -472,6 +478,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
                 starterButton.setText(busy ? "Starttest abbrechen" : "Starttest");
                 return;
             }
+            case CAN_MONITOR -> { b = canMonitorButton; idle = "Bus mitlesen"; working = "Lese Bus (5 s) …"; }
             case INSPECTION -> { b = inspectionButton; idle = "HU/AU-Check"; working = "Lese Readiness …"; }
             default -> { return; }
         }

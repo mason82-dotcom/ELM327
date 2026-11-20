@@ -529,7 +529,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
 
     // ------------------------------------------------------------------ Analyse (C350/M272)
 
-    private TextView analysisText, atfText, profileText;
+    private TextView analysisText, atfText, profileText, canMonitorText;
 
     private View buildAnalysis() {
         analysisText = resultText("Werte erscheinen, sobald verbunden.");
@@ -538,17 +538,23 @@ public final class DashboardActivity extends Activity implements ObdSession.List
                 : "ATF-Temperatur der 7G-Tronic: auf Knopfdruck (Getriebesteuergerät, ADR-001).");
         profileText = resultText(results.containsKey(ResultRouter.Target.PROFILE) ? results.get(ResultRouter.Target.PROFILE)
                 : "Fahrzeugprofil: welche Werte Motor und Getriebe melden – einmal am Fahrzeug lesen.");
+        canMonitorText = resultText(results.containsKey(ResultRouter.Target.CAN_MONITOR)
+                ? results.get(ResultRouter.Target.CAN_MONITOR)
+                : "Bus mitlesen: 5 s passiv zuhören, ob der OBD-Port Bus-Botschaften zeigt (ADR-002, sendet nichts).");
         LinearLayout content = column();
         content.addView(analysisText);
         content.addView(atfText);
         content.addView(profileText);
+        content.addView(canMonitorText);
         Button profileButton = opButton(ObdSession.Op.PROFILE, "PROFIL LESEN", v -> session.runVehicleProfile());
         profileButton.setContentDescription("Fahrzeugprofil lesen");
+        Button canButton = opButton(ObdSession.Op.CAN_MONITOR, "BUS MITLESEN", v -> session.runCanMonitor());
+        canButton.setContentDescription("CAN-Bus fünf Sekunden passiv mitlesen");
         Button importButton = button("LOG IMPORTIEREN", v -> pickTrimLog());
         importButton.setContentDescription("CSV-Log importieren (Trim-Verlauf)");
         View page = subPage("ANALYSE / NUR LESEN", Page.ANALYSIS,
                 new View[] {text("Aus Standardwerten berechnet · Schwellen sind Richtwerte, keine Herstellerangaben", 13, Palette.WARN)},
-                new View[0], content, opButton(ObdSession.Op.ATF, "ATF LESEN", v -> session.runAtfTemperature()), profileButton, importButton);
+                new View[0], content, opButton(ObdSession.Op.ATF, "ATF LESEN", v -> session.runAtfTemperature()), profileButton, canButton, importButton);
         updateAnalysis();
         return page;
     }
@@ -943,7 +949,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
                 refreshResults();
                 show(Page.TRIM);
                 break;
-            case PROFILE: case ATF:
+            case PROFILE: case ATF: case CAN_MONITOR:
                 results.put(target, message);
                 refreshResults();
                 show(Page.ANALYSIS);
@@ -980,6 +986,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         if (starter != null && starterText != null) starterText.setText(starter);
         String prof = results.get(ResultRouter.Target.PROFILE);
         if (prof != null && profileText != null) profileText.setText(prof);
+        String can = results.get(ResultRouter.Target.CAN_MONITOR);
+        if (can != null && canMonitorText != null) canMonitorText.setText(can);
     }
 
     private void dialog(String title, String message) {

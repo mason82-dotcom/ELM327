@@ -36,6 +36,19 @@ public final class CommandSafety {
     public static final String OBD_HEADER = "ATSH7DF";
     private static final Set<String> ADR001_EXACT = Set.of(ATF_HEADER, ATF_REQUEST, OBD_HEADER);
 
+    /**
+     * ADR-002 (docs/adr-002-can-mitlesen.md): passives Mitlesen der Bus-Botschaften am OBD-Port.
+     * {@code ATMA} sendet nichts an das Fahrzeug, läuft aber ohne '>'-Prompt weiter, bis ein Zeichen kommt.
+     * Deshalb ist es bewusst NICHT über {@link #isAllowed(String)} erreichbar, sondern nur über
+     * {@code Elm327Client#monitorPassive} (Zeitlimit, Stopp-Zeichen, Prompt-Prüfung).
+     * {@code ATCAF0}/{@code ATCAF1} schalten die ISO-15765-Formatierung für die Rohanzeige ab und wieder an;
+     * beide reine Adapterbefehle, nur in der exklusiven Diagnose (im Terminal gesperrt).
+     */
+    public static final String MONITOR_ALL = "ATMA";
+    public static final String RAW_FORMAT = "ATCAF0";
+    public static final String AUTO_FORMAT = "ATCAF1";
+    private static final Set<String> ADR002_EXACT = Set.of(RAW_FORMAT, AUTO_FORMAT);
+
     private static final Pattern SAFE_TIMEOUT = Pattern.compile("^ATST[0-9A-F]{2}$");
     // Feste Auswahl der Standard-OBD-Protokolle 1–9 (reiner Adapterbefehl, kein Fahrzeug-Request).
     // A–C (benutzerdefinierte CAN-Parameter) bleiben gesperrt.
@@ -60,7 +73,7 @@ public final class CommandSafety {
         // Reject command stacking / embedded line breaks before any other test.
         if (cmd.indexOf('\r') >= 0 || cmd.indexOf('\n') >= 0 || cmd.indexOf(';') >= 0) return false;
 
-        if (ADR001_EXACT.contains(cmd)) return true;
+        if (ADR001_EXACT.contains(cmd) || ADR002_EXACT.contains(cmd)) return true;
         if (SAFE_AT_EXACT.contains(cmd) || SAFE_TIMEOUT.matcher(cmd).matches()
                 || SAFE_PROTOCOL.matcher(cmd).matches()) return true;
 
@@ -105,10 +118,19 @@ public final class CommandSafety {
 
     /**
      * Freigabe für das Terminal: wie {@link #isAllowed(String)}, aber ohne die ADR-001-Sequenz – sie läuft nur
-     * als exklusive Diagnose mit Header-Wiederherstellung („ATF-Temperatur“).
+     * als exklusive Diagnose mit Header-Wiederherstellung („ATF-Temperatur“) – und ohne die ADR-002-Formatwechsel
+     * (nur im Bus-Mitlesen mit Wiederherstellung).
      */
     public static boolean isAllowedInTerminal(String command) {
-        return isAllowed(command) && !ADR001_EXACT.contains(normalize(command));
+        String cmd = normalize(command);
+        return isAllowed(cmd) && !ADR001_EXACT.contains(cmd) && !ADR002_EXACT.contains(cmd);
+    }
+
+    /** Grund, warum {@code command} im Terminal nicht läuft (nur sinnvoll, wenn {@link #isAllowedInTerminal} false ist). */
+    public static String terminalBlockedReason(String command) {
+        String cmd = normalize(command);
+        if (ADR001_EXACT.contains(cmd)) return "nur über „ATF-Temperatur“ (ADR-001, mit Header-Wiederherstellung)";
+        return blockedReason(cmd);
     }
 
     /** Header nach erfolgreich gesendetem Befehl. */
@@ -123,6 +145,12 @@ public final class CommandSafety {
         String cmd = normalize(command);
         if (ATF_REQUEST.equals(cmd)) {
             return "21 30 (ATF-Temperatur) ist nur an das Getriebesteuergerät (Header 7E1) erlaubt.";
+        }
+        if (cmd.startsWith("ATMA") || cmd.startsWith("ATMR") || cmd.startsWith("ATMT")) {
+            return "Mitlesen (ATMA) läuft nur zeitbegrenzt über „Bus mitlesen“ (ADR-002); Filter-Varianten sind gesperrt.";
+        }
+        if (ADR002_EXACT.contains(cmd)) {
+            return "ATCAF0/ATCAF1 schaltet nur „Bus mitlesen“ um und stellt es selbst wieder her (ADR-002).";
         }
         if ("04".equals(cmd)) {
             return "Mode 04 (Fehlercodes löschen / ECU-Reset der Emissionsdiagnose) ist gesperrt.";

@@ -16,6 +16,18 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.7.0 (Monitor) / 0.11.0 (Dashboard): Starttest und Bus mitlesen
+
+- **Starttest** (Monitor-App: Knopf „Starttest“, Dashboard: TESTS): Ruhespannung, tiefster Wert und Dauer beim
+  Anlassen, danach Ladespannung – nur aus `ATRV`. Ein zweiter Druck bricht ab. Werte ab 3 V gelten beim Anlassen
+  als Messung (gerade ein sehr tiefer Einbruch ist der Befund); bleibt die Spannung nach dem Start unter dem Wert
+  davor, endet das Anlassen nach 1,5 s und der Bericht bewertet die Ladung statt „sehr lang angelassen“.
+- **Bus mitlesen** nach [ADR-002](docs/adr-002-can-mitlesen.md): 5 s passiv `ATMA`. Beendet ein Adapter das Mitlesen
+  nicht sauber (der ELM327-Simulator tut das), bleiben die gelesenen Frames im Bericht und nur die Verbindung wird
+  neu aufgebaut; eine vom Datenlimit abgeschnittene Zeile zählt nicht als Frame.
+- **Fahrtenbuch:** gespeichert werden Teilstücke je Log, verbunden wird nur an einem offenen Ende (Log endete bei
+  laufendem Motor). 60 s Motor aus beim Tanken bleiben zwei Fahrten.
+
 ## Version 1.4.0 (Monitor) / 0.8.0 (Dashboard): Fahrtenbuch
 
 - **Fahrtenbuch** (Dashboard → ALLE WERTE → FAHRTEN, Monitor-App → Abschnitt „Fahrtenbuch“): je Fahrt Motorlaufzeit,
@@ -161,6 +173,10 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
   temperaturabhängigem Richtwert (BCI-Tabelle, Außentemperatur aus 01 46), danach Ladespannung. Reißt die
   WLAN-Verbindung beim Anlassen ab, wird das als Hinweis auf einen starken Einbruch berichtet. Richtwerte, keine
   Herstellerangaben.
+- **Bus mitlesen** (Knopf in beiden Apps, Dashboard: ANALYSE) nach [ADR-002](docs/adr-002-can-mitlesen.md): 5 s passiv
+  `ATMA`, sendet nichts an das Fahrzeug. Zeigt, ob der OBD-Port Bus-Botschaften durchreicht, und für bekannte
+  W204-Botschaften (Motoröl, Ölstand, ATF, Gang) die Rohwerte. Grundlage und Bewertung:
+  [docs/mercedes-hacking-docs.md](docs/mercedes-hacking-docs.md).
 
 ## Version 1.0.9
 
@@ -229,6 +245,7 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
 - nur lesende SAE-J1979-Dienste 01, 02, 03, 05, 06, 07, 09 und 0A sind fahrzeugseitig erlaubt
 - Mode 04, Mode 08, UDS-Schreib-/Routine-/Security-Dienste und beliebige Raw-CAN-Kommandos werden nicht übertragen
 - CAN-Header-/Adressierungsbefehle wie ATSH/ATCRA/ATCEA/ATTA/ATCP sind im Terminal gesperrt
+- Mitlesen (ATMA) nur zeitbegrenzt über „Bus mitlesen“; ATMR/ATMT/ATCSM0 und ATCAF0/1 sind im Terminal gesperrt (ADR-002)
 - DTC-Scan mit eigenem Ergebnisdialog und exklusivem ELM327-Zugriff
 - WLAN-Fallback über alle verfügbaren WiFi-Network-Handles
 - echte Protokollanzeige nach ECU-Erkennung via ATDP/ATDPN

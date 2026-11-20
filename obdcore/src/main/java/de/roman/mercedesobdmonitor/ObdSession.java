@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * zeichnet sich daraus neu. Bewusst ohne gespeicherten Context.
  */
 public final class ObdSession {
-    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS, PROFILE, ATF, STARTER }
+    public enum Op { DTC, MISFIRE, INSPECTION, MONITOR_TESTS, PROFILE, ATF, STARTER, CAN_MONITOR }
 
     /** UI-Callbacks; alle Aufrufe im Main-Thread. */
     public interface Listener {
@@ -809,6 +809,44 @@ public final class ObdSession {
         }
     }
 
+    /** Mitlesedauer und Datenlimit für „Bus mitlesen“ (ADR-002). */
+    static final int CAN_MONITOR_MS = 5000;
+    static final int CAN_MONITOR_MAX_BYTES = 256 * 1024;
+
+    /** Bus-Botschaften am OBD-Port passiv mitlesen (ADR-002): sendet nichts an das Fahrzeug. */
+    public void runCanMonitor() {
+        runExclusiveDiagnosis(Op.CAN_MONITOR, "Bus mitlesen", this::readCanMonitor);
+    }
+
+    private String readCanMonitor(Elm327Client c) throws IOException {
+        if (!LinkPolicy.isCan11Bit(protocolNumber)) {
+            return "Mitlesen wertet nur CAN mit 11-bit-Kennungen (ISO 15765-4) aus. Erkanntes Protokoll: " + protocol;
+        }
+        boolean restored = false;
+        Elm327Client.MonitorResult m;
+        try {
+            diagCommand(c, "ATH1", 1500);
+            diagCommand(c, CommandSafety.RAW_FORMAT, 1500);
+            m = c.monitorPassive(CAN_MONITOR_MS, CAN_MONITOR_MAX_BYTES);
+            append(CommandSafety.MONITOR_ALL + " → " + m.raw.length() + " Zeichen in " + m.elapsedMs + " ms"
+                    + (m.endedByAdapter ? " (vom Adapter beendet)" : "")
+                    + (m.stopTimedOut ? " (kein Prompt nach dem Stopp – Verbindung wird neu aufgebaut)" : ""));
+            if (!m.stopTimedOut) {
+                diagCommand(c, CommandSafety.AUTO_FORMAT, 1500);
+                diagCommand(c, LinkPolicy.DIAG_HEADERS, 1500);
+                restored = true;
+            }
+        } finally {
+            // ATCAF0 darf nicht stehen bleiben, sonst lesen die OBD-Parser rohe Frames: ohne bestätigte
+            // Wiederherstellung Verbindung verwerfen, LinkPolicy.reconnectInit setzt ATCAF1.
+            if (!restored) closeClientIfCurrent(c);
+        }
+        String report = CanMonitor.report(CanMonitor.parse(m.raw), m.elapsedMs, m.truncated);
+        return m.stopTimedOut
+                ? report + "\n\nHinweis: Der Adapter hat das Mitlesen nicht sauber beendet; die Verbindung wird neu aufgebaut."
+                : report;
+    }
+
     private String readVehicleProfile(Elm327Client c) throws IOException {
         if (!LinkPolicy.isCan11Bit(protocolNumber)) {
             return "Das Fahrzeugprofil trennt die Steuergeräte über 11-bit-CAN-Kennungen (7E8/7E9); erkanntes Protokoll: "
@@ -1275,9 +1313,7 @@ public final class ObdSession {
         final int session = sessionGeneration.get();
         if (cmd.isEmpty()) return;
         if (!CommandSafety.isAllowedInTerminal(cmd)) {
-            String reason = CommandSafety.isAllowed(cmd)
-                    ? "nur über „ATF-Temperatur“ (ADR-001, mit Header-Wiederherstellung)"
-                    : CommandSafety.blockedReason(cmd);
+            String reason = CommandSafety.terminalBlockedReason(cmd);
             append("BLOCKIERT > " + cmd + " · " + reason);
             toast("Read-Only-Schutz: " + reason);
             return;

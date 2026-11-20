@@ -49,6 +49,8 @@ public final class LinkPolicy {
         cmds.add("ATE0");
         cmds.add("ATL0");
         cmds.add("ATS0");
+        // ADR-002: ein abgebrochenes Mitlesen kann ATCAF0 hinterlassen; der Adapter behält es über TCP-Reconnects.
+        cmds.add(CommandSafety.AUTO_FORMAT);
         cmds.add(liveHeaders(dpn));
         cmds.add("ATAT1");
         cmds.add(protocolSelect(dpn));
