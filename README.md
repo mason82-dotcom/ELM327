@@ -16,6 +16,15 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.10.2 (Monitor) / 0.14.2 (Dashboard): Diagnoseabläufe herausgelöst
+
+- **`DiagnosticJobs`**: die Abläufe (DTC, Mode 06, HU/AU, Fahrzeugprofil, ATF, Kennung/Getriebe-Fehler, Bus
+  mitlesen, Starttest) aus `ObdSession` herausgelöst (1 691 → 1 365 Zeilen); Zugriff auf die Sitzung nur über eine
+  kleine `Host`-Schnittstelle. Verhalten unverändert.
+- **Ablauftests** gegen einen ELM327-Nachbau: ATF sendet genau `ATSH7E1` → `2130` → `ATSH7DF`, ADR-004 genau seine
+  sieben Befehle; Header am Ende 7DF; scheitert der Rückweg, wird die Verbindung verworfen; ohne 11-bit-CAN wird
+  nichts gesendet; DTC liest 03/07/0A mit M272-Hinweisen und Probe.
+
 ## Version 1.10.1 (Monitor) / 0.14.1 (Dashboard): Wartung nach Tech-Debt-Audit
 
 - **DTC-Scan** läuft über dieselbe Diagnoseroutine wie alle anderen (vorher eine eigene Kopie): ein I/O-Fehler
