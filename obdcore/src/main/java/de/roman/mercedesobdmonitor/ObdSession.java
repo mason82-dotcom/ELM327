@@ -487,10 +487,16 @@ public final class ObdSession {
                     final double value = result.value;
                     samples.incrementAndGet();
                     totalLatency.addAndGet(r.elapsedMs);
-                    if (session != sessionGeneration.get()) break;
-                    latestValues.put(pid.pid, value);
-                    latestSequences.put(pid.pid, telemetrySequence.incrementAndGet());
-                    latestAt.put(pid.pid, SystemClock.elapsedRealtime());
+                    // Sessionwechsel und Veröffentlichung der drei Metadaten sind atomar:
+                    // eine verspätete Antwort darf die Live-Cachewerte der neuen Verbindung nicht überschreiben.
+                    synchronized (this) {
+                        if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) break;
+                        latestValues.put(pid.pid, value);
+                        latestSequences.put(pid.pid, telemetrySequence.incrementAndGet());
+                        latestAt.put(pid.pid, SystemClock.elapsedRealtime());
+                    }
+                    // CSV nicht unter dem Sitzungs-Lock schreiben (Dateisystem-I/O).
+                    if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) break;
                     csv.record(System.currentTimeMillis(), pid, value, r.elapsedMs, r.raw);
                     final String text = pid.format(value);
                     final long latency = r.elapsedMs;
