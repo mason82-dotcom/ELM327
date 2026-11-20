@@ -277,31 +277,32 @@ public final class Elm327Client implements Closeable {
     public void close() {
         ElmLink l = link;
         if (l != null) l.close();
-        opener.cancel();   // ein noch laufender Aufbau (Bluetooth) endet sofort
+        // Kein opener.cancel() hier: connect() ruft close() vor jedem Aufbau auf, und ein Abbruch gilt für den
+        // Bluetooth-Öffner endgültig (Review #35–#37). Laufende Aufbauten bricht ObdSession.replaceTransport ab.
     }
 
     /**
-     * ATSH muss als eigene Antwortzeile OK melden. ATZ liefert stattdessen üblicherweise
-     * einen Identifikationstext; ein leeres oder offensichtlich abgewiesenes Reset ist kein Beleg.
+     * ATSH muss als eigene Antwortzeile OK melden. ATZ liefert stattdessen einen Identifikationstext, der bei
+     * Nachbauten nicht immer „ELM“ oder „OBD“ enthält; es gilt daher jede Antwortzeile außer Echo, „?“, „ERROR“,
+     * „NO DATA“, „STOPPED“ und „SEARCHING“ (Review #35–#37: Banner-Pflicht war zu streng).
      * Der Echo-Text (ATE1) darf nicht allein als Bestätigung gelten.
      */
     static boolean headerAcknowledged(String cmd, String raw) {
         if (raw == null || raw.isBlank()) return false;
         String[] lines = raw.toUpperCase(java.util.Locale.US).split("[\\r\\n]+");
         boolean ok = false;
+        boolean other = false;
         for (String line : lines) {
-            String reply = line.trim();
+            String reply = line.replace(">", "").trim();
+            if (reply.isEmpty()) continue;
             if ("?".equals(reply) || "ERROR".equals(reply) || reply.startsWith("UNABLE TO CONNECT")) {
                 return false;
             }
             if ("OK".equals(reply)) ok = true;
+            else if (!reply.equals(cmd) && !"NO DATA".equals(reply) && !"STOPPED".equals(reply)
+                    && !reply.startsWith("SEARCHING")) other = true;
         }
-        if ("ATZ".equals(cmd)) {
-            // ATZ liefert bei echten ELMs einen Versions-/Interpreter-Banner statt "OK".
-            // "NO DATA", "STOPPED" oder ein bloßes Echo dürfen keinen Header freigeben.
-            String banner = raw.toUpperCase(java.util.Locale.US).trim();
-            return ok || banner.contains("ELM") || banner.contains("OBD");
-        }
+        if ("ATZ".equals(cmd)) return ok || other;
         return ok;
     }
 

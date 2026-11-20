@@ -37,7 +37,7 @@ public class DiagnosticJobsTest {
     private FakeHost host;
     private java.util.function.LongSupplier savedClock;
 
-    static final class FakeHost implements DiagnosticJobs.Host {
+    static class FakeHost implements DiagnosticJobs.Host {
         final List<String> log = new ArrayList<>();
         final List<Elm327Client> dropped = new ArrayList<>();
         String protocolNumber = "6";
@@ -170,6 +170,25 @@ public class DiagnosticJobsTest {
         assertEquals(1, host.dropped.size());
         assertTrue(r, r.contains("Pending: Timeout · Verbindung wird neu aufgebaut"));
         assertTrue(r, r.contains("Permanent: übersprungen"));
+        assertEquals(List.of("03", "07"), received);
+    }
+
+    /**
+     * Review #35–#37: STOP während des Resync nach einem 07-Timeout. Danach weder Timeout zählen noch die
+     * Verbindung verwerfen (das hat der Abbruch schon getan). Aufrufe von dtcCancelled(): 03, 07, nach dem
+     * Timeout (noch nicht abgebrochen), nach dem Resync (abgebrochen).
+     */
+    @Test
+    public void dtcCancelDuringResyncIsNotCountedAsTimeout() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        FakeHost cancelling = new FakeHost() {
+            @Override public boolean dtcCancelled() { return calls.incrementAndGet() >= 4; }
+        };
+        answers = c -> c.equals("07") ? null : c.equals("03") ? "43 00" : "OK";
+        String r = new DiagnosticJobs(cancelling).readDtcReport(client);
+        assertEquals(0, cancelling.timeouts);
+        assertTrue(cancelling.dropped.isEmpty());
+        assertTrue(r, r.contains("Pending: abgebrochen"));
         assertEquals(List.of("03", "07"), received);
     }
 

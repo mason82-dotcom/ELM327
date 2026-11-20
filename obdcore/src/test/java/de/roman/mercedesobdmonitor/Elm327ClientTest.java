@@ -170,6 +170,11 @@ public class Elm327ClientTest {
         assertFalse(Elm327Client.headerAcknowledged("ATZ", "ATZ"));
         assertFalse(Elm327Client.headerAcknowledged("ATZ", "NO DATA"));
         assertFalse(Elm327Client.headerAcknowledged("ATZ", "STOPPED"));
+        // Nachbauten melden teils nur eine Versionsnummer oder einen eigenen Namen (Review #35–#37)
+        assertTrue(Elm327Client.headerAcknowledged("ATZ", "ATZ\r\rv2.1\r\r>"));
+        assertTrue(Elm327Client.headerAcknowledged("ATZ", "ATZ\rVgate iCar"));
+        assertFalse(Elm327Client.headerAcknowledged("ATZ", "ATZ\r\r>"));
+        assertFalse(Elm327Client.headerAcknowledged("ATZ", "SEARCHING..."));
     }
 
     @Test
@@ -235,5 +240,42 @@ public class Elm327ClientTest {
         assertTrue(m.truncated);
         assertTrue(m.raw.length() <= 100);
         assertEquals(m.raw.split("\r").length, CanMonitor.parse(m.raw).frames);
+    }
+
+    /**
+     * Review #35–#37: connect() schließt vor jedem Aufbau; das darf den (Bluetooth-)Öffner nicht endgültig abbrechen.
+     * Der Nachbau-Öffner verhält sich wie BluetoothLink: nach cancel() scheitert jedes weitere open().
+     */
+    @Test
+    public void reconnectDoesNotCancelOpener() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger opens = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean();
+        ElmLink.Opener sticky = new ElmLink.Opener() {
+            @Override public ElmLink open(int timeoutMs) throws IOException {
+                if (cancelled.get()) throw new IOException("abgebrochen");
+                opens.incrementAndGet();
+                return new FakeLink();
+            }
+            @Override public String describe() { return "Nachbau"; }
+            @Override public void cancel() { cancelled.set(true); }
+        };
+        Elm327Client c = new Elm327Client(sticky);
+        c.connect(1000);
+        c.close();
+        c.connect(1000);   // Wiederverbinden nach Abriss
+        c.connect(1000);   // connect() ruft intern close()
+        assertEquals(3, opens.get());
+        assertFalse(cancelled.get());
+        c.close();
+    }
+
+    private static final class FakeLink implements ElmLink {
+        private volatile boolean open = true;
+        @Override public InputStream input() { return new java.io.ByteArrayInputStream(new byte[0]); }
+        @Override public OutputStream output() { return new java.io.ByteArrayOutputStream(); }
+        @Override public void setReadTimeout(int ms) { }
+        @Override public boolean isOpen() { return open; }
+        @Override public String describe() { return "Nachbau"; }
+        @Override public void close() { open = false; }
     }
 }

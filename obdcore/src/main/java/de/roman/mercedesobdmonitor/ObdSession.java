@@ -128,6 +128,8 @@ public final class ObdSession {
     private volatile Op activeDiagnosisOp;
     private volatile Elm327Client activeDiagnosisClient;
     private volatile boolean dtcAbortRequested;
+    /** Auftrag hat sein Ergebnis fertig (geschützt durch this); ein Abbruch danach verwirft es nicht mehr. */
+    private boolean diagnosisFinished;
     private final AtomicLong telemetrySequence = new AtomicLong(0);
 
     /** Wird beim Verbinden neu befüllt und parallel vom Polling gelesen. */
@@ -317,9 +319,7 @@ public final class ObdSession {
         clearDiagnosisUiForSessionChange();
         monitoring.set(false);
         protocolIsCan = null;
-        latestValues.clear();
-        latestSequences.clear();
-        latestAt.clear();
+        clearLiveCache();
         fuelTrimTest.cancel();
         setFuel(FUEL_BUTTON, FUEL_READY);
         if (warmupCheck.isRunning()) finishWarmupCheck();
@@ -424,13 +424,18 @@ public final class ObdSession {
         });
     }
 
+    /** Live-Zwischenspeicher leeren (vorher an fünf Stellen kopiert). */
+    private void clearLiveCache() {
+        latestValues.clear();
+        latestSequences.clear();
+        latestAt.clear();
+    }
+
     /** Alle Live-Werte ungültig – nur in der Sitzung des auslösenden Poll-/I/O-Vorgangs. */
     private void invalidateAllLive(int session) {
         synchronized (this) {
             if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) return;
-            latestValues.clear();
-            latestSequences.clear();
-            latestAt.clear();
+            clearLiveCache();
         }
         ui.post(() -> {
             if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) return;
@@ -639,9 +644,7 @@ public final class ObdSession {
                 if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get()) || userDisconnect) return;
                 pollTimeouts.reset();
                 firstRequestAfterInit = true;
-                latestValues.clear();
-                latestSequences.clear();
-                latestAt.clear();
+                clearLiveCache();
             }
             showStatusForConnection(session, "Wieder verbunden · " + protocol);
             append("Auto-Reconnect erfolgreich");
@@ -689,7 +692,7 @@ public final class ObdSession {
         final int acceptedSession;
         final long cancelToken;
         synchronized (this) {
-            if (!isDtcScanBusy() || dtcAbortRequested) return false;
+            if (!isDtcScanBusy() || dtcAbortRequested || diagnosisFinished) return false;
             if (!diagnosisIsCurrent(activeDiagnosisGeneration)) return false;
             dtcAbortRequested = true;
             acceptedSession = activeDiagnosisGeneration;
@@ -823,6 +826,9 @@ public final class ObdSession {
         activeDiagnosisClient = c;
         activeDiagnosisOp = op;
         dtcAbortRequested = false;
+        synchronized (this) {
+            diagnosisFinished = false;
+        }
         setBusyForDiagnosis(acceptedSession, acceptedToken, op, true);
         showStatusForDiagnosis(acceptedSession, acceptedToken, title + " läuft …");
 
@@ -839,6 +845,10 @@ public final class ObdSession {
                         // also after a parser error; an I/O error here drops the connection like any other
                         if (c.isConnected()) leaveDiagnosis(c);
                     }
+                }
+                // Review #35–#37: Ab hier ist das Ergebnis vollständig; STOP kommt zu spät und verwirft es nicht.
+                synchronized (ObdSession.this) {
+                    diagnosisFinished = true;
                 }
                 if (!dtcAbortRequested) append(title + " abgeschlossen");
             } catch (SocketTimeoutException e) {
@@ -871,7 +881,9 @@ public final class ObdSession {
                     }
                 }
             }
-            if (!diagnosisIsCurrent(acceptedSession, completionToken)) return;
+            // Nur ein Sitzungswechsel verwirft das Ergebnis. Eine inzwischen angenommene neue Diagnose
+            // (neues Token) verdrängt nur Spinner und Status, nicht das fertige Ergebnis (Review #35–#37).
+            if (!diagnosisIsCurrent(acceptedSession)) return;
             setBusyForDiagnosis(acceptedSession, completionToken, op, false);
             if (canceled) {
                 showStatusForDiagnosis(acceptedSession, completionToken,
@@ -882,7 +894,7 @@ public final class ObdSession {
             showStatusForDiagnosis(acceptedSession, completionToken,
                     statusAfterDiagnosis(title + " beendet · Reconnect läuft …"));
             updateStats();
-            showResultForDiagnosis(acceptedSession, completionToken, op, title, report);
+            showResultForDiagnosis(acceptedSession, op, title, report);
         });
         return true;
     }
@@ -1132,9 +1144,7 @@ public final class ObdSession {
     private void cancelFuelTrimForConnectionLoss(String reason) {
         if (!fuelTrimTest.isRunning()) return;
         fuelTrimTest.cancel();
-        latestValues.clear();
-        latestSequences.clear();
-        latestAt.clear();
+        clearLiveCache();
         setFuel(FUEL_BUTTON, "Fuel-Trim-Test: abgebrochen · " + reason);
         append("Fuel-Trim-Test wegen " + reason + " abgebrochen");
     }
@@ -1200,9 +1210,7 @@ public final class ObdSession {
         csv.startNew();
         for (AtomicLong counter : new AtomicLong[] {samples, totalLatency, timeouts, noData,
                 ioErrors, parserErrors, totalTxBytes, totalRxBytes}) counter.set(0);
-        latestValues.clear();
-        latestSequences.clear();
-        latestAt.clear();
+        clearLiveCache();
         fuelTrimTest.cancel();
         state.console.setLength(0);
         state.console.append("Neues Log begonnen. Die bisherige CSV-Datei bleibt im App-Speicher erhalten.\n");
@@ -1439,8 +1447,8 @@ public final class ObdSession {
             state.busy.remove(op);
             if (listener != null) listener.onBusy(op, false);
         }
-        // Ein ohne Activity gespeichertes Ergebnis gehört zur alten Fahrzeugsitzung.
-        pendingDialogs.removeIf(p -> p.op != null);
+        // Bereits fertige, noch nicht gezeigte Ergebnisse bleiben erhalten (Review #35–#37): sie sind gültig
+        // und stehen schon im Prüfplan; verworfen werden nur Ergebnisse, die erst nach dem Wechsel fertig werden.
     }
 
     private boolean diagnosisIsCurrent(int generation) {
@@ -1474,10 +1482,7 @@ public final class ObdSession {
     private void showDialogForConnection(int session, String title, String message) {
         ui.post(() -> {
             if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get()) || userDisconnect) return;
-            if (listener != null) listener.onDialog(title, message);
-            else if (pendingDialogs.size() < MAX_PENDING_DIALOGS) {
-                pendingDialogs.add(new Pending(null, title, message));
-            }
+            deliverNow(null, title, message);
         });
     }
 
@@ -1485,14 +1490,11 @@ public final class ObdSession {
      * Ergebnis einschließlich Prüfplaneintrag erst im UI-Thread übernehmen.
      * Der Guard läuft beim tatsächlichen Zustellen, nicht nur beim Beenden der I/O-Arbeit.
      */
-    private void showResultForDiagnosis(int generation, long token, Op op, String title, String message) {
+    private void showResultForDiagnosis(int generation, Op op, String title, String message) {
         ui.post(() -> {
-            if (!diagnosisIsCurrent(generation, token)) return;
+            if (!diagnosisIsCurrent(generation)) return;
             recordForPlan(op, message);
-            if (listener != null) listener.onResult(op, title, message);
-            else if (pendingDialogs.size() < MAX_PENDING_DIALOGS) {
-                pendingDialogs.add(new Pending(op, title, message));
-            }
+            deliverNow(op, title, message);
         });
     }
 
@@ -1570,14 +1572,17 @@ public final class ObdSession {
     }
 
     private void deliver(Op op, String title, String message) {
-        ui.post(() -> {
-            if (listener != null) {
-                if (op != null) listener.onResult(op, title, message);
-                else listener.onDialog(title, message);
-            } else if (pendingDialogs.size() < MAX_PENDING_DIALOGS) {
-                pendingDialogs.add(new Pending(op, title, message));
-            }
-        });
+        ui.post(() -> deliverNow(op, title, message));
+    }
+
+    /** Nur im UI-Thread: an die sichtbare Activity oder für das nächste Anbinden aufheben. */
+    private void deliverNow(Op op, String title, String message) {
+        if (listener != null) {
+            if (op != null) listener.onResult(op, title, message);
+            else listener.onDialog(title, message);
+        } else if (pendingDialogs.size() < MAX_PENDING_DIALOGS) {
+            pendingDialogs.add(new Pending(op, title, message));
+        }
     }
 
     private void toast(String message) {
