@@ -29,8 +29,11 @@ ELM Electronics erläutert Mode 04 und die **Folgen** auf Daten- und Readiness-E
 - Explizites Aktivieren nur für die gegenwärtige Verbindung; gesonderte Warnung; zweite Bestätigung
   durch exakte Eingabe `LÖSCHEN`.
 - Vorher ein vollständig ausgewerteter DTC-Report (Modes 03/07/0A) **innerhalb derselben Sitzung, höchstens 5 Minuten alt**. Teilantworten wie „keine Antwort“, nicht identifizierte Rohantworten und Fehler-/Timeout-Status zählen ausdrücklich nicht.
-- Im exklusiven Auftrag unmittelbar vor dem Versand neu lesen: `010C` RPM = 0, `010D` Tempo 0,
-  `0142` ECU-Versorgung 11,8–15,5 V. Fehlen diese Messwerte, **keine Ausführung**.
+- Im exklusiven Auftrag unmittelbar vor dem Versand mit aktivierter Header-Anzeige (`ATH1`) neu lesen:
+  `010C` RPM = 0, `010D` Tempo 0 und `0142` ECU-Versorgung 11,8–15,5 V.
+  **Alle drei Werte müssen nachweislich aus Antwortframes des Motorsteuergeräts `7E8` stammen.**
+  Wenn ausschließlich `7E9` antwortet, die Antworten nicht vollständig sind oder der Header nicht erkannt
+  wird, **keine Ausführung**. Vor Mode 04 wird `ATH0` wiederhergestellt.
   Grenzwerte sind vorsichtige Entwicklungs-Interlocks, keine Herstellerfreigabe.
 - Nur bestätigtes 11-bit-CAN-Protokoll und funktionaler Standardheader `7DF`.
 - Vor und nach Mode 04 keine unkontrollierten Fahrzeug-Schreibbefehle. Beim Fehlversuch Verbindung verwerfen,
