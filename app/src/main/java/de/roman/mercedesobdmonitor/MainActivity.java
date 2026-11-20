@@ -52,6 +52,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private LinearLayout pidBox;
     private Button dtcButton;
     private Button dtcCancelButton;
+    private Button serviceLabButton;
     private Button fuelTestButton;
     private Button misfireButton;
     private Button inspectionButton;
@@ -147,7 +148,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         TextView sub = text("C350 S204 / M272 · ELM327 WiFi", 14, Color.LTGRAY);
         root.addView(sub);
 
-        TextView safety = text("🔒 READ-ONLY · Keine Codierung · Kein Löschen · Keine Stellgliedbefehle", 13,
+        TextView safety = text("SERVICE-LABOR-BRANCH · Standard nur lesen · Mode 04 einzeln bestätigt", 13,
                 Color.rgb(129, 199, 132));
         safety.setPadding(0, dp(6), 0, dp(4));
         root.addView(safety);
@@ -177,6 +178,10 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         dtcCancelButton.setContentDescription("Laufenden Fehlercode-Scan abbrechen, Verbindung danach wiederherstellen");
         dtcCancelButton.setEnabled(false);
         root.addView(dtcCancelButton);
+
+        serviceLabButton = button("SERVICE-LABOR · EXPERIMENTELL");
+        serviceLabButton.setContentDescription("Einmalige Mode-04-Freigabe, offline Dachsimulator und Codierrecherche");
+        root.addView(serviceLabButton);
 
         status = text("Nicht verbunden", 15, Color.WHITE);
         status.setPadding(0, dp(8), 0, dp(4));
@@ -345,6 +350,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         });
         dtcButton.setOnClickListener(v -> session.readDtcs());
         dtcCancelButton.setOnClickListener(v -> session.cancelDtcScan());
+        serviceLabButton.setOnClickListener(v -> ServiceLabDialogs.showMenu(this, 0, session));
         fuelTestButton.setOnClickListener(v -> session.toggleFuelTrimTest());
         misfireButton.setOnClickListener(v -> session.runMisfireAnalysis());
         inspectionButton.setOnClickListener(v -> session.runInspectionCheck());
