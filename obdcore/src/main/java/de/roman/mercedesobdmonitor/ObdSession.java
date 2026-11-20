@@ -1692,11 +1692,7 @@ public final class ObdSession {
         ui.post(() -> {
             if (!diagnosisIsCurrent(generation)) return;
             recordForPlan(op, message);
-            if (op == Op.DTC && message.contains("Gespeichert:") && message.contains("Pending:")
-                    && message.contains("Permanent:") && !message.contains("Timeout")
-                    && !message.contains("Kommunikationsfehler") && !message.contains("übersprungen")
-                    && !message.contains("abgebrochen") && !message.contains("nicht gelesen")
-                    && !message.contains("fehlgeschlagen")) {
+            if (op == Op.DTC && ServiceMode04Gate.hasCompleteDtcSnapshot(message)) {
                 // Erst nachdem der Diagnosebericht in den Prüfplan übernommen wurde.
                 lastValidDtcReadGeneration = generation;
                 lastValidDtcReadAt = SystemClock.elapsedRealtime();
