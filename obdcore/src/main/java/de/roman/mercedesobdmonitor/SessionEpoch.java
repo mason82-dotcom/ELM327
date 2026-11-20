@@ -8,8 +8,14 @@ package de.roman.mercedesobdmonitor;
 final class SessionEpoch {
     private SessionEpoch() { }
 
+    /** Ungültigmachen von Messwerten und Verbindungsstatus erfordert nur dieselbe Generation:
+     * gerade nach Trennen (active=false) muss „Getrennt“ sichtbar bleiben. */
+    static boolean matchesGeneration(int acceptedGeneration, int currentGeneration) {
+        return acceptedGeneration == currentGeneration;
+    }
+
     static boolean matches(int acceptedGeneration, int currentGeneration,
                            boolean active, boolean userDisconnect) {
-        return acceptedGeneration == currentGeneration && active && !userDisconnect;
+        return matchesGeneration(acceptedGeneration, currentGeneration) && active && !userDisconnect;
     }
 }

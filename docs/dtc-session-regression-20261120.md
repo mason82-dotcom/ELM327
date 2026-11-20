@@ -39,6 +39,10 @@ bleiben gesperrt. Es wird keine Fahrzeugkonfiguration verändert.
 | HDR-01 | Simulator antwortet auf ATSH7E1 mit ? | Header unbekannt; keine 2130-Aussendung | UNBEKANNT |
 | HDR-02 | Simulator bestätigt ATSH7DF mit OK | Normaler OBD-Header und Live-PIDs wiederhergestellt | UNBEKANNT |
 | BT-01 | Gekoppelten SPP-Adapter verbinden und trennen | Gleiche DTC-/Headerregeln wie bei WLAN/TCP | UNBEKANNT |
+| UI-01 | Während verzögertem Reconnect Trennen und neu Verbinden | Alte „Wieder verbunden“-Meldung darf neue Sitzung nicht überschreiben | UNBEKANNT |
+| UI-02 | Alte Polling-Antwort und Anzeige-Invalidierung nach neuer Verbindung verzögern | Keine alten Status-/Ungültig-Callbacks dürfen neue Livewerte löschen | UNBEKANNT |
+| UI-03 | Bei getrenntem Adapter Status beobachten | „Getrennt“ bleibt sichtbar, obwohl Sitzung inaktiv ist | UNBEKANNT |
+| UI-04 | Fuel-Trim-Wert während Verbindungswechsel auswerten | Alte Auswertung darf keinen neuen Dialog anzeigen | UNBEKANNT |
 
 **Noch keine Fahrzeugabnahme dieses Branches.** Bereits bestätigte 010C, 0105 und 010D
 belegen weder eine vollständige DTC-Abnahme noch Bluetooth-Betrieb. Für jedes reale Ergebnis
