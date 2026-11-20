@@ -43,6 +43,7 @@ public final class GaugeScale {
 
     // Skalen für das aktive Profil (C350 S204, M272): Drehzahl bis 7000 → gelb ab ca. 5500, rot ab 6300 U/min.
     public static final GaugeScale RPM = rpm(de.roman.mercedesobdmonitor.VehicleProfile.ACTIVE.chartMaxRpm);
-    public static final GaugeScale COOLANT = new GaugeScale(-20, 130, 108, 115);
+    public static final GaugeScale COOLANT = new GaugeScale(-20, 130,
+            de.roman.mercedesobdmonitor.LiveWarnings.COOLANT_WARN, de.roman.mercedesobdmonitor.LiveWarnings.COOLANT_ALARM);
     public static final GaugeScale SPEED = new GaugeScale(0, 260, Double.NaN, Double.NaN);
 }

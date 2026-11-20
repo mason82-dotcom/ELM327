@@ -67,6 +67,11 @@ public final class ObdSession {
          * steht danach auf {@link #INVALID_TEXT}; ein alter Wert darf nicht weiter angezeigt werden.
          */
         default void onPidInvalid(int pid) { }
+        /**
+         * Kühlmittel-/Bordnetzmeldung geändert ({@code null} = keine). {@code canMute}: „Ton aus“ anbieten.
+         * Nur wenn {@link #setWarningsEnabled} an ist; Main-Thread.
+         */
+        default void onWarning(LiveWarnings.Warning warning, boolean canMute) { }
     }
 
     /** Anzeige für einen nicht (mehr) gültigen Messwert ({@link LiveValues#INVALID}). */
@@ -183,6 +188,85 @@ public final class ObdSession {
 
     private ObdSession() { }
 
+    // ---------------------------------------------------------------- Warnungen (Main-Thread)
+
+    private final LiveWarnings liveWarnings = new LiveWarnings();
+    private final WarningAlerts warningAlerts = new WarningAlerts();
+    private boolean warningsEnabled;
+    private LiveWarnings.Warning currentWarning;
+    private boolean currentCanMute;
+    private android.media.ToneGenerator tone;
+    private final Runnable warningTick = this::evaluateWarnings;
+
+    /**
+     * Kühlmittel-/Bordnetzwarnungen mit Ton einschalten (Dashboard). Die Auswertung läuft in der Sitzung und damit
+     * auch, solange eine andere App (Navigation) im Vordergrund ist; der Ton kommt dann aus dem Dienst.
+     */
+    public void setWarningsEnabled(boolean enabled) {
+        if (warningsEnabled == enabled) return;
+        warningsEnabled = enabled;
+        if (!enabled) resetWarnings();
+        else if (active) evaluateWarnings();   // Sitzung lief schon (z. B. vom Radiostart)
+    }
+
+    public LiveWarnings.Warning currentWarning() {
+        return currentWarning;
+    }
+
+    public boolean warningCanMute() {
+        return currentCanMute;
+    }
+
+    /** „Ton aus“ für die aktuelle Meldung. */
+    public void silenceWarning() {
+        warningAlerts.silence();
+        publishWarning(currentWarning, warningAlerts.canMute(currentWarning));
+    }
+
+    private void evaluateWarnings() {
+        ui.removeCallbacks(warningTick);
+        if (!warningsEnabled) return;
+        long now = SystemClock.elapsedRealtime();
+        LiveWarnings.Warning w = liveWarnings.evaluate(now);
+        if (warningAlerts.update(w, now)) beep();
+        publishWarning(w, warningAlerts.canMute(w));
+        if (active) ui.postDelayed(warningTick, 1000);
+    }
+
+    private void publishWarning(LiveWarnings.Warning w, boolean canMute) {
+        boolean same = w == null ? currentWarning == null
+                : currentWarning != null && w.text.equals(currentWarning.text) && w.level == currentWarning.level;
+        if (same && canMute == currentCanMute) return;
+        boolean levelChanged = w != null && (currentWarning == null || w.level != currentWarning.level
+                || !w.key.equals(currentWarning.key));
+        currentWarning = w;
+        currentCanMute = canMute;
+        if (listener != null) listener.onWarning(w, canMute);
+        if (levelChanged) append("Warnung: " + w.text);   // Konsole/Log nur bei neuer Ursache oder Stufe
+    }
+
+    /** Neue Verbindung oder Trennen: keine Meldung aus der alten Sitzung übernehmen. */
+    private void resetWarnings() {
+        ui.removeCallbacks(warningTick);
+        liveWarnings.reset();
+        warningAlerts.reset();
+        publishWarning(null, false);
+        if (tone != null) {
+            tone.release();
+            tone = null;
+        }
+    }
+
+    private void beep() {
+        try {
+            // STREAM_ALARM: auch bei „Nicht stören“ bzw. stummgeschalteten Benachrichtigungen hörbar
+            if (tone == null) tone = new android.media.ToneGenerator(android.media.AudioManager.STREAM_ALARM, 90);
+            tone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 600);
+        } catch (RuntimeException e) {
+            // ohne Tonausgabe bleibt die rote Leiste die Meldung
+        }
+    }
+
     public static synchronized ObdSession get() {
         if (instance == null) instance = new ObdSession();
         return instance;
@@ -195,6 +279,7 @@ public final class ObdSession {
         listener = l;
         if (l == null) return;
         l.render(state);
+        l.onWarning(currentWarning, currentCanMute);
         for (Pending d : pendingDialogs) {
             if (d.op != null) l.onResult(d.op, d.title, d.message);
             else l.onDialog(d.title, d.message);
@@ -261,6 +346,8 @@ public final class ObdSession {
         // Status vor „aktiv“ setzen, damit die Benachrichtigung nicht kurz „Getrennt“ zeigt.
         showStatusForConnection(session, "Verbinde mit " + target(host, port, transport) + " …");
         setActive(true);
+        resetWarnings();
+        evaluateWarnings();   // startet den Sekundentakt der Warnungen
 
         io.execute(() -> connectAndStart(session, host, port, transport));
         return true;
@@ -328,6 +415,7 @@ public final class ObdSession {
         if (reason != null) append(reason);
         append("Verbindung getrennt");
         replaceTransport(null);   // laufenden Bluetooth-Aufbau abbrechen (Review)
+        resetWarnings();
         closeClient();
         csv.flush();
         setActive(false);
@@ -450,6 +538,10 @@ public final class ObdSession {
 
     /** Main-Thread. */
     private void notifyInvalid(int pid) {
+        if (warningsEnabled) {
+            liveWarnings.onInvalid(pid);
+            evaluateWarnings();   // ungültige Daten nehmen eine Meldung sofort weg
+        }
         if (listener != null) {
             listener.onPidValue(pid, INVALID_TEXT);
             listener.onPidInvalid(pid);
@@ -521,6 +613,7 @@ public final class ObdSession {
                         state.pidTexts.put(pid.pid, text);
                         if (state.latencies.size() >= LATENCY_POINTS) state.latencies.removeFirst();
                         state.latencies.addLast(latency);
+                        if (warningsEnabled) liveWarnings.onSample(pid.pid, sample, SystemClock.elapsedRealtime());
                         if (listener != null) {
                             listener.onPidValue(pid.pid, text);
                             listener.onPidSample(pid.pid, sample);

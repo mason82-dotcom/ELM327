@@ -130,6 +130,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private TrendView trendView;
     private TextView trendTitle;
     private EditText hostInput, portInput;
+    /** Kühlmittel-/Bordnetzwarnungen über allen Seiten; Zustand und Ton liegen in der Sitzung. */
+    private WarningBar warningBar;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -141,6 +143,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             trendPid = savedInstanceState.getInt("trendPid", 0x0C);
         }
         session.attachTestPlan(this);
+        session.setWarningsEnabled(true);   // Kühlmittel-/Bordnetzwarnungen mit Ton (auch im Hintergrund)
         // ADR-004: Testfreigabe aus den Einstellungen, ausgeliefert aus
         session.setAdr004Enabled(getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_ADR004, false));
         buildUi();
@@ -228,6 +231,12 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         connectButton = button("Verbinden", v -> toggleConnection());
         head.addView(connectButton, new LinearLayout.LayoutParams(dp(140), dp(52)));
         root.addView(head);
+        Button mute = button("Ton aus", v -> session.silenceWarning());
+        mute.setTextColor(Palette.ON_SIGNAL);
+        mute.setBackground(muteBackground());
+        warningBar = new WarningBar(this, mute, dp(4));
+        warningBar.show(session.currentWarning(), session.warningCanMute());
+        root.addView(warningBar.view());
 
         FrameLayout content = new FrameLayout(this);
         root.addView(content, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -996,6 +1005,11 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     public void onLatency(long ms) { }
 
     @Override
+    public void onWarning(de.roman.mercedesobdmonitor.LiveWarnings.Warning warning, boolean canMute) {
+        if (warningBar != null) warningBar.show(warning, canMute);
+    }
+
+    @Override
     public void onStats(String text) {
         stats.setText(text);
         updateConnectionUi();
@@ -1236,6 +1250,14 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         d.setColor(color);
         d.setCornerRadius(dp(10));
         d.setStroke(dp(selected ? 2 : 1), selected ? Palette.CYAN : Palette.BORDER);
+        return d;
+    }
+
+    private GradientDrawable muteBackground() {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(0x33FFFFFF);
+        d.setCornerRadius(dp(10));
+        d.setStroke(dp(2), Palette.ON_SIGNAL);
         return d;
     }
 

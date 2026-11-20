@@ -15,6 +15,8 @@ final class Palette {
     static final int WARN = 0xFFFFCC76;
     static final int ALARM = 0xFFFF6B6B;
     static final int OK = 0xFF81C784;
+    /** Schrift auf WARN-/ALARM-Flächen (Kontrast > 7:1 auf Gelb, > 6:1 auf Rot). */
+    static final int ON_SIGNAL = 0xFF1A1A1A;
 
     private Palette() { }
 

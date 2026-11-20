@@ -32,7 +32,8 @@ public final class LiveValues {
 
     /**
      * Höchstalter eines angezeigten Messwerts. Langsame PIDs werden jede 5. Runde (Fuel-Trim-Test: jede 10.)
-     * gelesen, eine Runde dauert etwa 1 s; Diagnosen pausieren das Polling. Älter als das gilt als nicht frisch.
+     * gelesen, Kühlmittel und Spannung jede 2. (Fuel-Trim-Test: jede 3.); eine Runde dauert im Log 20.11.2026 etwa
+     * 2 s; Diagnosen pausieren das Polling. Älter als das gilt als nicht frisch (auch für {@link LiveWarnings}).
      */
     public static final long MAX_AGE_MS = 15_000;
 
