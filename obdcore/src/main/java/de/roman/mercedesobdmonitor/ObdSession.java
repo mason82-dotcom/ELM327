@@ -249,9 +249,9 @@ public final class ObdSession {
         clearDiagnosisUiForSessionChange();
         userDisconnect = false;
         monitoring.set(false);
-        latestValues.clear();
-        latestSequences.clear();
-        latestAt.clear();
+        // Neue Verbindung übernimmt niemals Livewerte oder Anzeigen aus dem Vorgänger.
+        // Das neue Invalidierungsereignis bleibt gültig, selbst wenn das alte verworfen wurde.
+        invalidateAllLive(session);
         fuelTrimTest.cancel();
         closeClient();
         state.driveCycleText = null;
@@ -619,11 +619,14 @@ public final class ObdSession {
             for (String init : LinkPolicy.reconnectInit(protocolNumber)) {
                 command(session, init, 1500);
             }
-            pollTimeouts.reset();
-            firstRequestAfterInit = true;
-            latestValues.clear();
-            latestSequences.clear();
-            latestAt.clear();
+            synchronized (this) {
+                if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get()) || userDisconnect) return;
+                pollTimeouts.reset();
+                firstRequestAfterInit = true;
+                latestValues.clear();
+                latestSequences.clear();
+                latestAt.clear();
+            }
             showStatusForConnection(session, "Wieder verbunden · " + protocol);
             append("Auto-Reconnect erfolgreich");
         } catch (Exception e) {
