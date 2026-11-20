@@ -48,6 +48,10 @@ Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantwort
 - Drehzahl, Tempo, Kühlmittel, Last, Drosselklappe, Luftmasse, Saugrohrdruck, Ansaugluft, STFT/LTFT beider Bänke,
   Steuergerätespannung, Soll-Lambda, Umgebungsdruck; Dashboard mit Rundinstrumenten und Verlaufskurven.
 - Werte des Motorsteuergeräts (7E8), auch wenn das Getriebe dieselben PIDs beantwortet.
+- **Warnungen (Dashboard):** Leiste über allen Seiten bei hoher Kühlmitteltemperatur (gelb ab 108 °C, rot ab 115 °C),
+  schwacher Batterie bei Zündung an (unter 11,8 V), zu wenig Ladung (unter 13,0 V) oder Überspannung (über 15,0 V) bei
+  laufendem Motor. Rot mit Ton (auch wenn eine andere App vorn ist), „Ton aus“ je Meldung. Orientierungswerte, keine
+  Herstellerangabe; nur aus den ohnehin gelesenen Werten.
 
 **Auswertung (Richtwerte, keine Diagnose)**
 - **Analyse:** Verbrauch aus Luftmasse, Liefergrad, Lambda-Regelung, Kat-Tendenz, Zündwinkel, E-Gas, Bordnetz.

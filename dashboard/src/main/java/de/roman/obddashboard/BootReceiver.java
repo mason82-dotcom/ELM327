@@ -6,6 +6,7 @@ import android.content.Intent;
 
 import de.roman.mercedesobdmonitor.AdapterChoice;
 import de.roman.mercedesobdmonitor.ObdService;
+import de.roman.mercedesobdmonitor.ObdSession;
 
 /**
  * ADR-006: Nach dem Start des Android-Radios automatisch mit dem ELM327 verbinden (nur wenn unter INFO
@@ -17,6 +18,7 @@ public final class BootReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         if (intent == null || !Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) return;
         if (!AdapterChoice.autoConnect(context, DashboardActivity.PREFS)) return;
+        ObdSession.get().setWarningsEnabled(true);   // Warnungen auch ohne geöffnete Oberfläche
         context.startForegroundService(new Intent(context, ObdService.class)
                 .setAction(ObdService.ACTION_AUTO_CONNECT)
                 .putExtra(ObdService.EXTRA_PREFS, DashboardActivity.PREFS));

@@ -26,6 +26,12 @@ public class PollScheduleTest {
     @Test public void fuelTrimFocusThrottlesUnrelatedPids() {
         assertFalse(PollSchedule.shouldPoll(0x05, 1, true));
         assertFalse(PollSchedule.shouldPoll(0x44, 3, true));
-        assertTrue(PollSchedule.shouldPoll(0x05, 10, true));
+        assertTrue(PollSchedule.shouldPoll(0x44, 10, true));
+        // Warnungen: Kühlmittel/Spannung jede 3. Runde, normal jede 2.
+        assertTrue(PollSchedule.shouldPoll(0x05, 3, true));
+        assertTrue(PollSchedule.shouldPoll(0x42, 3, true));
+        assertTrue(PollSchedule.shouldPoll(0x05, 2, false));
+        assertTrue(PollSchedule.shouldPoll(0x42, 4, false));
+        assertFalse(PollSchedule.shouldPoll(0x42, 3, false));
     }
 }

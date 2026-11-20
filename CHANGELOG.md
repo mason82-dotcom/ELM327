@@ -2,6 +2,21 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Dashboard 0.17.0 (Monitor 1.11.3): Warnungen für Kühlmittel und Bordnetz
+
+- **Warnleiste** über allen Seiten des Dashboards, unsichtbar solange alles in Ordnung ist:
+  - Kühlmittel: Warnung ab 108 °C, Alarm ab 115 °C (dieselben Grenzen wie die Rundanzeige); Alarm fällt unter
+    111 °C auf Warnung zurück, die Warnung endet unter 104 °C.
+  - Motor läuft (ab 20 s nach dem Start): Ladung unter 13,0 V Warnung, unter 12,2 V Alarm, über 15,0 V Alarm.
+  - Zündung an, Motor aus: Batterie unter 11,8 V Warnung (Log 20.11.: 11,5 V vor dem Start).
+  - Jede Meldung muss über mindestens zwei Messungen anstehen; ungültige oder ältere Werte als 15 s nehmen sie weg.
+- **Ton** nur bei Alarm (Alarm-Lautstärke, auch bei „Nicht stören“), beim Auftreten und jede Minute, bis „Ton aus“.
+  Auswertung und Ton laufen in der Sitzung, also auch wenn die Navigation vorn ist; ein Radiostart mit
+  „Automatisch verbinden“ schaltet sie ebenfalls ein. Jede neue Meldung steht in der Konsole.
+- Kühlmittel und Steuergerät-Spannung werden doppelt so oft gelesen (jede 2. statt 5. Runde, im Fuel-Trim-Test jede
+  3. statt 10.); im Log 20.11. lagen bis zu 23 s zwischen zwei Messungen.
+- Keine neuen Befehle, weiterhin nur lesen. Monitor 1.11.3: nur gemeinsamer Kern (Abfragetakt).
+
 ## Version 1.11.2 (Monitor) / 0.16.1 (Dashboard): DTC-Abbruch, Sitzungswechsel, Bluetooth-Korrektur
 
 - **DTC-Scan abbrechen** (#36): STOP in beiden Apps beendet genau den laufenden Scan; der Adapter wird neu
