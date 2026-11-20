@@ -70,6 +70,37 @@ public class ServiceMode04GateTest {
         }
     }
 
+    @Test public void incompleteOrUnparseableDtcReportCannotArmServiceClear() {
+        assertTrue(ServiceMode04Gate.hasCompleteDtcSnapshot(
+                "Gespeichert: keine Fehlercodes gemeldet\nPending: keine Fehlercodes gemeldet\n"
+                + "Permanent: nicht unterstützt / NO DATA"));
+        assertTrue(ServiceMode04Gate.hasCompleteDtcSnapshot(
+                "Gespeichert:\n• P0016\nPending: keine Fehlercodes gemeldet\n"
+                + "Permanent: keine permanenten Fehlercodes"));
+        for (String bad : new String[] {
+                "Gespeichert: keine Antwort",
+                "Gespeichert: keine Fehlercodes erkannt\nRohantwort: 41 0C",
+                "Pending: nicht gelesen – Adapter meldet CAN ERROR",
+                "Permanent: Timeout – nicht gelesen",
+                "Permanent: übersprungen · Verbindung wird neu aufgebaut",
+                "Gespeichert: fehlgeschlagen"
+        }) {
+            assertFalse(bad, ServiceMode04Gate.hasCompleteDtcSnapshot(
+                    "Gespeichert: keine Fehlercodes gemeldet\n"
+                    + "Pending: keine Fehlercodes gemeldet\n"
+                    + "Permanent: keine permanenten Fehlercodes\n" + bad));
+        }
+        assertFalse(ServiceMode04Gate.hasCompleteDtcSnapshot("Gespeichert: keine Fehlercodes gemeldet"));
+        assertFalse(ServiceMode04Gate.hasCompleteDtcSnapshot(null));
+    }
+
+    @Test public void ambiguousLowRpmDuringCrankingMustNotPassEngineOffPreflight() {
+        assertNotNull(ServiceMode04Gate.blockedReason(
+                p(true,true,true,true,1.0,NOW,0.0,NOW,12.4,NOW)));
+        assertNotNull(ServiceMode04Gate.blockedReason(
+                p(true,true,true,true,50.0,NOW,0.0,NOW,12.4,NOW)));
+    }
+
     @Test public void mainSafetyGateStaysReadOnly() {
         for (String s : new String[] {"04", "08", "3101", "2E0101", "2701", "14FFFFFF"}) {
             assertFalse("Der normale Adapterpfad muss weiter sperren: " + s, CommandSafety.isAllowed(s));
