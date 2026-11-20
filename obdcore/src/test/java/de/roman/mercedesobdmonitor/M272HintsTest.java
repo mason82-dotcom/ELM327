@@ -9,6 +9,10 @@ import org.junit.Test;
 public class M272HintsTest {
     @Test public void knownCodesHaveHints() {
         assertTrue(M272Hints.hint("P0016").contains("Steuertrieb"));
+        // MBUSA-DTB S-B-03.30/08i: Ausgleichswelle nicht für Baureihe 204, Magnete schon
+        assertTrue(M272Hints.hint("P0016").contains("Baureihe 204 (W204/S204) nimmt das Bulletin ausdrücklich aus"));
+        assertTrue(M272Hints.hint("P0011").contains("Baureihe 204 eingeschlossen"));
+        assertTrue(M272Hints.hint("P0171").contains("Y-Stück"));
         assertTrue(M272Hints.hint("P2004").contains("Saugrohr"));
         assertTrue(M272Hints.hint("P0304").contains("Bank 2"));
         assertTrue(M272Hints.hint("P0301").contains("Bank 1"));

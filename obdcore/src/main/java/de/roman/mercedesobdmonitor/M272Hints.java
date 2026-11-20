@@ -15,13 +15,16 @@ public final class M272Hints {
 
     static {
         String cam = "M272: Nockenwellenversteller-Magnete und Sensoren zuerst prüfen (Öl im Stecker/"
-                + "Kabelbaum ist ein bekanntes M272-Thema). Bleibt der Fehler, Steuertrieb prüfen: "
-                + "Kettenlängung, Spann- und Gleitschienen; bei frühen M272 das Ausgleichswellenrad. "
-                + "Baureihe 204 (W204/S204, ab 2007) liegen meist nach der Serienänderung – Motornummer gegenprüfen.";
+                + "Kabelbaum ist ein bekanntes M272-Thema). Test laut MBUSA-DTB S-B-03.30/08i (2009): Code löschen, "
+                + "Motor neu starten – kommt er sofort wieder, ist es die Lage der Nockenwellen zur Kurbelwelle, also "
+                + "der Steuertrieb (Kettenlängung, Spanner, Gleitschienen). Das verschlissene Ausgleichswellenrad betrifft "
+                + "nur M272 bis Motornummer 2729..30 468993; Baureihe 204 (W204/S204) nimmt das Bulletin ausdrücklich aus.";
         for (String c : new String[] {"P0016", "P0017", "P0018", "P0019"}) HINTS.put(c, cam);
 
         String vvt = "M272: Nockenwellenversteller-Magnet der betroffenen Bank (Öl/Schmutz, "
-                + "Stecker auf Ölwanderung prüfen), Ölstand/-qualität, danach Nockenwellenversteller.";
+                + "Stecker auf Ölwanderung prüfen), Ölstand/-qualität, danach Nockenwellenversteller. Laut MBUSA-DTB "
+                + "S-B-03.30/08i haben M272 bis Motornummer 2729..30 759427 – Baureihe 204 eingeschlossen – noch die "
+                + "alten Magnete (Ersatz A272 051 01 77); Ölverlust am Magnet ohne Fehlercode bis 2729..30 895140.";
         for (String c : new String[] {"P0010", "P0011", "P0012", "P0013", "P0014",
                 "P0020", "P0021", "P0022", "P0023", "P0024"}) HINTS.put(c, vvt);
 
@@ -31,7 +34,8 @@ public final class M272Hints {
         for (String c : new String[] {"P2004", "P2005", "P2006", "P2007"}) HINTS.put(c, flaps);
 
         String leanBoth = "Beide Bänke mager → gemeinsame Ursache vor der Bankaufteilung: Falschluft über "
-                + "Kurbelgehäuseentlüftung (Schläuche/Ölabscheider), Saugrohrdichtungen, "
+                + "Kurbelgehäuseentlüftung (beim M272 reißt oft das Y-Stück des Entlüftungsschlauchs unter dem "
+                + "Luftmassenmesser – Forenbericht, 100–160 Tkm), Saugrohrdichtungen, "
                 + "Luftmassenmesser, Kraftstoffdruck. Fuel-Trim-Test (Leerlauf vs. 2500 U/min) nutzen.";
         HINTS.put("P0171", "Nur Bank 1 (Zyl. 1–3): Einspritzventil/Dichtung, Lambdasonde oder "
                 + "Falschluft dieser Bank. Mit P0174 zusammen: " + leanBoth);
