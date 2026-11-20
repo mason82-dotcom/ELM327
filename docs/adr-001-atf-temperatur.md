@@ -1,6 +1,6 @@
 # ADR-001: ATF-Temperatur der 7G-Tronic als eng begrenzte Ausnahme vom Header-Verbot
 
-**Status:** Angenommen (07.11.2026)
+**Status:** Angenommen (07.11.2026), Byteindex korrigiert durch [ADR-003](adr-003-atf-antwort-layout.md) (20.11.2026)
 **Datum:** 07.11.2026
 **Entscheidet:** Betreiber (mason)
 
@@ -12,7 +12,7 @@ und eine feste Liste von AT-Befehlen zu; Header-Wechsel (`ATSH`, `ATCRA` …) si
 Die Getriebeöltemperatur (ATF) der 7G-Tronic 722.9 ist der meistgewünschte Zusatzwert für den C350 und der einzige
 Mercedes-eigene Messwert mit öffentlichem Beleg (Recherche „C350 M272 Diagnosefunktionen“, 07.11.2026):
 Header **7E1** (Getriebesteuergerät), Anfrage **`21 30`** (KWP2000 ReadDataByLocalIdentifier 0x30), Antwort von
-7E9 `61 30 …`, **°C = Byte[11] − 50**. Belegt in mehreren Foren für W204 C63, W164, W212, W251 – nicht für den
+7E9 `61 30 …`, **°C = Byte[11] − 50** (gemeint ist Datenbyte 11 nach `61 30`, Index 13 ab 0x61 – siehe ADR-003). Belegt in mehreren Foren für W204 C63, W164, W212, W251 – nicht für den
 C350 MJ 2008; es gibt Fehlberichte (konstant −51 °C, also Rohwert 0x01 = keine gültige Antwort).
 
 Risiken:

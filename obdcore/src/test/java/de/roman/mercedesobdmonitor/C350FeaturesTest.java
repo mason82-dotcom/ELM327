@@ -134,12 +134,34 @@ public class C350FeaturesTest {
 
     @Test
     public void atfTemperatureFromMultiFrameAnswer() {
-        // byte[11] = 0x82 = 130 → 80 °C
-        String raw = "014\r0: 61 30 00 00 00 00\r1: 00 00 00 00 00 82 00\r2: 00 00 00 00 00 00 00\r";
+        // ADR-003: 20 Bytes wie im EGS52-Layout; Temperatur = Index 13 ab 0x61 = 0x82 = 130 → 80 °C
+        String raw = "014\r0: 61 30 00 0A 03 E8\r1: 00 64 06 08 01 01 12\r2: 82 00 C8 00 FA 00 00\r";
         AtfTemperature.Reading r = AtfTemperature.parse(raw);
         assertEquals(80.0, r.celsius, 1e-9);
-        assertTrue(r.text().contains("80 °C"));
-        assertTrue(r.text().contains("Rohantwort: 61 30"));
+        String t = r.text();
+        assertTrue(t, t.contains("80 °C"));
+        assertTrue(t, t.contains("Rohantwort: 61 30"));
+        assertTrue(t, t.contains("Hypothese"));
+        assertTrue(t, t.contains("[2] Wandler-Schlupfdrehzahl: 10"));
+        assertTrue(t, t.contains("[4] Wandler-Drehzahl: 1000"));            // 16 Bit big-endian
+        assertTrue(t, t.contains("[8] Wandlerzustand: 6 (EGS52: geschlossen)"));
+        assertTrue(t, t.contains("[11] erkannter Gang: 1 (EGS52: D1)"));
+        assertTrue(t, t.contains("oberes Halbbyte 1 (Ist), unteres 2 (Ziel)"));
+        assertTrue(t, t.contains("[14] Motormoment: 200"));
+        assertTrue(t, t.contains("[18] Abtriebsdrehzahl: 0"));
+        assertFalse(t, t.contains("Schaltbits"));                            // Antwort endet vor Index 20
+    }
+
+    /** Die bis ADR-003 gelesene Stelle (Index 11) ist der Gang: eine 12-Byte-Antwort ergibt keine Temperatur mehr. */
+    @Test
+    public void atfOldIndexIsTheGearNotTheTemperature() {
+        AtfTemperature.Reading r = AtfTemperature.parse("61 30 00 00 00 00 00 00 00 00 00 82");
+        assertNull(r.celsius);
+        assertTrue(r.problem, r.problem.contains("zu kurz"));
+        assertTrue(r.text(), r.text().contains("[11] erkannter Gang: 130"));
+        assertEquals("", AtfTemperature.layoutFields(new byte[0]));
+        assertEquals("D3", AtfTemperature.gear(3));
+        assertNull(AtfTemperature.gear(42));
     }
 
     @Test
@@ -147,9 +169,9 @@ public class C350FeaturesTest {
         assertNull(AtfTemperature.parse("NO DATA").celsius);
         assertNull(AtfTemperature.parse("7F 21 11").celsius);                          // service not supported
         assertTrue(AtfTemperature.parse("7F 21 11").problem.contains("lehnt"));
-        assertNull(AtfTemperature.parse("61 30 00 00 00 00 00 00 00 00 00 01").celsius); // reported −49/−51 case
-        assertNull(AtfTemperature.parse("61 30 00 00").celsius);                       // too short
-        assertNull(AtfTemperature.parse("61 30 00 00 00 00 00 00 00 00 00 FF").celsius); // 205 °C: implausible
+        assertNull(AtfTemperature.parse("61 30 00 00 00 00 00 00 00 00 00 00 00 01").celsius); // reported −49/−51 case
+        assertNull(AtfTemperature.parse("61 30 00 00").celsius);                             // too short
+        assertNull(AtfTemperature.parse("61 30 00 00 00 00 00 00 00 00 00 00 00 FF").celsius); // 205 °C: implausible
     }
 
     @Test
@@ -244,9 +266,9 @@ public class C350FeaturesTest {
 
     @Test
     public void atfPicksTheTransmissionAnswerAmongSeveral() {
-        String raw = "7F 21 11\r61 30 00 00 00 00 00 00 00 00 00 78\r";
+        String raw = "7F 21 11\r61 30 00 00 00 00 00 00 00 00 00 00 00 78\r";
         // a rejection from another responder does not hide the valid answer
         assertEquals(70.0, AtfTemperature.parse(raw).celsius, 1e-9);
-        assertEquals(70.0, AtfTemperature.parse("61 30 00 00 00 00 00 00 00 00 00 78").celsius, 1e-9);
+        assertEquals(70.0, AtfTemperature.parse("61 30 00 00 00 00 00 00 00 00 00 00 00 78").celsius, 1e-9);
     }
 }
