@@ -53,6 +53,25 @@ public class ServiceActionLabTest {
         }
     }
 
+    @Test public void normalGlassRoofUsesN70RatherThanPanoramaControlUnit() {
+        ServiceActionLab.RoofConfiguration roof = ServiceActionLab.currentVehicleRoof();
+        assertTrue(roof.type.contains("Schiebe-/Hebedach"));
+        assertEquals("414", roof.expectedSaCode);
+        assertEquals("N70", roof.expectedController);
+        assertEquals("M12m1", roof.expectedMotor);
+        assertFalse("SA-Code noch nicht gegen konkrete Datenkarte bestätigt",
+                roof.confirmedFromVehicleDataCard);
+        assertFalse(ServiceActionLab.canExecuteOnVehicle(ServiceActionLab.Action.SUNROOF_OPEN));
+        assertFalse(ServiceActionLab.canExecuteOnVehicle(ServiceActionLab.Action.SUNROOF_CLOSE));
+        for (ServiceActionLab.Action action : new ServiceActionLab.Action[]{
+                ServiceActionLab.Action.SUNROOF_OPEN, ServiceActionLab.Action.SUNROOF_CLOSE}) {
+            ServiceActionLab.Proposal p = ServiceActionLab.describe(action);
+            assertTrue(p.prerequisites.stream().anyMatch(t -> t.contains("N70")));
+            assertTrue(p.prerequisites.stream().anyMatch(t -> t.contains("414")));
+            assertTrue(p.limitation.contains("A98 nicht relevant"));
+        }
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsMissingAction() {
         ServiceActionLab.describe(null);
