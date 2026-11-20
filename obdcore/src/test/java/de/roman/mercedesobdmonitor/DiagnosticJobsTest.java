@@ -16,6 +16,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -38,6 +41,7 @@ public class DiagnosticJobsTest {
         final List<String> log = new ArrayList<>();
         final List<Elm327Client> dropped = new ArrayList<>();
         String protocolNumber = "6";
+        volatile boolean canceled;
         long timeouts;
 
         @Override public void log(String line) { log.add(line); }
@@ -54,6 +58,7 @@ public class DiagnosticJobsTest {
         @Override public void countIoError() { }
         @Override public void status(String text) { }
         @Override public boolean starterCancelled() { return false; }
+        @Override public boolean dtcCancelled() { return canceled; }
         @Override public double recentAmbient() { return Double.NaN; }
         @Override public boolean livePid(int pid) { return true; }
         @Override public long now() { return System.nanoTime() / 1_000_000L; }
@@ -166,6 +171,45 @@ public class DiagnosticJobsTest {
         assertTrue(r, r.contains("Pending: Timeout · Verbindung wird neu aufgebaut"));
         assertTrue(r, r.contains("Permanent: übersprungen"));
         assertEquals(List.of("03", "07"), received);
+    }
+
+    /** Abbruch während der blockierenden 07-Abfrage: kein 0A und kein 0100-Nachtest. */
+    @Test
+    public void dtcCancelClosesPendingReadAndNeverSendsRemainingModes() throws Exception {
+        CountDownLatch reachedPending = new CountDownLatch(1);
+        answers = cmd -> {
+            if ("03".equals(cmd)) return "43 00";
+            if ("07".equals(cmd)) {
+                reachedPending.countDown();
+                return null;  // ELM wartet auf Prompt, bis der Client-Socket geschlossen wird
+            }
+            return "OK";
+        };
+        AtomicReference<String> report = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread worker = new Thread(() -> {
+            try {
+                report.set(new DiagnosticJobs(host).readDtcReport(client));
+            } catch (Throwable e) {
+                failure.set(e);
+            }
+        }, "dtc-abort-test");
+        worker.start();
+        try {
+            assertTrue("Pending-Anfrage wurde nicht erreicht", reachedPending.await(2, TimeUnit.SECONDS));
+            host.canceled = true;
+            client.close(); // dieselbe I/O-Unterbrechung wie cancelDtcScan
+            worker.join(4500);
+            assertFalse("DTC-Abbruch darf nicht 3,5 s auf Timeout warten", worker.isAlive());
+            assertTrue("unerwartete Ausnahme: " + failure.get(), failure.get() == null);
+            assertTrue(report.get(), report.get().contains("Pending: abgebrochen"));
+            assertEquals(List.of("03", "07"), received);
+            assertEquals("Abbruch darf kein Adapter-Timeout zählen", 0, host.timeouts);
+        } finally {
+            host.canceled = true;
+            client.close();
+            worker.join(4500);
+        }
     }
 
     @Test

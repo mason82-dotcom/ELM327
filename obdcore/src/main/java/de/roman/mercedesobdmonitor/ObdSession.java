@@ -120,6 +120,14 @@ public final class ObdSession {
     private final AtomicBoolean monitoring = new AtomicBoolean(false);
     private final AtomicBoolean exclusiveRequest = new AtomicBoolean(false);
     private final AtomicInteger sessionGeneration = new AtomicInteger(0);
+    /** Herkunft einer laufenden Diagnose; -1 außerhalb eines exklusiven Auftrags. */
+    private volatile int activeDiagnosisGeneration = -1;
+    /** Monotone Kennung je Diagnose und nach Abbruch, damit verspätete UI-Callbacks keine Folgeaufträge verändern. */
+    private final AtomicLong diagnosisToken = new AtomicLong();
+    private volatile long activeDiagnosisToken;
+    private volatile Op activeDiagnosisOp;
+    private volatile Elm327Client activeDiagnosisClient;
+    private volatile boolean dtcAbortRequested;
     private final AtomicLong telemetrySequence = new AtomicLong(0);
 
     /** Wird beim Verbinden neu befüllt und parallel vom Polling gelesen. */
@@ -232,18 +240,24 @@ public final class ObdSession {
         // Application-Context: ConnectivityManager hielt auf älteren Android-Versionen die Activity fest.
         connectivity = context.getApplicationContext().getSystemService(ConnectivityManager.class);
         csv.setDirectory(CsvLogger.logDirectory(context.getApplicationContext()));
-        final int session = sessionGeneration.incrementAndGet();
+        // Sitzungswechsel und Live-Invalidierung teilen denselben kurzen Lock:
+        // ein alter Poll-Thread darf keine Werte der neuen Sitzung leeren.
+        final int session;
+        synchronized (this) {
+            session = sessionGeneration.incrementAndGet();
+        }
+        clearDiagnosisUiForSessionChange();
         userDisconnect = false;
         monitoring.set(false);
-        latestValues.clear();
-        latestSequences.clear();
-        latestAt.clear();
+        // Neue Verbindung übernimmt niemals Livewerte oder Anzeigen aus dem Vorgänger.
+        // Das neue Invalidierungsereignis bleibt gültig, selbst wenn das alte verworfen wurde.
+        invalidateAllLive(session);
         fuelTrimTest.cancel();
         closeClient();
         state.driveCycleText = null;
         if (listener != null) listener.onPassive(state);
         // Status vor „aktiv“ setzen, damit die Benachrichtigung nicht kurz „Getrennt“ zeigt.
-        showStatus("Verbinde mit " + target(host, port, transport) + " …");
+        showStatusForConnection(session, "Verbinde mit " + target(host, port, transport) + " …");
         setActive(true);
 
         io.execute(() -> connectAndStart(session, host, port, transport));
@@ -295,8 +309,12 @@ public final class ObdSession {
 
     /** @param reason optionaler Grund für die Konsole */
     public void disconnect(String reason) {
-        sessionGeneration.incrementAndGet();
+        final int session;
+        synchronized (this) {
+            session = sessionGeneration.incrementAndGet();
+        }
         userDisconnect = true;
+        clearDiagnosisUiForSessionChange();
         monitoring.set(false);
         protocolIsCan = null;
         latestValues.clear();
@@ -305,8 +323,8 @@ public final class ObdSession {
         fuelTrimTest.cancel();
         setFuel(FUEL_BUTTON, FUEL_READY);
         if (warmupCheck.isRunning()) finishWarmupCheck();
-        showStatus("Getrennt");
-        invalidateAllLive();
+        showStatusForConnection(session, "Getrennt");
+        invalidateAllLive(session);
         if (reason != null) append(reason);
         append("Verbindung getrennt");
         replaceTransport(null);   // laufenden Bluetooth-Aufbau abbrechen (Review)
@@ -320,7 +338,7 @@ public final class ObdSession {
             if (session != sessionGeneration.get()) return;
             // Protocol of a previous adapter/car must not be shown or used for this connection.
             protocolIsCan = null;
-            showStatus("Verbinde mit " + target(host, port, transport) + " …");
+            showStatusForConnection(session, "Verbinde mit " + target(host, port, transport) + " …");
             long connectMs = connectWithFallback(host, port, session, transport);
             append((transport != null ? transport.describe() : "TCP") + " verbunden in " + connectMs + " ms");
 
@@ -349,7 +367,7 @@ public final class ObdSession {
                 append("Live-Polling mit CAN-Header: Werte vom Motorsteuergerät (7E8) bevorzugt");
             }
             pollTimeouts.reset();
-            showStatus("Verbunden · " + elmId + " · " + protocol);
+            showStatusForConnection(session, "Verbunden · " + elmId + " · " + protocol);
             append("Adapter: " + elmId);
             append("Protokoll: " + protocol);
             append("Versorgung: " + adapterVoltage);
@@ -360,8 +378,8 @@ public final class ObdSession {
             if (session != sessionGeneration.get()) return;
             ioErrors.incrementAndGet();
             append("Verbindungsfehler: " + e.getMessage());
-            showStatus("Verbindung fehlgeschlagen");
-            invalidateAllLive();
+            showStatusForConnection(session, "Verbindung fehlgeschlagen");
+            invalidateAllLive(session);
             closeClient();
             updateStats();
             setActive(false);
@@ -395,21 +413,27 @@ public final class ObdSession {
      * nicht löschen (Review von #6).
      */
     private void invalidatePid(int session, int pid) {
-        if (session != sessionGeneration.get()) return;
-        latestValues.remove(pid);
-        latestSequences.remove(pid);
-        latestAt.remove(pid);
+        synchronized (this) {
+            if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) return;
+            latestValues.remove(pid);
+            latestSequences.remove(pid);
+            latestAt.remove(pid);
+        }
         ui.post(() -> {
-            if (session == sessionGeneration.get()) markInvalid(pid);
+            if (SessionEpoch.matchesGeneration(session, sessionGeneration.get())) markInvalid(pid);
         });
     }
 
-    /** Alle Live-Werte ungültig (Verbindungsverlust, Trennen, Verbindungsfehler). */
-    private void invalidateAllLive() {
-        latestValues.clear();
-        latestSequences.clear();
-        latestAt.clear();
+    /** Alle Live-Werte ungültig – nur in der Sitzung des auslösenden Poll-/I/O-Vorgangs. */
+    private void invalidateAllLive(int session) {
+        synchronized (this) {
+            if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) return;
+            latestValues.clear();
+            latestSequences.clear();
+            latestAt.clear();
+        }
         ui.post(() -> {
+            if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) return;
             for (Integer pid : LiveValues.markAllInvalid(state.pidTexts)) notifyInvalid(pid);
         });
     }
@@ -443,7 +467,7 @@ public final class ObdSession {
             if (c == null || !c.isConnected()) {
                 // Während des Reconnects kommen keine Messwerte, die den Puffer leeren würden.
                 csv.flush();
-                invalidateAllLive();
+                invalidateAllLive(session);
                 reconnectAfterFailure(session, host, port, transport);
                 continue;
             }
@@ -473,10 +497,16 @@ public final class ObdSession {
                     final double value = result.value;
                     samples.incrementAndGet();
                     totalLatency.addAndGet(r.elapsedMs);
-                    if (session != sessionGeneration.get()) break;
-                    latestValues.put(pid.pid, value);
-                    latestSequences.put(pid.pid, telemetrySequence.incrementAndGet());
-                    latestAt.put(pid.pid, SystemClock.elapsedRealtime());
+                    // Sessionwechsel und Veröffentlichung der drei Metadaten sind atomar:
+                    // eine verspätete Antwort darf die Live-Cachewerte der neuen Verbindung nicht überschreiben.
+                    synchronized (this) {
+                        if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) break;
+                        latestValues.put(pid.pid, value);
+                        latestSequences.put(pid.pid, telemetrySequence.incrementAndGet());
+                        latestAt.put(pid.pid, SystemClock.elapsedRealtime());
+                    }
+                    // CSV nicht unter dem Sitzungs-Lock schreiben (Dateisystem-I/O).
+                    if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) break;
                     csv.record(System.currentTimeMillis(), pid, value, r.elapsedMs, r.raw);
                     final String text = pid.format(value);
                     final long latency = r.elapsedMs;
@@ -533,7 +563,7 @@ public final class ObdSession {
                 Elm327Client current = client;
                 if (current != null && current.isConnected()) pollDriveCycle(session, current);
             }
-            updatePassiveDiagnostics();
+            updatePassiveDiagnostics(session);
             ElmText.sleepQuiet(70);
         }
     }
@@ -547,6 +577,7 @@ public final class ObdSession {
             if (cycle == null || cycle.monitors.isEmpty()) return;
             final String text = "Fahrzyklus (01 41): " + cycle.summary();
             ui.post(() -> {
+                if (session != sessionGeneration.get() || userDisconnect) return;
                 state.driveCycleText = text;
                 if (listener != null) listener.onPassive(state);
             });
@@ -582,8 +613,13 @@ public final class ObdSession {
         @Override public Boolean protocolIsCan() { return protocolIsCan; }
         @Override public void countTimeouts(long n) { timeouts.addAndGet(n); }
         @Override public void countIoError() { ioErrors.incrementAndGet(); }
-        @Override public void status(String text) { showStatus(text); }
+        @Override public void status(String text) {
+            int generation = activeDiagnosisGeneration;
+            long token = activeDiagnosisToken;
+            if (generation >= 0) showStatusForDiagnosis(generation, token, text);
+        }
         @Override public boolean starterCancelled() { return starterCancel; }
+        @Override public boolean dtcCancelled() { return dtcAbortRequested; }
         @Override public double recentAmbient() { return ObdSession.this.recentAmbient(); }
         @Override public boolean livePid(int pid) { return activePids.isEmpty() || containsPid(pid); }
         @Override public long now() { return SystemClock.elapsedRealtime(); }
@@ -591,7 +627,7 @@ public final class ObdSession {
 
     private void reconnectAfterFailure(int session, String host, int port, ElmLink.Opener transport) {
         if (userDisconnect || !monitoring.get() || session != sessionGeneration.get()) return;
-        showStatus("Verbindung unterbrochen · Reconnect …");
+        showStatusForConnection(session, "Verbindung unterbrochen · Reconnect …");
         try {
             ElmText.sleepQuiet(2000);
             if (session != sessionGeneration.get()) return;
@@ -599,12 +635,15 @@ public final class ObdSession {
             for (String init : LinkPolicy.reconnectInit(protocolNumber)) {
                 command(session, init, 1500);
             }
-            pollTimeouts.reset();
-            firstRequestAfterInit = true;
-            latestValues.clear();
-            latestSequences.clear();
-            latestAt.clear();
-            showStatus("Wieder verbunden · " + protocol);
+            synchronized (this) {
+                if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get()) || userDisconnect) return;
+                pollTimeouts.reset();
+                firstRequestAfterInit = true;
+                latestValues.clear();
+                latestSequences.clear();
+                latestAt.clear();
+            }
+            showStatusForConnection(session, "Wieder verbunden · " + protocol);
             append("Auto-Reconnect erfolgreich");
         } catch (Exception e) {
             if (session != sessionGeneration.get()) return;
@@ -628,6 +667,40 @@ public final class ObdSession {
 
     public void readDtcs() {
         runExclusiveDiagnosis(Op.DTC, "OBD-II Fehlercodes", jobs::readDtcReport);
+    }
+
+    /** True, solange ein DTC-Auftrag einschließlich seiner Abbruchphase exklusiv arbeitet. */
+    public boolean isDtcScanBusy() {
+        return exclusiveRequest.get() && activeDiagnosisOp == Op.DTC;
+    }
+
+    public boolean isDtcCancellationPending() {
+        return isDtcScanBusy() && dtcAbortRequested;
+    }
+
+    /**
+     * Stoppt genau den laufenden DTC-Scan. Anders als Trennen bleibt die Sitzung aktiv:
+     * der Socket wird geschlossen, damit ein blockierender Read sofort endet; erst nach
+     * Freigabe der exklusiven Sperre darf der Poll-Thread automatisch neu verbinden.
+     * Keine ELM-Kommandos, keine Fahrzeug-Schreibbefehle und kein automatischer DTC-Neustart.
+     */
+    public boolean cancelDtcScan() {
+        final Elm327Client toClose;
+        final int acceptedSession;
+        final long cancelToken;
+        synchronized (this) {
+            if (!isDtcScanBusy() || dtcAbortRequested) return false;
+            if (!diagnosisIsCurrent(activeDiagnosisGeneration)) return false;
+            dtcAbortRequested = true;
+            acceptedSession = activeDiagnosisGeneration;
+            cancelToken = diagnosisToken.incrementAndGet();
+            toClose = activeDiagnosisClient;
+        }
+        setBusyForDiagnosis(acceptedSession, cancelToken, Op.DTC, true);
+        showStatusForDiagnosis(acceptedSession, cancelToken, "DTC-Scan wird abgebrochen …");
+        append("DTC-Scan: Abbruch angefordert; Adapter wird neu verbunden");
+        if (toClose != null) closeClientIfCurrent(toClose);
+        return true;
     }
 
     public void runMisfireAnalysis() {
@@ -743,11 +816,20 @@ public final class ObdSession {
             toast("Diagnosevorgang läuft bereits");
             return false;
         }
-        setBusy(op, true);
-        showStatus(title + " läuft …");
+        final int acceptedSession = sessionGeneration.get();
+        final long acceptedToken = diagnosisToken.incrementAndGet();
+        activeDiagnosisGeneration = acceptedSession;
+        activeDiagnosisToken = acceptedToken;
+        activeDiagnosisClient = c;
+        activeDiagnosisOp = op;
+        dtcAbortRequested = false;
+        setBusyForDiagnosis(acceptedSession, acceptedToken, op, true);
+        showStatusForDiagnosis(acceptedSession, acceptedToken, title + " läuft …");
 
         io.execute(() -> {
             String report;
+            boolean canceled;
+            long completionToken;
             try {
                 synchronized (c) {
                     enterDiagnosis(c);
@@ -758,31 +840,49 @@ public final class ObdSession {
                         if (c.isConnected()) leaveDiagnosis(c);
                     }
                 }
-                append(title + " abgeschlossen");
+                if (!dtcAbortRequested) append(title + " abgeschlossen");
             } catch (SocketTimeoutException e) {
-                timeouts.incrementAndGet();
-                append(title + ": Timeout · Verbindung wird neu synchronisiert");
+                if (!dtcAbortRequested) {
+                    timeouts.incrementAndGet();
+                    append(title + ": Timeout · Verbindung wird neu synchronisiert");
+                }
                 closeClientIfCurrent(c);
                 report = title + " abgebrochen: Timeout.\nDie Verbindung wird neu aufgebaut.";
             } catch (IOException e) {
-                ioErrors.incrementAndGet();
+                if (!dtcAbortRequested) ioErrors.incrementAndGet();
                 closeClientIfCurrent(c);
                 report = title + " fehlgeschlagen:\n" + e.getMessage();
             } catch (RuntimeException e) {
-                parserErrors.incrementAndGet();
+                if (!dtcAbortRequested) parserErrors.incrementAndGet();
                 report = title + " fehlgeschlagen (Auswertung):\n" + e;
             } finally {
-                exclusiveRequest.set(false);
-                // Scheitert schon enterDiagnosis, läuft readStarterTest nie – der Zustand darf nicht hängen bleiben.
-                if (op == Op.STARTER) {
-                    starterRunning = false;
-                    starterCancel = false;
+                // Synchronisation mit cancelDtcScan: kein Abbruch nach Abschluss und
+                // keine neue Diagnose, bevor der alte Auftrag den Adapter freigegeben hat.
+                synchronized (ObdSession.this) {
+                    canceled = op == Op.DTC && dtcAbortRequested;
+                    completionToken = canceled ? diagnosisToken.get() : acceptedToken;
+                    activeDiagnosisGeneration = -1;
+                    activeDiagnosisClient = null;
+                    activeDiagnosisOp = null;
+                    exclusiveRequest.set(false);
+                    if (op == Op.STARTER) {
+                        starterRunning = false;
+                        starterCancel = false;
+                    }
                 }
             }
-            setBusy(op, false);
-            showStatus(statusAfterDiagnosis(title + " beendet · Reconnect läuft …"));
+            if (!diagnosisIsCurrent(acceptedSession, completionToken)) return;
+            setBusyForDiagnosis(acceptedSession, completionToken, op, false);
+            if (canceled) {
+                showStatusForDiagnosis(acceptedSession, completionToken,
+                        "DTC-Scan abgebrochen · Verbindung wird neu aufgebaut …");
+                updateStats();
+                return; // kein Dialog, kein Prüfplaneintrag, kein Wiederholen von 03/07/0A
+            }
+            showStatusForDiagnosis(acceptedSession, completionToken,
+                    statusAfterDiagnosis(title + " beendet · Reconnect läuft …"));
             updateStats();
-            showResult(op, title, report);
+            showResultForDiagnosis(acceptedSession, completionToken, op, title, report);
         });
         return true;
     }
@@ -869,7 +969,8 @@ public final class ObdSession {
                 + "Die App steuert keinerlei Stellglieder und verändert keine Fahrzeugkonfiguration.");
     }
 
-    private void updatePassiveDiagnostics() {
+    private void updatePassiveDiagnostics(int session) {
+        if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) return;
         Double rpmValue = latestValues.get(0x0C);
         Double voltageValue = latestValues.get(0x42);
 
@@ -902,6 +1003,7 @@ public final class ObdSession {
         final String warmupText = warmupCheck.tick(latestValues, SystemClock.elapsedRealtime());
 
         ui.post(() -> {
+            if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) return;
             state.operatingText = stateText;
             state.operatingColor = stateColor;
             state.voltageText = voltageText;
@@ -929,14 +1031,15 @@ public final class ObdSession {
             }
         });
 
+        if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) return;
         if (testUpdate.prompt2500) {
-            showDialog("Leerlaufmessung abgeschlossen", "Jetzt die Motordrehzahl manuell auf etwa 2300–2700 U/min anheben und konstant halten. "
+            showDialogForConnection(session, "Leerlaufmessung abgeschlossen", "Jetzt die Motordrehzahl manuell auf etwa 2300–2700 U/min anheben und konstant halten. "
                     + "Die zweite Messphase startet automatisch, sobald die Drehzahl stabil ist.");
         }
         if (testUpdate.failed) append("Fuel-Trim-Test " + testUpdate.status);
         if (testUpdate.completed && testUpdate.report != null) {
             append("Fuel-Trim-Test abgeschlossen");
-            showDialog("Fuel-Trim-Auswertung", testUpdate.report);
+            showDialogForConnection(session, "Fuel-Trim-Auswertung", testUpdate.report);
         }
     }
 
@@ -1276,7 +1379,13 @@ public final class ObdSession {
     }
 
     private void showStatus(String s) {
+        showStatusForConnection(sessionGeneration.get(), s);
+    }
+
+    /** Status aus einem I/O-Thread gehört zur ursprünglichen Verbindungskennung. */
+    private void showStatusForConnection(int session, String s) {
         ui.post(() -> {
+            if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) return;
             state.status = s;
             if (listener != null) listener.onStatus(s);
             notifyObserver();
@@ -1302,11 +1411,53 @@ public final class ObdSession {
         });
     }
 
-    private void setBusy(Op op, boolean busy) {
+    /** Sitzungswechsel dürfen weder alte Spinner erneut setzen noch neue Spinner entfernen. */
+    private void setBusyForDiagnosis(int generation, long token, Op op, boolean busy) {
         ui.post(() -> {
-            if (busy) state.busy.add(op);
-            else state.busy.remove(op);
+            if (!diagnosisIsCurrent(generation, token)) return;
+            if (busy) {
+                // Kommt eine neue Diagnose schneller als die alte Abschluss-Meldung bei der UI an,
+                // räumen wir hier den vorherigen Busy-Zustand auf, statt den alten Callback
+                // (mit absichtlich ungültigem Token) wieder zuzulassen.
+                for (Op old : new ArrayList<>(state.busy)) {
+                    if (old != op) {
+                        state.busy.remove(old);
+                        if (listener != null) listener.onBusy(old, false);
+                    }
+                }
+                state.busy.add(op);
+            } else {
+                state.busy.remove(op);
+            }
             if (listener != null) listener.onBusy(op, busy);
+        });
+    }
+
+    /** Wird ausschließlich vom Main-Thread bei Trennen/Neuverbinden aufgerufen. */
+    private void clearDiagnosisUiForSessionChange() {
+        for (Op op : new ArrayList<>(state.busy)) {
+            state.busy.remove(op);
+            if (listener != null) listener.onBusy(op, false);
+        }
+        // Ein ohne Activity gespeichertes Ergebnis gehört zur alten Fahrzeugsitzung.
+        pendingDialogs.removeIf(p -> p.op != null);
+    }
+
+    private boolean diagnosisIsCurrent(int generation) {
+        return SessionEpoch.matches(generation, sessionGeneration.get(), active, userDisconnect);
+    }
+
+    private boolean diagnosisIsCurrent(int generation, long token) {
+        return DiagnosisToken.matches(generation, sessionGeneration.get(), token,
+                diagnosisToken.get(), active, userDisconnect);
+    }
+
+    private void showStatusForDiagnosis(int generation, long token, String text) {
+        ui.post(() -> {
+            if (!diagnosisIsCurrent(generation, token)) return;
+            state.status = text;
+            if (listener != null) listener.onStatus(text);
+            notifyObserver();
         });
     }
 
@@ -1320,10 +1471,29 @@ public final class ObdSession {
         deliver(null, title, message);
     }
 
-    /** Ergebnis einer Diagnose, eindeutig mit der Operation, die es erzeugt hat. */
-    private void showResult(Op op, String title, String message) {
-        recordForPlan(op, message);
-        deliver(op, title, message);
+    private void showDialogForConnection(int session, String title, String message) {
+        ui.post(() -> {
+            if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get()) || userDisconnect) return;
+            if (listener != null) listener.onDialog(title, message);
+            else if (pendingDialogs.size() < MAX_PENDING_DIALOGS) {
+                pendingDialogs.add(new Pending(null, title, message));
+            }
+        });
+    }
+
+    /**
+     * Ergebnis einschließlich Prüfplaneintrag erst im UI-Thread übernehmen.
+     * Der Guard läuft beim tatsächlichen Zustellen, nicht nur beim Beenden der I/O-Arbeit.
+     */
+    private void showResultForDiagnosis(int generation, long token, Op op, String title, String message) {
+        ui.post(() -> {
+            if (!diagnosisIsCurrent(generation, token)) return;
+            recordForPlan(op, message);
+            if (listener != null) listener.onResult(op, title, message);
+            else if (pendingDialogs.size() < MAX_PENDING_DIALOGS) {
+                pendingDialogs.add(new Pending(op, title, message));
+            }
+        });
     }
 
     // ------------------------------------------------------------------ Prüfplan

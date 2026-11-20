@@ -51,6 +51,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private TextView console;
     private LinearLayout pidBox;
     private Button dtcButton;
+    private Button dtcCancelButton;
     private Button fuelTestButton;
     private Button misfireButton;
     private Button inspectionButton;
@@ -171,6 +172,11 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         controls.addView(disconnect, weight());
         controls.addView(dtcButton, weight());
         root.addView(controls);
+
+        dtcCancelButton = button("DTC-Scan abbrechen");
+        dtcCancelButton.setContentDescription("Laufenden Fehlercode-Scan abbrechen, Verbindung danach wiederherstellen");
+        dtcCancelButton.setEnabled(false);
+        root.addView(dtcCancelButton);
 
         status = text("Nicht verbunden", 15, Color.WHITE);
         status.setPadding(0, dp(8), 0, dp(4));
@@ -338,6 +344,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
             controller.connectionEnded();
         });
         dtcButton.setOnClickListener(v -> session.readDtcs());
+        dtcCancelButton.setOnClickListener(v -> session.cancelDtcScan());
         fuelTestButton.setOnClickListener(v -> session.toggleFuelTrimTest());
         misfireButton.setOnClickListener(v -> session.runMisfireAnalysis());
         inspectionButton.setOnClickListener(v -> session.runInspectionCheck());
@@ -452,6 +459,9 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     @Override
     public void onStatus(String text) {
         status.setText(text);
+        if (dtcCancelButton != null) {
+            dtcCancelButton.setEnabled(session.isDtcScanBusy() && !session.isDtcCancellationPending());
+        }
     }
 
     @Override
@@ -550,6 +560,9 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         }
         b.setEnabled(!busy);
         b.setText(busy ? working : idle);
+        if (op == ObdSession.Op.DTC && dtcCancelButton != null) {
+            dtcCancelButton.setEnabled(busy && !session.isDtcCancellationPending());
+        }
     }
 
     /** Zeigt einen OK-Dialog; nach onDestroy (z. B. später fertiger Scan) wird nichts angezeigt. */
