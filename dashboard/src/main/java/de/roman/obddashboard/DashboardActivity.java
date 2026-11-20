@@ -52,13 +52,14 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private static final int REQ_NET = 41;
     private static final int TREND_POINTS = 240;
 
-    private enum Page { LIVE, GRAPH, DTC, INFO, VALUES, MODE06, INSPECTION, TRIM, DTC_DETAILS, ANALYSIS, TRIPS }
+    private enum Page { LIVE, GRAPH, DTC, INFO, VALUES, MODE06, INSPECTION, TRIM, DTC_DETAILS, ANALYSIS, TRIPS, PLAN }
 
     /** Reiter, unter dem eine Unterseite hervorgehoben wird. */
     private static Page tabOf(Page p) {
         switch (p) {
             case VALUES: case MODE06: case TRIM: case ANALYSIS: case TRIPS: return Page.LIVE;
             case INSPECTION: case DTC_DETAILS: return Page.DTC;
+            case PLAN: return Page.INFO;
             default: return p;
         }
     }
@@ -69,6 +70,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             case VALUES: return Page.LIVE;
             case MODE06: case TRIM: case ANALYSIS: case TRIPS: return Page.VALUES;
             case INSPECTION: case DTC_DETAILS: return Page.DTC;
+            case PLAN: return Page.INFO;
             default: return null;
         }
     }
@@ -135,6 +137,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             try { page = Page.valueOf(savedInstanceState.getString("page", "LIVE")); } catch (IllegalArgumentException ignored) { }
             trendPid = savedInstanceState.getInt("trendPid", 0x0C);
         }
+        session.attachTestPlan(this);
         // ADR-004: Testfreigabe aus den Einstellungen, ausgeliefert aus
         session.setAdr004Enabled(getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_ADR004, false));
         buildUi();
@@ -219,6 +222,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         pages.put(Page.VALUES, buildValues());
         pages.put(Page.MODE06, buildMode06());
         pages.put(Page.TRIPS, buildTrips());
+        pages.put(Page.PLAN, buildPlan());
         pages.put(Page.INSPECTION, buildInspection());
         pages.put(Page.TRIM, buildTrim());
         pages.put(Page.DTC_DETAILS, buildDtcDetails());
@@ -403,8 +407,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         stats = text("Keine Diagnosedaten", 13, Palette.MUTED);
         page.addView(stats);
         LinearLayout logActions = row();
-        logActions.addView(button("CSV EXPORTIEREN", v -> session.exportCsv(this)), weighted());
+        logActions.addView(button("CSV EXPORT", v -> session.exportCsv(this)), weighted());
         logActions.addView(button("NEUES LOG", v -> session.startNewLog()), weighted());
+        logActions.addView(button("PRÜFPLAN", v -> show(Page.PLAN)), weighted());
         page.addView(logActions);
         android.widget.CheckBox adr004 = new android.widget.CheckBox(this);
         adr004.setText("Herstellerabfragen nach ADR-004 (Test): Kennung 1A 86, Getriebe-Fehler 18 02 FF 00 – Knopf unter ANALYSE");
@@ -479,6 +484,51 @@ public final class DashboardActivity extends Activity implements ObdSession.List
                 new View[] {text("Aus den CSV-Logs dieser App und importierten Logs · Verbrauch aus Luftmasse und Soll-λ "
                         + "(Richtwert, kein Tankbeleg)", 13, Palette.WARN)},
                 new View[0], tripsText, refresh, share);
+    }
+
+    // ------------------------------------------------------------------ Prüfplan
+
+    private TextView planText;
+
+    private View buildPlan() {
+        planText = resultText(session.testPlanChecklist());
+        planText.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
+        Button share = button("TEILEN", v -> startActivity(session.testPlanShareIntent("Dashboard " + appVersion())));
+        share.setContentDescription("Prüfplan mit allen Ergebnissen als Text teilen");
+        Button clear = button("LEEREN", v -> confirmClearPlan());
+        clear.setContentDescription("Gespeicherte Prüfplan-Ergebnisse löschen");
+        return subPage("PRÜFPLAN / NÄCHSTER TERMIN AM AUTO", Page.PLAN,
+                new View[] {text("Hakt die Fahrzeugtests anhand der Ergebnisse ab und sammelt alle Rohantworten in einem "
+                        + "Bericht zum Teilen", 13, Palette.WARN)},
+                new View[0], planText, share, clear);
+    }
+
+    private void refreshPlan() {
+        if (planText != null) planText.setText(session.testPlanChecklist());
+    }
+
+    /** Löschen mit Bestätigung, die die Anzahl nennt (nicht rückgängig zu machen). */
+    private void confirmClearPlan() {
+        int n = session.testPlanSize();
+        if (n == 0) return;
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                .setTitle("Prüfplan leeren?")
+                .setMessage(n + (n == 1 ? " gespeichertes Ergebnis wird" : " gespeicherte Ergebnisse werden")
+                        + " gelöscht. Vorher teilen, wenn du sie noch brauchst.")
+                .setPositiveButton("Leeren", (d, w) -> {
+                    session.clearTestPlan();
+                    refreshPlan();
+                })
+                .setNegativeButton("Abbrechen", null)
+                .show();
+    }
+
+    private String appVersion() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            return "?";
+        }
     }
 
     /** Logs im Hintergrund nachlesen; die Seite zeigt solange den gespeicherten Stand. */
@@ -636,6 +686,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         boolean entering = page != p;
         page = p;
         if (p == Page.TRIPS && entering) refreshTrips();
+        if (p == Page.PLAN && entering) refreshPlan();
         for (Map.Entry<Page, View> e : pages.entrySet()) e.getValue().setVisibility(e.getKey() == p ? View.VISIBLE : View.GONE);
         Page tab = tabOf(p);
         for (Map.Entry<Page, Button> e : tabs.entrySet()) {
@@ -947,6 +998,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     public void onResult(ObdSession.Op op, String title, String message) {
         handle(ResultRouter.route(op, title), title, message);
+        refreshPlan();
     }
 
     @Override

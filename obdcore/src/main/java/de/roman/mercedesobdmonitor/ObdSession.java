@@ -10,6 +10,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.net.SocketTimeoutException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -1616,7 +1617,81 @@ public final class ObdSession {
 
     /** Ergebnis einer Diagnose, eindeutig mit der Operation, die es erzeugt hat. */
     private void showResult(Op op, String title, String message) {
+        recordForPlan(op, message);
         deliver(op, title, message);
+    }
+
+    // ------------------------------------------------------------------ Prüfplan
+
+    private final TestPlan testPlan = new TestPlan();
+    private java.io.File testPlanFile;
+
+    /** Prüfplan aus dem App-Speicher laden (einmal je App-Start); danach speichert jedes Ergebnis mit. */
+    public void attachTestPlan(Context context) {
+        java.io.File f = new java.io.File(context.getApplicationContext().getFilesDir(), "pruefplan.txt");
+        synchronized (testPlan) {
+            if (f.equals(testPlanFile)) return;
+            testPlanFile = f;
+            testPlan.clear();
+            if (f.isFile()) {
+                try {
+                    String text = new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+                    for (TestPlan.Record r : TestPlan.parse(text).records()) testPlan.record(r);
+                } catch (IOException e) {
+                    append("Prüfplan nicht lesbar: " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    private void recordForPlan(Op op, String message) {
+        if (op == null) return;
+        Double coolant = latestValues.get(0x05), rpm = latestValues.get(0x0C);
+        synchronized (testPlan) {
+            testPlan.record(new TestPlan.Record(op, System.currentTimeMillis(), coolant == null ? Double.NaN : coolant,
+                    rpm == null ? Double.NaN : rpm, message));
+            saveTestPlan();
+        }
+    }
+
+    private void saveTestPlan() {
+        if (testPlanFile == null) return;
+        try {
+            java.nio.file.Files.write(testPlanFile.toPath(), testPlan.serialize().getBytes(StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            append("Prüfplan nicht gespeichert: " + e.getMessage());
+        }
+    }
+
+    public String testPlanChecklist() {
+        synchronized (testPlan) {
+            return testPlan.checklist();
+        }
+    }
+
+    public int testPlanSize() {
+        synchronized (testPlan) {
+            return testPlan.records().size();
+        }
+    }
+
+    public void clearTestPlan() {
+        synchronized (testPlan) {
+            testPlan.clear();
+            saveTestPlan();
+        }
+    }
+
+    /** Teilen-Dialog mit dem vollständigen Prüfplan-Bericht als Text. */
+    public android.content.Intent testPlanShareIntent(String appVersion) {
+        String text;
+        synchronized (testPlan) {
+            text = testPlan.report(java.time.ZoneId.systemDefault(), appVersion);
+        }
+        android.content.Intent send = new android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+                .putExtra(android.content.Intent.EXTRA_SUBJECT, "Prüfplan C350 (OBD)")
+                .putExtra(android.content.Intent.EXTRA_TEXT, text);
+        return android.content.Intent.createChooser(send, "Prüfplan teilen");
     }
 
     private void deliver(Op op, String title, String message) {
