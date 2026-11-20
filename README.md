@@ -61,7 +61,10 @@ Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantwort
 - **Analyse:** Verbrauch aus Luftmasse, Liefergrad, Lambda-Regelung, Kat-Tendenz, Zündwinkel, E-Gas, Bordnetz.
 - **Trim-Karte** je Lastbereich und Bank, zerlegt in den **gemeinsamen Anteil** beider Bänke (Falschluft, Luftmassenmesser,
   Kraftstoffdruck) und den **Zusatz einer Bank**; **Trim-Verlauf** über alle Verbindungen, auch aus importierten Logs.
-- **Fahrtenbuch** aus den CSV-Logs: Strecke, Ø-Verbrauch, Leerlaufanteil, Trim-Differenz je Fahrt; als CSV teilbar.
+- **Fahrtenbuch** aus den CSV-Logs: Strecke, Ø-Verbrauch, Leerlaufanteil, Warmlaufzeit, Trim-Differenz je Fahrt; als CSV
+  teilbar. Trims nach kalten Kurzstrecken (Kraftstoff im Öl) sind markiert und zählen nicht in den Mittelwert.
+- **Gemischadaption je Bank** aus den Monitortests (Mode 06, MID 81/82): vom Steuergerät gelernter Faktor je Bank mit
+  Abstand zur Grenze und Verlauf über alle Lesungen – zeigt, ob Bank 1 Richtung Grenze wandert.
 - **Fuel-Trim-Test** (Leerlauf gegen 2 500 U/min) und **Warmlauf-Check** (Thermostat).
 
 **Diagnose auf Knopfdruck**

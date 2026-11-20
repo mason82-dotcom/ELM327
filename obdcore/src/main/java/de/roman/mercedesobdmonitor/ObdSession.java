@@ -721,6 +721,13 @@ public final class ObdSession {
         @Override public boolean localIdScanCancelled() { return lidScanCancel || !adr004Enabled; }
         @Override public String previousLocalIdScan() { return readLidScanFile(); }
         @Override public void saveLocalIdScan(String text) { writeLidScanFile(text); }
+        @Override public String previousMixtureAdaptation() { return readStore(mixtureFile); }
+        @Override public void saveMixtureAdaptation(String text) { writeStore(mixtureFile, text, "Gemischadaption"); }
+        @Override public double liveCoolant() {
+            Double v = latestValues.get(0x05);
+            Long at = latestAt.get(0x05);
+            return v == null || at == null || SystemClock.elapsedRealtime() - at > LiveValues.MAX_AGE_MS ? Double.NaN : v;
+        }
         @Override public double recentAmbient() { return ObdSession.this.recentAmbient(); }
         @Override public boolean livePid(int pid) { return activePids.isEmpty() || containsPid(pid); }
         @Override public long now() { return SystemClock.elapsedRealtime(); }
@@ -916,13 +923,24 @@ public final class ObdSession {
         return exclusiveRequest.get() && activeDiagnosisOp == Op.LID_SCAN;
     }
 
-    /** Ablage des letzten Laufs für den Vergleich kalt/warm (App-Speicher). */
-    public void attachLocalIdScanStore(Context context) {
-        lidScanFile = new java.io.File(context.getApplicationContext().getFilesDir(), "kennungssuche.txt");
+    private java.io.File mixtureFile;
+
+    /** Ablagen im App-Speicher: letzter Kennungssuche-Lauf (kalt/warm) und Verlauf der Gemischadaption. */
+    public void attachStores(Context context) {
+        java.io.File dir = context.getApplicationContext().getFilesDir();
+        lidScanFile = new java.io.File(dir, "kennungssuche.txt");
+        mixtureFile = new java.io.File(dir, "gemischadaption.txt");
     }
 
     private String readLidScanFile() {
-        java.io.File f = lidScanFile;
+        return readStore(lidScanFile);
+    }
+
+    private void writeLidScanFile(String text) {
+        writeStore(lidScanFile, text, "Kennungssuche");
+    }
+
+    private static String readStore(java.io.File f) {
         if (f == null || !f.isFile()) return null;
         try {
             return new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
@@ -931,13 +949,12 @@ public final class ObdSession {
         }
     }
 
-    private void writeLidScanFile(String text) {
-        java.io.File f = lidScanFile;
+    private void writeStore(java.io.File f, String text, String what) {
         if (f == null) return;
         try {
             java.nio.file.Files.write(f.toPath(), text.getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
-            append("Kennungssuche nicht gespeichert: " + e.getMessage());
+            append(what + " nicht gespeichert: " + e.getMessage());
         }
     }
 

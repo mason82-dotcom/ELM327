@@ -2,6 +2,23 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.12.0 (Monitor) / 0.19.0 (Dashboard): Gemischadaption je Bank, Trims nach Kaltstarts
+
+- **Gemischadaption je Bank** (Monitortests/Mode 06, beide Apps): Das ME9.7 meldet unter MID 81/82 die gelernte
+  Gemischanpassung je Bank (TID 80 in %, TID 82 als Faktor; Referenz laut Werkstatthandbuch ±4,5 % bzw. 0,70–1,30).
+  Neuer Abschnitt oben im Bericht: Bank 1 (rechts) und Bank 2 (links) mit Abstand zur Grenze (Grenzen des
+  Steuergeräts, sonst Referenz), Differenz B1−B2 und **Verlauf** über alle Lesungen mit Trend. Warnung nahe der Grenze
+  mit dem passenden Code (mager P0171/P0174, fett P0172/P0175). Gespeichert in `gemischadaption.txt`, je Fahrzeug
+  (FIN aus 09 02); gleiche Werte und Lesungen binnen einer Stunde verdrängen keinen Verlauf. Nur Profil M272 und nur,
+  wenn das Steuergerät MID 81/82 liefert.
+- **Trims nach Kaltstarts** (Fahrtenbuch): Jede Fahrt merkt sich Warmlaufzeit (Kühlmittel ≥ 80 °C) und höchste
+  Kühlmitteltemperatur. Kalte Kurzstrecken (unter 70 °C oder weniger als 5 min warm) und die folgenden kurzen Fahrten
+  bis zu einer Fahrt mit 20 min warm sind gekennzeichnet („Kraftstoff im Öl möglich“, WIS GF07.61-P-2003V); ihre
+  Trim-Differenz steht in Klammern und zählt nicht in den neuen Mittelwert „aus vergleichbaren Fahrten“ (30 Tage).
+  CSV mit Spalten warm_min, max_kuehlmittel_c, trim_einordnung. Kühldaten in eigenem Schlüssel – ältere Versionen
+  lesen die Fahrten unverändert.
+- Code-Review (medium): 10 Befunde behoben.
+
 ## Dashboard 0.18.1 (Monitor 1.11.5): Befunde aus dem Werkstatthandbuch
 
 Quelle: Offline-Werkstatthandbücher C 350 (204.056, Motor 272.961), nur privat ausgewertet; hier nur Zusammenfassungen

@@ -43,6 +43,13 @@ final class DiagnosticJobs {
         /** ADR-007: letzter gespeicherter Lauf ({@link LocalIdScan#serialize}) oder null. */
         default String previousLocalIdScan() { return null; }
         default void saveLocalIdScan(String text) { }
+        /** Gemischadaption: gespeicherter Verlauf ({@link MixtureAdaptation#serialize}) oder null. */
+        default String previousMixtureAdaptation() { return null; }
+        default void saveMixtureAdaptation(String text) { }
+        /** Aktuelle Kühlmitteltemperatur aus dem Live-Polling, NaN wenn unbekannt. */
+        default double liveCoolant() { return Double.NaN; }
+        /** Wanduhr (ms seit 1970) für Zeitstempel. */
+        default long wallClock() { return System.currentTimeMillis(); }
     }
 
     private final Host host;
@@ -358,8 +365,10 @@ final class DiagnosticJobs {
         if (Boolean.FALSE.equals(host.protocolIsCan())) {
             return "Mode 06 wird nur für CAN (ISO 15765-4) ausgewertet. Erkanntes Protokoll: " + host.protocol();
         }
+        // Vor dem Lesen: das Live-Polling pausiert während der Diagnose, danach ist der Wert oft schon verfallen.
+        double coolant = host.liveCoolant();
         try {
-            return Mode06Overview.report(Mode06Overview.read(new InspectionReader.Transport() {
+            List<Mode06Overview.Test> tests = Mode06Overview.read(new InspectionReader.Transport() {
                 @Override
                 public String send(String cmd, int timeoutMs) throws IOException {
                     return host.diag(c, cmd, timeoutMs).raw;
@@ -372,12 +381,35 @@ final class DiagnosticJobs {
                     host.log("Monitortests: Timeout · " + (ok ? "Prompt resynchronisiert, weiter" : "kein Prompt"));
                     return ok;
                 }
-            }));
+            });
+            String report = Mode06Overview.report(tests);
+            // Nur ME9.7 (Profil M272) und nur, wenn MID 81/82 überhaupt geliefert wurde
+            if (!VehicleProfile.ACTIVE.m272Hints || !MixtureAdaptation.present(tests)) return report;
+            // Gemischadaption direkt unter die Überschrift, vor die Einzeltests
+            int nl = report.indexOf('\n');
+            return report.substring(0, nl + 1) + "\n" + mixtureSection(c, tests, coolant) + "\n" + report.substring(nl + 1);
         } catch (SocketTimeoutException e) {
             // Der abbrechende Timeout wurde schon in resync() gezählt; runExclusiveDiagnosis zählt ihn erneut.
             host.countTimeouts(-1);
             throw e;
         }
+    }
+
+    /** Gemischadaption je Bank (MID 81/82) als eigener Abschnitt mit gespeichertem Verlauf. */
+    private String mixtureSection(Elm327Client c, List<Mode06Overview.Test> tests, double coolant) throws IOException {
+        if (Double.isNaN(coolant)) {
+            Double v = ObdPid.of(0x05).parse(host.diag(c, "0105", 1500).raw);
+            if (v != null) coolant = v;
+        }
+        // FIN, damit der Verlauf nur Lesungen desselben Fahrzeugs vergleicht
+        String vin = VehicleInfo.vin(host.diag(c, "0902", 3000).raw, host.protocolIsCan());
+        MixtureAdaptation history = MixtureAdaptation.parse(host.previousMixtureAdaptation());
+        MixtureAdaptation.Reading now = MixtureAdaptation.from(tests, host.wallClock(), coolant, vin == null ? "" : vin);
+        if (now.any()) {
+            history.add(now);
+            host.saveMixtureAdaptation(history.serialize());
+        }
+        return history.report(now, java.time.ZoneId.systemDefault());
     }
 
     /**
