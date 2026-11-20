@@ -69,7 +69,7 @@ public class C350Log20261119Test {
                 }
             }
         }
-        assertEquals(4768, parsed);
+        assertEquals(5587, parsed);
         assertTrue(twoEcus + " Doppelantworten", twoEcus > 1000);
         assertTrue(transmissionFirst + " davon Getriebe zuerst", transmissionFirst > 300);
         assertTrue(map.verdict(), map.verdict().startsWith("Bank 1 wird in Leerlauf und unter Last stärker angefettet"));

@@ -52,12 +52,12 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private static final int REQ_NET = 41;
     private static final int TREND_POINTS = 240;
 
-    private enum Page { LIVE, GRAPH, DTC, INFO, VALUES, MODE06, INSPECTION, TRIM, DTC_DETAILS, ANALYSIS }
+    private enum Page { LIVE, GRAPH, DTC, INFO, VALUES, MODE06, INSPECTION, TRIM, DTC_DETAILS, ANALYSIS, TRIPS }
 
     /** Reiter, unter dem eine Unterseite hervorgehoben wird. */
     private static Page tabOf(Page p) {
         switch (p) {
-            case VALUES: case MODE06: case TRIM: case ANALYSIS: return Page.LIVE;
+            case VALUES: case MODE06: case TRIM: case ANALYSIS: case TRIPS: return Page.LIVE;
             case INSPECTION: case DTC_DETAILS: return Page.DTC;
             default: return p;
         }
@@ -67,7 +67,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private static Page parentOf(Page p) {
         switch (p) {
             case VALUES: return Page.LIVE;
-            case MODE06: case TRIM: case ANALYSIS: return Page.VALUES;
+            case MODE06: case TRIM: case ANALYSIS: case TRIPS: return Page.VALUES;
             case INSPECTION: case DTC_DETAILS: return Page.DTC;
             default: return null;
         }
@@ -157,6 +157,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         super.onStart();
         session.setUiListener(this);
         controller.setListener(() -> { if (page == Page.ANALYSIS) updateAnalysis(); });
+        if (page == Page.TRIPS) refreshTrips();   // zurück auf der offenen FAHRTEN-Seite: neue Fahrt nachlesen
     }
 
     @Override
@@ -214,6 +215,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         pages.put(Page.INFO, buildInfo(host, port));
         pages.put(Page.VALUES, buildValues());
         pages.put(Page.MODE06, buildMode06());
+        pages.put(Page.TRIPS, buildTrips());
         pages.put(Page.INSPECTION, buildInspection());
         pages.put(Page.TRIM, buildTrim());
         pages.put(Page.DTC_DETAILS, buildDtcDetails());
@@ -444,8 +446,32 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         return subPage("SENSOREN / FUEL TRIMS", Page.VALUES, new View[0], new View[0], list,
                 button("MODE 06", v -> show(Page.MODE06)),
                 button("TRIM-TEST", v -> show(Page.TRIM)),
-                button("ANALYSE", v -> show(Page.ANALYSIS)));
+                button("ANALYSE", v -> show(Page.ANALYSIS)),
+                button("FAHRTEN", v -> show(Page.TRIPS)));
     }
+
+    // ------------------------------------------------------------------ Fahrtenbuch
+
+    private TextView tripsText;
+
+    private View buildTrips() {
+        tripsText = resultText(controller.tripReport(AnalysisController.TRIP_ROWS));
+        tripsText.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
+        Button refresh = button("AKTUALISIEREN", v -> refreshTrips());
+        refresh.setContentDescription("Fahrtenbuch aus den Logs aktualisieren");
+        Button share = button("TEILEN (CSV)", v -> controller.shareTrips(this));
+        share.setContentDescription("Fahrtenbuch als CSV teilen");
+        return subPage("FAHRTENBUCH / NUR LESEN", Page.TRIPS,
+                new View[] {text("Aus den CSV-Logs dieser App und importierten Logs · Verbrauch aus Luftmasse und Soll-λ "
+                        + "(Richtwert, kein Tankbeleg)", 13, Palette.WARN)},
+                new View[0], tripsText, refresh, share);
+    }
+
+    /** Logs im Hintergrund nachlesen; die Seite zeigt solange den gespeicherten Stand. */
+    private void refreshTrips() {
+        controller.refreshTripsInto(tripsText, this);
+    }
+
 
     /**
      * Unterseite mit Zurück-Kopf (Ziel {@link #parentOf}), Hinweiszeilen, festen Statuszeilen, Scrollinhalt und Aktionsknöpfen. Hochformat: Knöpfe als Zeile unten
@@ -475,6 +501,10 @@ public final class DashboardActivity extends Activity implements ObdSession.List
                 row.setBaselineAligned(false);   // ein zweizeiliger Knopf rutscht sonst nach unten
                 for (Button b : actions) {
                     b.setMaxLines(2);
+                    if (actions.length >= 4) {   // vier schmale Knöpfe: sonst bricht „TRIM-TEST“ mitten im Wort um
+                        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                        b.setPadding(dp(4), 0, dp(4), 0);
+                    }
                     row.addView(b, weighted());
                 }
                 main.addView(row);
@@ -562,7 +592,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     // ------------------------------------------------------------------ Navigation
 
     private void show(Page p) {
+        boolean entering = page != p;
         page = p;
+        if (p == Page.TRIPS && entering) refreshTrips();
         for (Map.Entry<Page, View> e : pages.entrySet()) e.getValue().setVisibility(e.getKey() == p ? View.VISIBLE : View.GONE);
         Page tab = tabOf(p);
         for (Map.Entry<Page, Button> e : tabs.entrySet()) {
@@ -691,7 +723,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        controller.onActivityResult(requestCode, REQUEST_TRIM_LOG, resultCode, data);
+        controller.onActivityResult(requestCode, REQUEST_TRIM_LOG, resultCode, data,
+                () -> controller.showTripsIn(tripsText));
     }
 
     private void saveSettings() {

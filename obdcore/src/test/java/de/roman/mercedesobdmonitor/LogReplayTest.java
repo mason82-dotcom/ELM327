@@ -30,7 +30,7 @@ public class LogReplayTest {
     @Test
     public void log20261119TwoTripsBank1Richer() throws IOException {
         LogReplay.Result r = resource("c350_log_20261119.csv");
-        assertEquals(4768, r.rows);
+        assertEquals(5587, r.rows);
         assertEquals(0, r.skippedRows);
         assertEquals(2, r.trips);
         assertEquals(r.summary(), 2, r.entries.size());
@@ -62,13 +62,16 @@ public class LogReplayTest {
     @Test
     public void dstFallBackStaysOneTrip() throws IOException {
         StringBuilder csv = new StringBuilder("timestamp;pid;value\n");
-        // 02:58 MESZ, 02:59 MESZ, dann nach der Umstellung 02:00 MEZ … – lokal springt die Uhr zurück
-        String[] times = {"2026-10-25 02:58:00.000", "2026-10-25 02:59:59.000", "2026-10-25 02:00:01.000", "2026-10-25 02:01:00.000"};
-        for (String t : times) csv.append('"').append(t).append("\";0C;700.0\n");
+        // 02:58–02:59:50 MESZ, dann nach der Umstellung 02:00–02:01:50 MEZ – lokal springt die Uhr zurück
+        for (int m = 58; m <= 59; m++) for (int sec = 0; sec < 60; sec += 10)
+            csv.append(String.format("\"2026-10-25 02:%02d:%02d.000\";0C;700.0\n", m, sec));
+        for (int m = 0; m <= 1; m++) for (int sec = 0; sec < 60; sec += 10)
+            csv.append(String.format("\"2026-10-25 02:%02d:%02d.000\";0C;700.0\n", m, sec));
         LogReplay.Result r = LogReplay.read(new BufferedReader(new StringReader(csv.toString())), BERLIN);
-        assertEquals(4, r.rows);
-        // ohne Offset-Fortschreibung: „02:00:01“ gälte als MESZ = 1 h früher → Rücksprung → zweite Fahrt
+        assertEquals(24, r.rows);
+        // ohne Offset-Fortschreibung: „02:00:00“ gälte als MESZ = 1 h früher → Rücksprung → zwei kurze Stücke, keine Fahrt
         assertEquals(1, r.trips);
+        assertEquals(230_000, r.drives.get(0).runMs);
     }
 
     /** Format der App (CsvLogWriter.HEADER) mit Anführungszeichen, kaputten Zeilen und BOM. */
@@ -83,7 +86,7 @@ public class LogReplayTest {
         LogReplay.Result r = LogReplay.read(new BufferedReader(new StringReader(csv)), BERLIN);
         assertEquals(3, r.rows);          // 0D ohne Wert → aus der Rohantwort
         assertEquals(2, r.skippedRows);
-        assertEquals(2, r.trips);         // Pause > 5 min
+        assertEquals(0, r.trips);         // Motor lief keine Minute: keine Fahrt
         assertEquals(0, r.entries.size());
         assertTrue(r.summary(), r.summary().contains("2 Zeilen übersprungen"));
     }
