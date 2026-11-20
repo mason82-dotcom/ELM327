@@ -31,8 +31,11 @@ public class Elm327ClientTest {
     private Elm327Client client;
     private final AtomicReference<Throwable> serverError = new AtomicReference<>();
 
+    private java.util.function.LongSupplier savedClock;
+
     @Before
     public void clock() {
+        savedClock = Elm327Client.clock;
         Elm327Client.clock = () -> System.nanoTime() / 1_000_000L;
     }
 
@@ -41,6 +44,7 @@ public class Elm327ClientTest {
         if (client != null) client.close();
         if (server != null) server.close();
         if (thread != null) thread.join(2000);
+        Elm327Client.clock = savedClock;
     }
 
     private void start(Script script) throws Exception {
