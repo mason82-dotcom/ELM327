@@ -296,7 +296,12 @@ public final class Elm327Client implements Closeable {
             }
             if ("OK".equals(reply)) ok = true;
         }
-        if ("ATZ".equals(cmd)) return ok || !raw.trim().equalsIgnoreCase(cmd);
+        if ("ATZ".equals(cmd)) {
+            // ATZ liefert bei echten ELMs einen Versions-/Interpreter-Banner statt "OK".
+            // "NO DATA", "STOPPED" oder ein bloßes Echo dürfen keinen Header freigeben.
+            String banner = raw.toUpperCase(java.util.Locale.US).trim();
+            return ok || banner.contains("ELM") || banner.contains("OBD");
+        }
         return ok;
     }
 
