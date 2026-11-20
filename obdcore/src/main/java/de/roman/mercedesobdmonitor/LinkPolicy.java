@@ -10,6 +10,8 @@ import java.util.Locale;
 public final class LinkPolicy {
     /** Ab so vielen Timeouts in Folge wird die TCP-Verbindung neu aufgebaut. */
     public static final int MAX_CONSECUTIVE_TIMEOUTS = 2;
+    /** Deadline für reguläre Live-PID-Antworten; die lange Erstabfrage bleibt separat. */
+    public static final int POLL_TIMEOUT_MS = 1800;
     /** Timeout für die erste Anfrage nach Reconnect (ggf. Protokollsuche bei ATSP0). */
     public static final int FIRST_REQUEST_TIMEOUT_MS = 6000;
 
