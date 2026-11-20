@@ -51,6 +51,6 @@ Dateien nicht in diesem Repo: `CanMonitor` enthält nur die fünf Zeilen oben al
    von „Bus mitlesen“ bei laufendem Motor beantwortet das.
 2. **Skalierung:** Falls Botschaften ankommen, lassen sich Versätze gegen bekannte Werte eichen: Kühlmittel gegen PID
    01 05 (üblich wäre Rohwert − 40), Drehzahl gegen 01 0C, Geschwindigkeit gegen 01 0D, ATF gegen ADR-001
-   (Byte 11 − 50). Erst danach dürfen Werte in °C/mm angezeigt werden.
+   (Datenbyte 11 nach `61 30` − 50, ADR-003). Erst danach dürfen Werte in °C/mm angezeigt werden.
 3. **Ölstand:** Der Ölstand (mm) wäre der wertvollste Zusatz, weil der C350 ihn sonst nur im Kombi zeigt.
    Bei unbekannter Skalierung bleibt er bis zur Eichung (Messstab-Vergleich) ein Rohwert.

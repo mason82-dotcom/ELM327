@@ -16,8 +16,8 @@ android {
         applicationId = 'de.roman.mercedesobdmonitor'
         minSdk = 26
         targetSdk = 37
-        versionCode = 22
-        versionName = '1.7.0'
+        versionCode = 23
+        versionName = '1.7.1'
     }
 
     buildTypes {

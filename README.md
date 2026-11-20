@@ -16,6 +16,17 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.7.1 (Monitor) / 0.11.1 (Dashboard): ATF-Temperatur aus dem richtigen Byte
+
+- **Korrektur** ([ADR-003](docs/adr-003-atf-antwort-layout.md)): Die ATF-Temperatur steht im Datenbyte 11 **nach**
+  `61 30` (Index 13 ab 0x61), nicht an Index 11 ab 0x61. So zählen Torque („L-50“), die OBDScanner-Datenbank
+  (`bix 88` nach dem Echo) und das EGS52-Layout (Bit 104). Index 11 ist dort der erkannte Gang – die App hätte am
+  C350 vermutlich den Gang als Temperatur gezeigt. Am Fahrzeug war `21 30` noch nie gelesen.
+- **Weitere Felder** derselben Antwort erscheinen als Rohwerte an ihren EGS52-Positionen (Wandler, Wählhebel, Gang,
+  Ist-/Zielgang, Momente, Abtriebsdrehzahl), klar als ungeprüfte Hypothese markiert. Kein neuer Befehl.
+- **Prüfung am C350:** warm im Stand in P, R, N und D „ATF-Temperatur“ lesen, dazu einmal kalt. Passen Wählhebel
+  und Gang, gilt das Layout.
+
 ## Version 1.7.0 (Monitor) / 0.11.0 (Dashboard): Starttest und Bus mitlesen
 
 - **Starttest** (Monitor-App: Knopf „Starttest“, Dashboard: TESTS): Ruhespannung, tiefster Wert und Dauer beim
@@ -166,7 +177,7 @@ Grundlage: Recherche „C350 M272 Diagnosefunktionen“ (07.11.2026). Alles blei
   mit Rohantworten zur Dokumentation des Fahrzeugs; nur bei 11-bit-CAN.
 - **ATF-Temperatur der 7G-Tronic** auf Knopfdruck, eng begrenzte Ausnahme nach [ADR-001](docs/adr-001-atf-temperatur.md):
   nur `ATSH7E1` → `2130` → `ATSH7DF`, nie im Terminal, Header-Wiederherstellung samt Reconnect mit `ATSH7DF`.
-  Formel Byte 11 − 50 ist am C350 noch nicht bestätigt; die Rohantwort wird immer angezeigt.
+  Formel Datenbyte 11 nach `61 30` − 50 ([ADR-003](docs/adr-003-atf-antwort-layout.md), bis 1.7.0 zwei Bytes zu früh gelesen) ist am C350 noch nicht bestätigt; die Rohantwort wird immer angezeigt.
 - **Steuergerätenamen** (09 0A) im HU/AU-Check.
 - **Starttest** (Knopf in beiden Apps, Dashboard: TESTS): Batterie und Anlassen aus der Adapterspannung (nur `ATRV`,
   OBD-Stecker Pin 16). Ruhespannung (Zündung an, Motor aus), tiefster Wert und Dauer beim Anlassen mit
