@@ -2,6 +2,20 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Dashboard 0.18.0 (Monitor 1.11.4): Kennungssuche Motoröltemperatur (ADR-007, Test)
+
+- **Recherche:** Für die Motoröltemperatur des ME9.7 ist keine Kennung öffentlich belegt; der Standard-PID `01 5C`
+  wird vom C350 nicht unterstützt (Logs: PIDs nur bis `01 4C`). Der Wert kommt vom Ölsensor B40 an das ME-SFI.
+- **Kennungssuche** ([ADR-007](docs/adr-007-kennungssuche-motor.md)) unter ANALYSE, nur mit dem Testschalter
+  (jetzt „ADR-004/007“): `ATSH7E0` → `21 01`…`21 FE` → `ATSH7DF`, vorher `01 05`. Bericht mit allen positiven
+  Antworten roh und Kandidaten im Fenster um die Kühlmitteltemperatur; ein zweiter Lauf mit mindestens 20 K Unterschied
+  meldet **bestätigte** Kandidaten. Zweiter Druck stoppt; vorzeitiges Ende bei schweigendem Steuergerät oder
+  abgelehntem Dienst, Teilergebnis bleibt. Neuer Prüfplanschritt „Kennungssuche Motor kalt und warm“.
+- **Freigabe:** `21 01`–`21 FE` nur bei Header 7E0 und nur, solange der Client im Suchmodus ist; im Terminal und in
+  allen anderen Abläufen gesperrt (Tests über alle 254 Kennungen und gesperrte Dienste).
+- Im Simulator geprüft (Befehlsfolge, Header zurück, Livewerte laufen weiter); am C350 offen.
+- Monitor 1.11.4: nur gemeinsamer Kern (Freigabe).
+
 ## Dashboard 0.17.0 (Monitor 1.11.3): Warnungen für Kühlmittel und Bordnetz
 
 - **Warnleiste** über allen Seiten des Dashboards, unsichtbar solange alles in Ordnung ist:

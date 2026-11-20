@@ -18,7 +18,7 @@ public class TestPlanTest {
 
     @Test public void emptyPlanListsAllSteps() {
         String c = new TestPlan().checklist();
-        assertTrue(c, c.startsWith("0 von 8 Schritten erledigt · 0 Ergebnisse gespeichert"));
+        assertTrue(c, c.startsWith("0 von 9 Schritten erledigt · 0 Ergebnisse gespeichert"));
         assertTrue(c, c.contains("○ ATF-Temperatur warm in P, R, N, D (0/4)"));
         assertTrue(c, c.contains("Kühlmittel unter 40\u00A0°C"));
     }
@@ -53,7 +53,11 @@ public class TestPlanTest {
                 ObdSession.Op.MONITOR_TESTS, ObdSession.Op.MISFIRE, ObdSession.Op.DTC}) {
             p.record(rec(op, 90, 700, ""));
         }
-        assertTrue(p.checklist(), p.checklist().startsWith("Alle 8 Schritte erledigt"));
+        assertFalse(p.checklist(), p.checklist().startsWith("Alle"));
+        p.record(rec(ObdSession.Op.LID_SCAN, 90, 700, ""));                // nur warm: 1/2
+        assertTrue(p.checklist(), p.checklist().contains("○ Kennungssuche Motor kalt und warm (1/2)"));
+        p.record(rec(ObdSession.Op.LID_SCAN, 15, 0, ""));
+        assertTrue(p.checklist(), p.checklist().startsWith("Alle 9 Schritte erledigt"));
     }
 
     @Test public void reportCarriesEveryResult() {

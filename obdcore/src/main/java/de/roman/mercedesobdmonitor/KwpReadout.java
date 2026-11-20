@@ -87,7 +87,7 @@ public final class KwpReadout {
 
     // ------------------------------------------------------------------ intern
 
-    private static final class Answer {
+    static final class Answer {
         final byte[] bytes;
         final String problem;
 
@@ -97,7 +97,7 @@ public final class KwpReadout {
         }
     }
 
-    private static Answer answer(String raw, String positive, String negative) {
+    static Answer answer(String raw, String positive, String negative) {
         if (raw == null || ObdParser.isNoData(raw)) return new Answer(null, "keine Antwort (NO DATA)");
         if (ObdParser.isLinkError(raw)) return new Answer(null, "Busfehler: " + raw.trim());
         String rejected = null, other = null;
@@ -138,13 +138,13 @@ public final class KwpReadout {
         return dd + "." + mm + ".20" + yy;
     }
 
-    private static byte[] bytes(String hex) {
+    static byte[] bytes(String hex) {
         byte[] out = new byte[hex.length() / 2];
         for (int i = 0; i < out.length; i++) out[i] = (byte) Integer.parseInt(hex.substring(2 * i, 2 * i + 2), 16);
         return out;
     }
 
-    private static String spaced(byte[] r) {
+    static String spaced(byte[] r) {
         return spaced(r, 0, r.length);
     }
 
