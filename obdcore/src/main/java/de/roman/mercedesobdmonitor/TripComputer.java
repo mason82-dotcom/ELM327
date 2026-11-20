@@ -42,10 +42,21 @@ public final class TripComputer {
         public final double maxKmh;
         /** Gesamtkorrektur B1−B2 dieser Fahrt (Trim-Karte, geregelt und warm); null ohne genug Werte. */
         public final Double trimDiff;
+        /**
+         * true: das Teilstück endete nur, weil das Log zu Ende war (Motor lief noch) – das nächste Log kann es
+         * fortsetzen. false: Motor aus, Neustart oder Lücke – eine echte Fahrtgrenze, die nie verbunden wird.
+         */
+        public final boolean openEnd;
         /** Trim-Karte dieser Fahrt für den Trim-Verlauf (nur frisch berechnet, nicht gespeichert); null ohne Werte. */
         public transient TrimHistory.Entry trimEntry;
 
         public Trip(long startMs, long endMs, double km, double liters, long runMs, long idleMs, double maxKmh, Double trimDiff) {
+            this(startMs, endMs, km, liters, runMs, idleMs, maxKmh, trimDiff, false);
+        }
+
+        public Trip(long startMs, long endMs, double km, double liters, long runMs, long idleMs, double maxKmh,
+                Double trimDiff, boolean openEnd) {
+            this.openEnd = openEnd;
             this.startMs = startMs;
             this.endMs = endMs;
             this.km = km;
@@ -76,7 +87,7 @@ public final class TripComputer {
             else trim = (a.trimDiff * a.runMs + b.trimDiff * b.runMs) / Math.max(1, a.runMs + b.runMs);
             return new Trip(Math.min(a.startMs, b.startMs), Math.max(a.endMs, b.endMs), a.km + b.km,
                     a.fuelKnown() && b.fuelKnown() ? a.liters + b.liters : Double.NaN, a.runMs + b.runMs,
-                    a.idleMs + b.idleMs, Math.max(a.maxKmh, b.maxKmh), trim);
+                    a.idleMs + b.idleMs, Math.max(a.maxKmh, b.maxKmh), trim, a.endMs >= b.endMs ? a.openEnd : b.openEnd);
         }
 
         /** Anteil Leerlauf (Motor läuft, Stand) an der Motorlaufzeit, 0–1. */
@@ -96,10 +107,10 @@ public final class TripComputer {
 
     /** Einen Messwert mit Zeitstempel (ms) aufnehmen; Werte müssen zeitlich aufsteigend kommen. */
     public void onSample(long t, int pid, double value) {
-        if (state != null && (t - last > GAP_MS || t < last)) close(last);
+        if (state != null && (t - last > GAP_MS || t < last)) close(last, false);
         // Neustart: Laufzeit springt zurück UND der Motor stand dazwischen. Ein einzelner gestörter Laufzeitwert
         // (der ELM327-Simulator liefert sogar Zufallswerte) zerteilt so keine Fahrt.
-        if (state != null && pid == 0x1F && lastRuntime != null && value + 5 < lastRuntime && stoppedSinceRuntime) close(last);
+        if (state != null && pid == 0x1F && lastRuntime != null && value + 5 < lastRuntime && stoppedSinceRuntime) close(last, false);
         if (pid == 0x1F) {
             lastRuntime = value;
             // erst zurücksetzen, wenn der Motor wieder läuft: ein 1F-Wert während des Stillstands löscht es nicht
@@ -130,7 +141,7 @@ public final class TripComputer {
                     if (offSince < 0) offSince = t;
                     // Stillstand erst nach 3 s: einzelne Ausreißer auf 0 (Simulator) sind kein Motorstopp
                     if (t - offSince >= STOP_CONFIRM_MS) stoppedSinceRuntime = true;
-                    if (t - offSince >= ENGINE_OFF_MS) close(offSince);
+                    if (t - offSince >= ENGINE_OFF_MS) close(offSince, false);
                 }
             }
             case 0x0D -> {
@@ -157,9 +168,9 @@ public final class TripComputer {
         }
     }
 
-    /** Laufende Fahrt abschließen (Ende des Logs). */
+    /** Laufende Fahrt abschließen (Ende des Logs). Lief der Motor zuletzt noch, bleibt das Ende offen. */
     public List<Trip> finish() {
-        if (state != null) close(last);
+        if (state != null) close(last, offSince < 0);
         return new ArrayList<>(finished);
     }
 
@@ -176,11 +187,11 @@ public final class TripComputer {
         lastSpeed = null;
     }
 
-    private void close(long end) {
+    private void close(long end, boolean openEnd) {
         if (runMs >= MIN_RUN_MS) {
             TrimHistory.Entry e = TrimHistory.snapshot(start, end, state.trimMap);
             double fuel = fuelMs >= MIN_FUEL_COVERAGE * runMs ? liters : Double.NaN;
-            Trip trip = new Trip(start, end, km, fuel, runMs, idleMs, maxKmh, e == null ? null : e.bankDifference());
+            Trip trip = new Trip(start, end, km, fuel, runMs, idleMs, maxKmh, e == null ? null : e.bankDifference(), openEnd);
             trip.trimEntry = e;
             finished.add(trip);
         }
@@ -192,7 +203,7 @@ public final class TripComputer {
 
     // ------------------------------------------------------------------ Speichern
 
-    /** Eine Zeile je Fahrt: Start;Ende;km;l;Lauf-ms;Leerlauf-ms;max km/h;Trim-Δ (leer = unbekannt). */
+    /** Eine Zeile je Teilstück: Start;Ende;km;l;Lauf-ms;Leerlauf-ms;max km/h;Trim-Δ (leer = unbekannt);offen (1/0). */
     public static String serialize(List<Trip> trips) {
         StringBuilder sb = new StringBuilder();
         for (Trip t : trips) {
@@ -201,23 +212,24 @@ public final class TripComputer {
                     .append(t.fuelKnown() ? String.format(Locale.US, "%.3f", t.liters) : "").append(';')
                     .append(t.runMs).append(';').append(t.idleMs).append(';')
                     .append(String.format(Locale.US, "%.0f", t.maxKmh)).append(';')
-                    .append(t.trimDiff == null ? "" : String.format(Locale.US, "%.2f", t.trimDiff)).append('\n');
+                    .append(t.trimDiff == null ? "" : String.format(Locale.US, "%.2f", t.trimDiff)).append(';')
+                    .append(t.openEnd ? '1' : '0').append('\n');
         }
         return sb.toString();
     }
 
-    /** Liest {@link #serialize}; beschädigte Zeilen werden übersprungen. */
+    /** Liest {@link #serialize} (auch ältere Zeilen ohne „offen“); beschädigte Zeilen werden übersprungen. */
     public static List<Trip> parse(String text) {
         List<Trip> out = new ArrayList<>();
         if (text == null) return out;
         for (String line : text.split("\n")) {
             String[] f = line.split(";", -1);
-            if (f.length != 8) continue;
+            if (f.length != 8 && f.length != 9) continue;
             try {
                 out.add(new Trip(Long.parseLong(f[0]), Long.parseLong(f[1]), Double.parseDouble(f[2]),
                         f[3].isEmpty() ? Double.NaN : Double.parseDouble(f[3]),
                         Long.parseLong(f[4]), Long.parseLong(f[5]), Double.parseDouble(f[6]),
-                        f[7].isEmpty() ? null : Double.valueOf(f[7])));
+                        f[7].isEmpty() ? null : Double.valueOf(f[7]), f.length == 9 && "1".equals(f[8])));
             } catch (NumberFormatException ignored) { }
         }
         return out;

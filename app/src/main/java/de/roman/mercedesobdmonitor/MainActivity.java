@@ -222,7 +222,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
                 + "(Richtwert, kein Tankbeleg)", 13, Color.rgb(255, 204, 118));
         tripsNote.setPadding(0, 0, 0, dp(6));
         root.addView(tripsNote);
-        tripsText = text(controller.tripReport(8), 13, Color.rgb(210, 214, 220));
+        tripsText = text(controller.tripReport(AnalysisController.TRIP_ROWS), 13, Color.rgb(210, 214, 220));
         tripsText.setTextIsSelectable(true);
         tripsText.setPadding(dp(8), dp(8), dp(8), dp(8));
         tripsText.setBackgroundColor(Color.rgb(29, 33, 40));
@@ -406,9 +406,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
 
     /** Logs im Hintergrund nachlesen; solange bleibt der gespeicherte Stand sichtbar. */
     private void refreshTrips() {
-        if (tripsText == null) return;
-        tripsText.setText(controller.tripReport(8) + "\n\nLese Logs …");
-        controller.refreshTrips(() -> { if (!isFinishing() && !isDestroyed()) tripsText.setText(controller.tripReport(8)); });
+        controller.refreshTripsInto(tripsText, this);
     }
 
     private void pickTrimLog() {
@@ -419,7 +417,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         controller.onActivityResult(requestCode, REQ_TRIM_LOG, resultCode, data,
-                () -> { if (tripsText != null) tripsText.setText(controller.tripReport(8)); });
+                () -> controller.showTripsIn(tripsText));
     }
 
     @Override

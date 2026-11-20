@@ -14,14 +14,14 @@ public final class TripBook {
     /** So viele Fahrten bleiben gespeichert (die ältesten fallen heraus). */
     public static final int MAX_TRIPS = 300;
 
-    /** Folgt ein Teilstück so dicht auf das vorige, gehört es zur selben Fahrt (Logwechsel mitten in der Fahrt). */
+    /** Folgt ein Teilstück so dicht auf ein offenes Ende, gehört es zur selben Fahrt (Logwechsel mitten in der Fahrt). */
     public static final long JOIN_GAP_MS = TripComputer.GAP_MS;
 
     /**
-     * Neue Fahrten einfügen. Überschneidet sich eine neue Fahrt zeitlich mit gespeicherten, ersetzt sie diese (ein Log,
-     * das beim letzten Einlesen noch wuchs, oder derselbe Log erneut importiert). Danach werden Teilstücke, deren
-     * Abstand unter {@link #JOIN_GAP_MS} liegt, verbunden (Logwechsel mitten in der Fahrt). Ergebnis zeitlich
-     * sortiert, höchstens {@link #MAX_TRIPS}.
+     * Neue Teilstücke einfügen. Überschneidet sich ein neues zeitlich mit gespeicherten, ersetzt es diese (ein Log,
+     * das beim letzten Einlesen noch wuchs, oder derselbe Log erneut importiert). Gespeichert bleiben Teilstücke je
+     * Log – verbunden wird erst in {@link #joined}, sonst löschte ein nachwachsendes Teilstück eines Logs die schon
+     * verbundene Fahrt samt dem Teil aus dem anderen Log. Ergebnis zeitlich sortiert, höchstens {@link #MAX_TRIPS}.
      */
     public static List<TripComputer.Trip> merge(List<TripComputer.Trip> stored, List<TripComputer.Trip> fresh) {
         List<TripComputer.Trip> out = new ArrayList<>(stored);
@@ -30,24 +30,35 @@ public final class TripBook {
             out.add(f);
         }
         out.sort((a, b) -> Long.compare(a.startMs, b.startMs));
-        List<TripComputer.Trip> joined = new ArrayList<>();
-        for (TripComputer.Trip t : out) {
-            int last = joined.size() - 1;
-            if (last >= 0 && t.startMs - joined.get(last).endMs < JOIN_GAP_MS) {
-                joined.set(last, TripComputer.Trip.join(joined.get(last), t));
+        while (out.size() > MAX_TRIPS) out.remove(0);
+        return out;
+    }
+
+    /**
+     * Teilstücke zu Fahrten verbinden: nur an einem offenen Ende (Log endete bei laufendem Motor) und bei weniger als
+     * {@link #JOIN_GAP_MS} Abstand. Eine Grenze aus „Motor aus“ oder Neustart bleibt eine Grenze, auch wenn die Pause
+     * kürzer war (Tankstopp mit 60 s Motor aus = zwei Fahrten, wie im Trim-Verlauf).
+     */
+    public static List<TripComputer.Trip> joined(List<TripComputer.Trip> pieces) {
+        List<TripComputer.Trip> out = new ArrayList<>();
+        for (TripComputer.Trip t : pieces) {
+            int last = out.size() - 1;
+            TripComputer.Trip prev = last >= 0 ? out.get(last) : null;
+            if (prev != null && prev.openEnd && t.startMs >= prev.endMs && t.startMs - prev.endMs < JOIN_GAP_MS) {
+                out.set(last, TripComputer.Trip.join(prev, t));
             } else {
-                joined.add(t);
+                out.add(t);
             }
         }
-        while (joined.size() > MAX_TRIPS) joined.remove(0);
-        return joined;
+        return out;
     }
 
     /**
      * Bericht: Summe der letzten 30 Tage, darunter die neuesten Fahrten mit je zwei Zeilen, z. B.
      * „19.11. 18:38 · 10 min · 6,1 km · Ø 12,4 l/100 km“ und „  Leerlauf 25 % · max 75 km/h · Δ Trim B1−B2 +7,7 %“.
      */
-    public static String report(List<TripComputer.Trip> trips, ZoneId zone, long nowMs, int maxRows) {
+    public static String report(List<TripComputer.Trip> pieces, ZoneId zone, long nowMs, int maxRows) {
+        List<TripComputer.Trip> trips = joined(pieces);
         if (trips.isEmpty()) {
             return "noch keine Fahrt – entsteht aus den CSV-Logs dieser App (Motor lief mindestens 1 min) oder aus importierten Logs";
         }
@@ -92,7 +103,8 @@ public final class TripBook {
     }
 
     /** CSV zum Teilen (Semikolon, deutsche Dezimalzahlen wie in Tabellenkalkulationen üblich). */
-    public static String csv(List<TripComputer.Trip> trips, ZoneId zone) {
+    public static String csv(List<TripComputer.Trip> pieces, ZoneId zone) {
+        List<TripComputer.Trip> trips = joined(pieces);
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.GERMANY).withZone(zone);
         StringBuilder sb = new StringBuilder("start;ende;motorlaufzeit_min;strecke_km;kraftstoff_l;l_100km;leerlauf_prozent;max_kmh;trim_b1_minus_b2_prozent\n");
         for (TripComputer.Trip t : trips) {
