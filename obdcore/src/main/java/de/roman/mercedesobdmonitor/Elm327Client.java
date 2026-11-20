@@ -24,6 +24,13 @@ public final class Elm327Client implements Closeable {
         }
     }
 
+    /** Monotone Uhr in ms; Tests ersetzen sie (SystemClock gibt es auf der JVM nicht). */
+    static java.util.function.LongSupplier clock = SystemClock::elapsedRealtime;
+
+    private static long now() {
+        return clock.getAsLong();
+    }
+
     private final String host;
     private final int port;
     private final Network network;
@@ -44,14 +51,14 @@ public final class Elm327Client implements Closeable {
     public long connect(int timeoutMs) throws IOException {
         header = CommandSafety.DEFAULT_HEADER; // a new ELM327 session starts with the default header
         close();
-        long start = SystemClock.elapsedRealtime();
+        long start = now();
         socket = network != null ? network.getSocketFactory().createSocket() : new Socket();
         socket.setTcpNoDelay(true);
         socket.setKeepAlive(true);
         socket.connect(new InetSocketAddress(host, port), timeoutMs);
         in = new BufferedInputStream(socket.getInputStream());
         out = new BufferedOutputStream(socket.getOutputStream());
-        return SystemClock.elapsedRealtime() - start;
+        return now() - start;
     }
 
     /** Aktueller CAN-Header des Adapters (ADR-001); nach ATZ und jeder neuen Verbindung „7DF“. */
@@ -74,7 +81,7 @@ public final class Elm327Client implements Closeable {
         // Until the adapter confirms a header command, its header is unknown: only ATSH7DF/ATZ may follow.
         if (CommandSafety.changesHeader(cmd)) header = CommandSafety.UNKNOWN_HEADER;
         byte[] data = (cmd + "\r").getBytes(StandardCharsets.US_ASCII);
-        long start = SystemClock.elapsedRealtime();
+        long start = now();
         out.write(data);
         out.flush();
         txBytes += data.length;
@@ -93,7 +100,7 @@ public final class Elm327Client implements Closeable {
             String partial = new String(buf.toByteArray(), StandardCharsets.US_ASCII);
             throw new SocketTimeoutException("Timeout nach " + timeoutMs + " ms; Teilantwort: " + sanitize(partial));
         }
-        long elapsed = SystemClock.elapsedRealtime() - start;
+        long elapsed = now() - start;
         String raw = new String(buf.toByteArray(), StandardCharsets.US_ASCII).trim();
         // Header state follows only confirmed commands (see UNKNOWN_HEADER above).
         if (CommandSafety.changesHeader(cmd)) header = CommandSafety.headerAfter(cmd, header);
@@ -139,21 +146,21 @@ public final class Elm327Client implements Closeable {
         if (durationMs < 100 || durationMs > 30_000) throw new IllegalArgumentException("Mitlesedauer 0,1–30 s");
         drainAvailable();
         byte[] data = (CommandSafety.MONITOR_ALL + "\r").getBytes(StandardCharsets.US_ASCII);
-        long start = SystemClock.elapsedRealtime();
+        long start = now();
         out.write(data);
         out.flush();
         txBytes += data.length;
         MonitorBuffer buf = new MonitorBuffer(maxBytes);
         // Blockweise lesen: ein setSoTimeout je Block statt je Byte (voller Bus = Tausende Frames).
         if (buf.readUntilPrompt(start + durationMs)) {
-            return new MonitorResult(buf.completeLines(), SystemClock.elapsedRealtime() - start, true,
+            return new MonitorResult(buf.completeLines(), now() - start, true,
                     buf.truncated, false);
         }
         out.write(' ');
         out.flush();
         txBytes++;
-        boolean prompt = buf.readUntilPrompt(SystemClock.elapsedRealtime() + MONITOR_STOP_TIMEOUT_MS);
-        return new MonitorResult(buf.completeLines(), SystemClock.elapsedRealtime() - start, false,
+        boolean prompt = buf.readUntilPrompt(now() + MONITOR_STOP_TIMEOUT_MS);
+        return new MonitorResult(buf.completeLines(), now() - start, false,
                 buf.truncated, !prompt);
     }
 
@@ -171,7 +178,7 @@ public final class Elm327Client implements Closeable {
         /** true, sobald '>' kam; false bei Ablauf von {@code deadline}. */
         boolean readUntilPrompt(long deadline) throws IOException {
             while (true) {
-                long left = deadline - SystemClock.elapsedRealtime();
+                long left = deadline - now();
                 if (left <= 0) return false;
                 socket.setSoTimeout((int) Math.max(1, left));
                 int n;
@@ -205,10 +212,10 @@ public final class Elm327Client implements Closeable {
      */
     public synchronized boolean resync(int timeoutMs) {
         if (!isConnected() || in == null) return false;
-        long deadline = SystemClock.elapsedRealtime() + timeoutMs;
+        long deadline = now() + timeoutMs;
         try {
             while (true) {
-                long left = deadline - SystemClock.elapsedRealtime();
+                long left = deadline - now();
                 if (left <= 0) return false;
                 socket.setSoTimeout((int) Math.max(1, left));
                 int b = in.read();

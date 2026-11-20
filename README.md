@@ -16,6 +16,15 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.10.1 (Monitor) / 0.14.1 (Dashboard): Wartung nach Tech-Debt-Audit
+
+- **DTC-Scan** läuft über dieselbe Diagnoseroutine wie alle anderen (vorher eine eigene Kopie): ein I/O-Fehler
+  ließ die Verbindung im Diagnosezustand stehen, jetzt wird sie wie überall neu aufgebaut; Timeouts zählen mit.
+- **Elm327Client** hat erstmals Tests (7, gegen einen ELM327-Nachbau auf einem lokalen Socket): Prompt,
+  Byte-Zähler, Sperre vor dem Senden, Header-Zustand nach Timeout, Resync, ATMA mit Stopp, ignoriertem Stopp und
+  Datenlimit.
+- Prüfplan-Hilfen beider Apps in `PlanUi` zusammengeführt.
+
 ## Version 1.10.0 (Monitor) / 0.14.0 (Dashboard): Prüfplan für den Termin am Auto
 
 - **Prüfplan** (Dashboard: INFO → PRÜFPLAN, Monitor-App: Abschnitt „Prüfplan“): Checkliste der offenen

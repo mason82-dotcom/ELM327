@@ -569,64 +569,33 @@ public final class ObdSession {
     // ---------------------------------------------------------------- Diagnosen
 
     public void readDtcs() {
-        Elm327Client c = client;
-        if (c == null || !c.isConnected()) {
-            append("DTC: nicht verbunden");
-            toast("Keine ELM327-Verbindung");
-            return;
-        }
-        if (fuelTrimTest.isRunning()) {
-            toast("Fuel-Trim-Test läuft – bitte zuerst beenden");
-            return;
-        }
-        if (!exclusiveRequest.compareAndSet(false, true)) {
-            toast("Diagnosevorgang läuft bereits");
-            return;
-        }
+        runExclusiveDiagnosis(Op.DTC, "OBD-II Fehlercodes", this::readDtcReport);
+    }
 
-        setBusy(Op.DTC, true);
-        showStatus("DTC-Scan läuft …");
-
-        io.execute(() -> {
-            String report;
+    /**
+     * Mode 03/07/0A und M272-Hinweise. Läuft über {@link #runExclusiveDiagnosis} wie jede andere Diagnose (vorher eine
+     * eigene Kopie davon: ein I/O-Fehler ließ die Verbindung im Diagnosezustand stehen – Tech-Debt-Audit 20.11.2026).
+     */
+    private String readDtcReport(Elm327Client c) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        List<String> allCodes = new ArrayList<>();
+        sb.append("Generische OBD-II-Fehlercodes\n\n");
+        sb.append(readDtcMode(c, "Gespeichert", "03", 0x43, allCodes));
+        sleepQuiet(180);
+        sb.append("\n\n").append(readDtcMode(c, "Pending", "07", 0x47, allCodes));
+        sleepQuiet(180);
+        sb.append("\n\n").append(readDtcMode(c, "Permanent", "0A", 0x4A, allCodes));
+        sleepQuiet(250);
+        // Harmlose Read-only-Probe: scheitert sie, bleibt das Ergebnis, die Verbindung wird neu aufgebaut.
+        if (c.isConnected()) {
             try {
-                StringBuilder sb = new StringBuilder();
-                List<String> allCodes = new ArrayList<>();
-                synchronized (c) {
-                    enterDiagnosis(c);
-                    sb.append("Generische OBD-II-Fehlercodes\n\n");
-                    sb.append(readDtcMode(c, "Gespeichert", "03", 0x43, allCodes));
-                    sleepQuiet(180);
-                    sb.append("\n\n").append(readDtcMode(c, "Pending", "07", 0x47, allCodes));
-                    sleepQuiet(180);
-                    sb.append("\n\n").append(readDtcMode(c, "Permanent", "0A", 0x4A, allCodes));
-                    sleepQuiet(250);
-
-                    // Nach dem DTC-Scan einen harmlosen Read-Only-Request als Verbindungsprobe.
-                    if (c.isConnected()) {
-                        try {
-                            c.sendCommand("0100", 2200);
-                            leaveDiagnosis(c);
-                        } catch (IOException probeError) {
-                            append("DTC-Nachtest: Verbindung wird neu aufgebaut – " + probeError.getMessage());
-                            closeClientIfCurrent(c);
-                        }
-                    }
-                }
-                sb.append(m272Section(allCodes));
-                report = sb.toString();
-                append("DTC-Scan abgeschlossen");
-            } catch (Exception e) {
-                report = "DTC-Scan fehlgeschlagen:\n" + e.getMessage();
-                append("DTC-Fehler: " + e.getMessage());
-            } finally {
-                exclusiveRequest.set(false);
+                c.sendCommand("0100", 2200);
+            } catch (IOException probeError) {
+                append("DTC-Nachtest: Verbindung wird neu aufgebaut – " + probeError.getMessage());
+                closeClientIfCurrent(c);
             }
-
-            setBusy(Op.DTC, false);
-            showStatus(statusAfterDiagnosis("DTC-Scan beendet · Reconnect läuft …"));
-            showResult(Op.DTC, "OBD-II Fehlercodes", report);
-        });
+        }
+        return sb.append(m272Section(allCodes)).toString();
     }
 
     private static String m272Section(List<String> codes) {

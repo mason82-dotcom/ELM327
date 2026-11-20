@@ -107,28 +107,12 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         if (planText != null) planText.setText(session.testPlanChecklist());
     }
 
-    /** Löschen mit Bestätigung, die die Anzahl nennt (nicht rückgängig zu machen). */
     private void confirmClearPlan() {
-        int n = session.testPlanSize();
-        if (n == 0) return;
-        new AlertDialog.Builder(this)
-                .setTitle("Prüfplan leeren?")
-                .setMessage(n + (n == 1 ? " gespeichertes Ergebnis wird" : " gespeicherte Ergebnisse werden")
-                        + " gelöscht. Vorher teilen, wenn du sie noch brauchst.")
-                .setPositiveButton("Leeren", (d, w) -> {
-                    session.clearTestPlan();
-                    refreshPlan();
-                })
-                .setNegativeButton("Abbrechen", null)
-                .show();
+        PlanUi.confirmClear(this, 0, session, this::refreshPlan);
     }
 
     private String appVersion() {
-        try {
-            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
-            return "?";
-        }
+        return PlanUi.appVersion(this);
     }
 
     @Override
