@@ -56,7 +56,7 @@ Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantwort
 - **Fuel-Trim-Test** (Leerlauf gegen 2 500 U/min) und **Warmlauf-Check** (Thermostat).
 
 **Diagnose auf Knopfdruck**
-- **Fehlercodes** (Mode 03/07/0A) mit M272-Werkstatthinweisen, **HU/AU-Vorcheck** (Readiness, FIN, CALID/CVN, IUPR).
+- **Fehlercodes** (Mode 03/07/0A) mit M272-Werkstatthinweisen und separater **Abbrechen**-Taste: beendet die laufende Abfrage, verwirft unvollständige Ergebnisse und baut die Adapterverbindung bei Bedarf wieder auf; **HU/AU-Vorcheck** (Readiness, FIN, CALID/CVN, IUPR).
 - **Mode 06:** Aussetzer je Zylinder, alle Monitortests mit Grenzwerten, Bankvergleich der Lambdasonden.
 - **Fahrzeugprofil:** welche Werte Motor (7E8) und Getriebe (7E9) melden.
 - **ATF-Temperatur** der 7G-Tronic, dazu die übrigen Felder derselben Antwort als ungeprüfte Hypothese.
