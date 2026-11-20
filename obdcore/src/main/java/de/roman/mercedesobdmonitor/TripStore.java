@@ -6,12 +6,9 @@ import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -21,8 +18,9 @@ import java.util.Map;
 /**
  * Gespeichertes Fahrtenbuch einer App. Quelle sind die CSV-Logs, die der Dienst durchgehend schreibt (auch ohne
  * sichtbare Oberfläche), plus importierte Logs. Eingelesen werden nur Logdateien, deren Größe sich seit dem letzten Mal
- * geändert hat; Fahrten mit gleichem Start ersetzen sich ({@link TripBook#merge}). Gelöschte Logs (die App behält 20)
- * nehmen ihre Fahrten nicht mit.
+ * geändert hat, und davon nur der neue Teil ab der gemerkten Position ({@link LogReplay#readFrom}: Anfang der damals
+ * offenen Fahrt) – das aktive Log (bis 200 MB) wird nicht bei jedem Öffnen ganz gelesen. Überlappende Teilstücke
+ * ersetzen sich ({@link TripBook#merge}). Gelöschte Logs (die App behält 20) nehmen ihre Fahrten nicht mit.
  */
 public final class TripStore {
     public static final String KEY = "trips";
@@ -80,36 +78,52 @@ public final class TripStore {
     static void refreshFromLogs(Context c, String prefsName, File dir) {
         File[] logs = dir == null ? null : dir.listFiles((d, n) -> n.endsWith(".csv"));
         if (logs == null) return;
-        Map<String, Long> stamps = parseStamps(prefs(c, prefsName).getString(STAMPS, ""));
-        Map<String, Long> next = new HashMap<>();
+        Map<String, long[]> stamps = parseStamps(prefs(c, prefsName).getString(STAMPS, ""));
+        Map<String, long[]> next = new HashMap<>();
         List<TripComputer.Trip> fresh = new ArrayList<>();
         for (File f : logs) {
             long len = f.length();
-            next.put(f.getName(), len);
-            Long seen = stamps.get(f.getName());
-            if (seen != null && seen == len) continue;
-            try (BufferedReader r = new BufferedReader(new InputStreamReader(new FileInputStream(f), StandardCharsets.UTF_8))) {
-                fresh.addAll(LogReplay.read(r, ZoneId.systemDefault()).drives);
+            long[] seen = stamps.get(f.getName());
+            if (seen != null && seen[0] == len) {
+                next.put(f.getName(), seen);
+                continue;
+            }
+            // geschrumpft (ersetzt) oder neu: von vorn
+            long from = seen != null && len > seen[0] ? seen[1] : 0;
+            try (FileInputStream in = new FileInputStream(f)) {
+                LogReplay.Result r = LogReplay.readFrom(in, ZoneId.systemDefault(), from);
+                fresh.addAll(r.drives);
+                next.put(f.getName(), new long[] {len, r.resumeOffset});
             } catch (IOException | RuntimeException e) {
-                next.remove(f.getName());   // beim nächsten Mal erneut versuchen
+                // beim nächsten Mal erneut versuchen (Eintrag fehlt)
             }
         }
         merge(c, prefsName, fresh);
-        StringBuilder sb = new StringBuilder();
-        for (Map.Entry<String, Long> e : next.entrySet()) sb.append(e.getKey()).append('=').append(e.getValue()).append('\n');
-        prefs(c, prefsName).edit().putString(STAMPS, sb.toString()).apply();
+        prefs(c, prefsName).edit().putString(STAMPS, formatStamps(next)).apply();
     }
 
-    private static Map<String, Long> parseStamps(String text) {
-        Map<String, Long> out = new HashMap<>();
+    /** Je Zeile „Name=Größe;Position“; ältere Zeilen ohne Position lesen von vorn (Position 0). */
+    static Map<String, long[]> parseStamps(String text) {
+        Map<String, long[]> out = new HashMap<>();
         for (String line : text.split("\n")) {
             int eq = line.lastIndexOf('=');
             if (eq <= 0) continue;
+            String[] v = line.substring(eq + 1).split(";", -1);
             try {
-                out.put(line.substring(0, eq), Long.parseLong(line.substring(eq + 1)));
+                long size = Long.parseLong(v[0]);
+                long pos = v.length > 1 ? Long.parseLong(v[1]) : 0;
+                out.put(line.substring(0, eq), new long[] {size, Math.max(0, Math.min(pos, size))});
             } catch (NumberFormatException ignored) { }
         }
         return out;
+    }
+
+    static String formatStamps(Map<String, long[]> stamps) {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, long[]> e : stamps.entrySet()) {
+            sb.append(e.getKey()).append('=').append(e.getValue()[0]).append(';').append(e.getValue()[1]).append('\n');
+        }
+        return sb.toString();
     }
 
     /** Teilen-Dialog mit dem Fahrtenbuch als CSV-Text (z. B. in Mail, Notizen, Drive). */

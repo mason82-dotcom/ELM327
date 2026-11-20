@@ -135,6 +135,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             try { page = Page.valueOf(savedInstanceState.getString("page", "LIVE")); } catch (IllegalArgumentException ignored) { }
             trendPid = savedInstanceState.getInt("trendPid", 0x0C);
         }
+        // ADR-004: Testfreigabe aus den Einstellungen, ausgeliefert aus
+        session.setAdr004Enabled(getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_ADR004, false));
         buildUi();
     }
 
@@ -404,6 +406,17 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         logActions.addView(button("CSV EXPORTIEREN", v -> session.exportCsv(this)), weighted());
         logActions.addView(button("NEUES LOG", v -> session.startNewLog()), weighted());
         page.addView(logActions);
+        android.widget.CheckBox adr004 = new android.widget.CheckBox(this);
+        adr004.setText("Herstellerabfragen nach ADR-004 (Test): Kennung 1A 86, Getriebe-Fehler 18 02 FF 00 – Knopf unter ANALYSE");
+        adr004.setTextColor(Palette.LIGHT);
+        adr004.setTextSize(13);
+        adr004.setChecked(session.isAdr004Enabled());
+        adr004.setOnCheckedChangeListener((v, checked) -> {
+            session.setAdr004Enabled(checked);
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(PREF_ADR004, checked).apply();
+            updateAdr004Visibility();
+        });
+        page.addView(adr004);
         page.addView(text("Feste Read-only-Befehlsfreigabe · keine Schreib-, Stellglied- oder Löschfunktion", 12, Palette.TEAL));
         ScrollView scroll = new ScrollView(this);
         console = text("", 12, Palette.MUTED);
@@ -523,13 +536,19 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             lp.setMargins(0, dp(6), 0, 0);
             side.addView(b, lp);
         }
-        page.addView(side, new LinearLayout.LayoutParams(dp(190), -1));
+        // scrollbar: ab fünf Knöpfen (ANALYSE mit ADR-004) reicht die Höhe im Querformat nicht
+        ScrollView sideScroll = new ScrollView(this);
+        sideScroll.setFillViewport(true);
+        sideScroll.addView(side);
+        page.addView(sideScroll, new LinearLayout.LayoutParams(dp(190), -1));
         return page;
     }
 
     // ------------------------------------------------------------------ Analyse (C350/M272)
 
-    private TextView analysisText, atfText, profileText, canMonitorText;
+    private TextView analysisText, atfText, profileText, canMonitorText, kwpText;
+    private Button kwpButton;
+    private static final String PREF_ADR004 = "adr004_enabled";
 
     private View buildAnalysis() {
         analysisText = resultText("Werte erscheinen, sobald verbunden.");
@@ -541,20 +560,26 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         canMonitorText = resultText(results.containsKey(ResultRouter.Target.CAN_MONITOR)
                 ? results.get(ResultRouter.Target.CAN_MONITOR)
                 : "Bus mitlesen: 5 s passiv zuhören, ob der OBD-Port Bus-Botschaften zeigt (ADR-002, sendet nichts).");
+        kwpText = resultText(results.containsKey(ResultRouter.Target.KWP) ? results.get(ResultRouter.Target.KWP)
+                : "Kennung + Getriebe-Fehler: Testfreigabe ADR-004 (1A 86, 18 02 FF 00), nur lesend.");
         LinearLayout content = column();
         content.addView(analysisText);
         content.addView(atfText);
         content.addView(profileText);
         content.addView(canMonitorText);
+        content.addView(kwpText);
         Button profileButton = opButton(ObdSession.Op.PROFILE, "PROFIL LESEN", v -> session.runVehicleProfile());
         profileButton.setContentDescription("Fahrzeugprofil lesen");
         Button canButton = opButton(ObdSession.Op.CAN_MONITOR, "BUS MITLESEN", v -> session.runCanMonitor());
         canButton.setContentDescription("CAN-Bus fünf Sekunden passiv mitlesen");
-        Button importButton = button("LOG IMPORTIEREN", v -> pickTrimLog());
+        kwpButton = opButton(ObdSession.Op.KWP, "KENNUNG + FEHLER", v -> session.runKwpIdentDtc());
+        kwpButton.setContentDescription("Steuergeräte-Kennung und Getriebe-Fehlerspeicher lesen (Testfreigabe ADR-004)");
+        updateAdr004Visibility();
+        Button importButton = button("LOG IMPORT", v -> pickTrimLog());
         importButton.setContentDescription("CSV-Log importieren (Trim-Verlauf)");
         View page = subPage("ANALYSE / NUR LESEN", Page.ANALYSIS,
                 new View[] {text("Aus Standardwerten berechnet · Schwellen sind Richtwerte, keine Herstellerangaben", 13, Palette.WARN)},
-                new View[0], content, opButton(ObdSession.Op.ATF, "ATF LESEN", v -> session.runAtfTemperature()), profileButton, canButton, importButton);
+                new View[0], content, opButton(ObdSession.Op.ATF, "ATF LESEN", v -> session.runAtfTemperature()), profileButton, canButton, kwpButton, importButton);
         updateAnalysis();
         return page;
     }
@@ -949,7 +974,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
                 refreshResults();
                 show(Page.TRIM);
                 break;
-            case PROFILE: case ATF: case CAN_MONITOR:
+            case PROFILE: case ATF: case CAN_MONITOR: case KWP:
                 results.put(target, message);
                 refreshResults();
                 show(Page.ANALYSIS);
@@ -988,6 +1013,15 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         if (prof != null && profileText != null) profileText.setText(prof);
         String can = results.get(ResultRouter.Target.CAN_MONITOR);
         if (can != null && canMonitorText != null) canMonitorText.setText(can);
+        String kwp = results.get(ResultRouter.Target.KWP);
+        if (kwp != null && kwpText != null) kwpText.setText(kwp);
+    }
+
+    /** ADR-004: Knopf und Ergebnisfeld nur mit eingeschalteter Testfreigabe. */
+    private void updateAdr004Visibility() {
+        int v = session.isAdr004Enabled() ? View.VISIBLE : View.GONE;
+        if (kwpButton != null) kwpButton.setVisibility(v);
+        if (kwpText != null) kwpText.setVisibility(v);
     }
 
     private void dialog(String title, String message) {

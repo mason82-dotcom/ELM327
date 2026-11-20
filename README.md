@@ -16,6 +16,21 @@ Zum Testen ohne Fahrzeug: ELM327-Emulator als Docker-Dienst im Heimnetz, das Han
 
 Beide Apps nutzen denselben geprüften Kern **`:obdcore`** (ELM327-Verbindung, Read-only-Allowlist, Parser, Diagnosen, CSV, Vordergrunddienst). Nicht frisch gelesene Werte (NO DATA, Parser-/Linkfehler, Verbindungsverlust) zeigen beide Apps als „–“ statt des letzten Werts.
 
+## Version 1.8.0 (Monitor) / 0.12.0 (Dashboard): Kennung und Getriebe-Fehler (Test), schnelleres Fahrtenbuch
+
+- **Kennung + Getriebe-Fehler** ([ADR-004](docs/adr-004-kwp-kennung-fehlerspeicher.md), Testfreigabe, ausgeliefert
+  **aus**): nach dem Einschalten (Monitor-App: Haken unter den C350-Knöpfen, Dashboard: INFO) liest der Knopf die
+  Daimler-Kennung `1A 86` von Motor (7E0) und Getriebe (7E1) – Teilenummer, HW/SW-Stand, Herstelldatum – und den
+  Getriebe-Fehlerspeicher `18 02 FF 00`. Exakte Befehle, nicht im Terminal, Header immer zurück auf 7DF; Absagen
+  mit Code. Formate nach der Referenzbibliothek ecu_diagnostics, am C350 ungeprüft: der erste Lauf ist der Test.
+- **Fahrtenbuch** liest das wachsende Log nur noch ab der gemerkten Stelle (Beginn der offenen Fahrt) statt bei jedem
+  Öffnen ganz; das Ergebnis ist dasselbe (Test mit dem Log vom 19.11. in mehreren Stücken).
+- **ATF-Abfrage** nennt bei einer Absage den Code (z. B. „7F 21 12: Unterfunktion/Format nicht unterstützt“).
+- **UDS `22`** (ReadDataByIdentifier) bleibt gesperrt: der C350 spricht KWP2000, das Gegenstück ist `21` (Test).
+- **M272-Referenz** ([docs/m272-referenz.md](docs/m272-referenz.md)): Kernaussagen der Schulungsunterlage 2004;
+  daraus zwei Hinweise – gleicher Raildruck für beide Bänke (Bankvergleich) und LIN-geregelte Lichtmaschine
+  (Starttest).
+
 ## Version 1.7.1 (Monitor) / 0.11.1 (Dashboard): ATF-Temperatur aus dem richtigen Byte
 
 - **Korrektur** ([ADR-003](docs/adr-003-atf-antwort-layout.md)): Die ATF-Temperatur steht im Datenbyte 11 **nach**

@@ -14,6 +14,7 @@ public class ResultRouterTest {
         assertEquals(ResultRouter.Target.MONITOR_TESTS, ResultRouter.route(ObdSession.Op.MONITOR_TESTS, "Monitortests (Mode 06)"));
         assertEquals(ResultRouter.Target.STARTER, ResultRouter.route(ObdSession.Op.STARTER, "Starttest"));
         assertEquals(ResultRouter.Target.CAN_MONITOR, ResultRouter.route(ObdSession.Op.CAN_MONITOR, "Bus mitlesen"));
+        assertEquals(ResultRouter.Target.KWP, ResultRouter.route(ObdSession.Op.KWP, "Kennung + Getriebe-Fehler (ADR-004)"));
     }
 
     @Test

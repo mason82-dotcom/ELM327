@@ -1,6 +1,10 @@
 package de.roman.mercedesobdmonitor;
 
+import java.io.BufferedInputStream;
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -34,6 +38,8 @@ public final class LogReplay {
         public int rows;
         public int skippedRows;
         public int trips;
+        /** Nur {@link #readFrom}: ab hier liest das nächste Mal weiter. */
+        public long resumeOffset;
 
         /**
          * Trägt die Fahrten in den Verlauf ein und beschreibt das Ergebnis für die Rückmeldung, z. B.
@@ -70,25 +76,70 @@ public final class LogReplay {
      * Lesefehlern oder wenn die Kopfzeile nicht zum Monitor-Log passt; einzelne kaputte Zeilen werden übersprungen.
      */
     public static Result read(BufferedReader in, ZoneId zone) throws IOException {
-        String header = in.readLine();
-        if (header == null) throw new IOException("Datei ist leer");
-        if (!header.isEmpty() && header.charAt(0) == BOM) header = header.substring(1);
-        List<String> cols = split(header);
-        int iTs = cols.indexOf("timestamp"), iPid = cols.indexOf("pid"), iValue = cols.indexOf("value"), iRaw = cols.indexOf("raw");
-        if (iTs < 0 || iPid < 0 || (iValue < 0 && iRaw < 0)) {
-            throw new IOException("kein Log der Monitor-App (Spalten timestamp;pid;value erwartet)");
-        }
-        Map<Integer, ObdPid> pids = new HashMap<>();
-        for (ObdPid p : ObdPid.defaultPids()) pids.put(p.pid, p);
-
-        Result r = new Result();
-        // Eine einzige Aufteilung in Fahrten (TripComputer): Fahrtenbuch und Trim-Verlauf zählen dieselben Fahrten
-        TripComputer tripComputer = new TripComputer();
-        long previous = 0;
-        ZoneOffset offset = null;   // Offset der Vorzeile: hält die doppelte Stunde der Zeitumstellung fortlaufend
+        Replayer rp = new Replayer(in.readLine(), zone);
         String line;
-        while ((line = in.readLine()) != null) {
-            if (line.isEmpty()) continue;
+        while ((line = in.readLine()) != null) rp.accept(line, -1);
+        return rp.finish();
+    }
+
+    /**
+     * Liest eine Logdatei ab {@code fromOffset} weiter (0 = ganz). Die Kopfzeile wird immer gelesen, danach wird bis
+     * {@code fromOffset} übersprungen. Nur mit Zeilenende abgeschlossene Zeilen zählen: die letzte kann der Dienst
+     * gerade schreiben. {@link Result#resumeOffset} sagt, ab wo das nächste Mal ergebnisgleich weitergelesen werden kann
+     * – am Anfang der noch offenen Fahrt, sonst hinter der letzten vollständigen Zeile.
+     */
+    public static Result readFrom(InputStream raw, ZoneId zone, long fromOffset) throws IOException {
+        LineReader in = new LineReader(raw);
+        String header = in.next();
+        if (header == null) throw new IOException("Datei ist leer");
+        Replayer rp = new Replayer(header, zone);
+        long headerEnd = in.position;
+        if (fromOffset > headerEnd) in.skipTo(fromOffset);
+        long lastComplete = in.position;
+        String line;
+        while (true) {
+            long lineStart = in.position;
+            line = in.next();
+            if (line == null) break;
+            if (!in.lastTerminated) break;   // halb geschriebene Zeile: beim nächsten Mal
+            rp.accept(line, lineStart);
+            lastComplete = in.position;
+        }
+        Result r = rp.finish();
+        r.resumeOffset = rp.openOffset >= 0 ? rp.openOffset : lastComplete;
+        return r;
+    }
+
+    /** Verarbeitet Zeilen eines Logs; gemeinsam für Import ({@link #read}) und Fortsetzen ({@link #readFrom}). */
+    private static final class Replayer {
+        private final ZoneId zone;
+        private final int iTs, iPid, iValue, iRaw;
+        private final Map<Integer, ObdPid> pids = new HashMap<>();
+        private final Result r = new Result();
+        // Eine einzige Aufteilung in Fahrten (TripComputer): Fahrtenbuch und Trim-Verlauf zählen dieselben Fahrten
+        private final TripComputer tripComputer = new TripComputer();
+        private long previous;
+        private ZoneOffset offset;   // Offset der Vorzeile: hält die doppelte Stunde der Zeitumstellung fortlaufend
+        /** Byte-Position der Zeile, mit der die offene Fahrt begann; -1 = keine offen. */
+        long openOffset = -1;
+
+        Replayer(String header, ZoneId zone) throws IOException {
+            if (header == null) throw new IOException("Datei ist leer");
+            if (!header.isEmpty() && header.charAt(0) == BOM) header = header.substring(1);
+            List<String> cols = split(header);
+            iTs = cols.indexOf("timestamp");
+            iPid = cols.indexOf("pid");
+            iValue = cols.indexOf("value");
+            iRaw = cols.indexOf("raw");
+            if (iTs < 0 || iPid < 0 || (iValue < 0 && iRaw < 0)) {
+                throw new IOException("kein Log der Monitor-App (Spalten timestamp;pid;value erwartet)");
+            }
+            this.zone = zone;
+            for (ObdPid p : ObdPid.defaultPids()) pids.put(p.pid, p);
+        }
+
+        void accept(String line, long lineStart) {
+            if (line.isEmpty()) return;
             List<String> f = split(line);
             long t;
             int pid;
@@ -105,20 +156,70 @@ public final class LogReplay {
                 else value = def == null || iRaw < 0 ? null : def.parse(f.get(iRaw));
             } catch (RuntimeException e) {   // Spalte fehlt, Zahl/Zeit kaputt
                 r.skippedRows++;
-                continue;
+                return;
             }
             if (value == null || value.isNaN() || value.isInfinite()) {
                 r.skippedRows++;
-                continue;
+                return;
             }
             previous = t;
             r.rows++;
+            long before = tripComputer.openStart();
             tripComputer.onSample(t, pid, value);
+            long after = tripComputer.openStart();
+            if (after < 0) openOffset = -1;
+            else if (after != before) openOffset = lineStart;
         }
-        r.drives.addAll(tripComputer.finish());
-        r.trips = r.drives.size();
-        for (TripComputer.Trip d : r.drives) if (d.trimEntry != null) r.entries.add(d.trimEntry);
-        return r;
+
+        Result finish() {
+            r.drives.addAll(tripComputer.finish());
+            r.trips = r.drives.size();
+            for (TripComputer.Trip d : r.drives) if (d.trimEntry != null) r.entries.add(d.trimEntry);
+            return r;
+        }
+    }
+
+    /** Zeilen aus Bytes (UTF-8) mit Byte-Position; erkennt, ob die letzte Zeile ein Zeilenende hatte. */
+    static final class LineReader {
+        private final InputStream in;
+        private final ByteArrayOutputStream buf = new ByteArrayOutputStream(256);
+        long position;
+        boolean lastTerminated;
+
+        LineReader(InputStream in) {
+            this.in = in instanceof BufferedInputStream ? in : new BufferedInputStream(in, 64 * 1024);
+        }
+
+        void skipTo(long target) throws IOException {
+            while (position < target) {
+                long n = in.skip(target - position);
+                if (n <= 0) {
+                    if (in.read() < 0) return;
+                    n = 1;
+                }
+                position += n;
+            }
+        }
+
+        String next() throws IOException {
+            buf.reset();
+            int b;
+            while ((b = in.read()) >= 0) {
+                position++;
+                if (b == '\n') {
+                    lastTerminated = true;
+                    return text();
+                }
+                buf.write(b);
+            }
+            lastTerminated = false;
+            return buf.size() == 0 ? null : text();
+        }
+
+        private String text() {
+            String s = new String(buf.toByteArray(), StandardCharsets.UTF_8);
+            return s.endsWith("\r") ? s.substring(0, s.length() - 1) : s;
+        }
     }
 
     /** Semikolon-getrennt, Felder optional in "…" mit "" als Anführungszeichen (wie {@link CsvLogWriter}). */

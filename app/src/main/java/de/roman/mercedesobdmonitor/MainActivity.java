@@ -37,6 +37,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private static final String PREFS = "elm";
     private static final String LOCAL_NET_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK";
     private static final String PREF_NOTIFICATIONS_ASKED = "notificationsAsked";
+    private static final String PREF_ADR004 = "adr004_enabled";
 
     private EditText hostInput;
     private EditText portInput;
@@ -60,6 +61,8 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private Button atfButton;
     private Button starterButton;
     private Button canMonitorButton;
+    private Button kwpButton;
+    private android.widget.CheckBox adr004Box;
     private SparklineView latencyGraph;
     private TextView analysisText;
     private TextView tripsText;
@@ -188,6 +191,14 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         canMonitorButton = button("Bus mitlesen");
         c350Controls2.addView(canMonitorButton, weight());
         root.addView(c350Controls2);
+        // ADR-004: Testfreigabe für zwei Herstellerabfragen, ausgeliefert aus; erst angehakt erscheint der Knopf
+        adr004Box = new android.widget.CheckBox(this);
+        adr004Box.setText("Herstellerabfragen nach ADR-004 (Test): Kennung 1A 86, Getriebe-Fehler 18 02 FF 00");
+        adr004Box.setTextColor(Color.LTGRAY);
+        adr004Box.setTextSize(13);
+        root.addView(adr004Box);
+        kwpButton = button("Kennung + Getriebe-Fehler (Test)");
+        root.addView(kwpButton);
 
         warmupStatus = text("Warmlauf-Check: bereit", 13, Color.LTGRAY);
         warmupStatus.setPadding(0, dp(3), 0, dp(4));
@@ -281,6 +292,12 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         atfButton.setOnClickListener(v -> session.runAtfTemperature());
         starterButton.setOnClickListener(v -> session.toggleStarterTest());
         canMonitorButton.setOnClickListener(v -> session.runCanMonitor());
+        kwpButton.setOnClickListener(v -> session.runKwpIdentDtc());
+        adr004Box.setOnCheckedChangeListener((v, checked) -> {
+            session.setAdr004Enabled(checked);
+            kwpButton.setVisibility(checked ? View.VISIBLE : View.GONE);
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(PREF_ADR004, checked).apply();
+        });
         warmupButton.setOnClickListener(v -> session.toggleWarmupCheck());
         send.setOnClickListener(v -> session.sendTerminal(terminalInput.getText().toString()));
         export.setOnClickListener(v -> session.exportCsv(this));
@@ -479,6 +496,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
                 return;
             }
             case CAN_MONITOR -> { b = canMonitorButton; idle = "Bus mitlesen"; working = "Lese Bus (5 s) …"; }
+            case KWP -> { b = kwpButton; idle = "Kennung + Getriebe-Fehler (Test)"; working = "Lese Steuergeräte …"; }
             case INSPECTION -> { b = inspectionButton; idle = "HU/AU-Check"; working = "Lese Readiness …"; }
             default -> { return; }
         }
@@ -515,6 +533,10 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
         hostInput.setText(p.getString("host", "192.168.0.10"));
         portInput.setText(p.getString("port", "35000"));
+        boolean adr004 = p.getBoolean(PREF_ADR004, false);
+        adr004Box.setChecked(adr004);
+        session.setAdr004Enabled(adr004);
+        kwpButton.setVisibility(adr004 ? View.VISIBLE : View.GONE);
     }
 
     private TextView text(String value, int sp, int color) {
