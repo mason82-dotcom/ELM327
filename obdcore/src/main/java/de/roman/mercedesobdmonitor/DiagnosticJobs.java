@@ -130,10 +130,13 @@ final class DiagnosticJobs {
             return sb.toString();
         } catch (SocketTimeoutException e) {
             if (host.dtcCancelled()) return label + ": abgebrochen";
-            host.countTimeouts(1);
             // Wie beim Live-Polling: auf den verspäteten Prompt warten; neu verbinden
             // nur, wenn der Adapter nicht wieder synchron wird.
-            if (c.resync(1500)) {
+            boolean synced = c.resync(1500);
+            // STOP während des Resync: weder als Timeout melden noch die Verbindung ein zweites Mal verwerfen
+            if (host.dtcCancelled()) return label + ": abgebrochen";
+            host.countTimeouts(1);
+            if (synced) {
                 host.log("DTC " + label + ": Timeout · Prompt resynchronisiert, Verbindung bleibt");
                 return label + ": Timeout – nicht gelesen";
             }

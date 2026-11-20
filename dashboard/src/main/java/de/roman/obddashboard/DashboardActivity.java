@@ -919,17 +919,6 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     public void onStatus(String text) {
         status.setText(text);
-        // Ein abgebrochener DTC-Scan darf nicht dauerhaft als „Lese …“ stehen bleiben.
-        if (dtcState != null && text != null) {
-            if (text.startsWith("DTC-Scan wird abgebrochen")) {
-                dtcState.setText("DTC-Scan wird abgebrochen …");
-            } else if (text.startsWith("DTC-Scan abgebrochen")) {
-                dtcState.setText("DTC-Scan abgebrochen. Der Adapter wird wieder verbunden.");
-            } else if ("Getrennt".equals(text)
-                    && dtcState.getText().toString().startsWith("Lese Fehlercodes")) {
-                dtcState.setText("DTC-Scan abgebrochen · Verbindung getrennt. Erneut verbinden und LESEN wählen.");
-            }
-        }
         if (starterText != null && text != null && text.startsWith("Starttest:") && session.isStarterTestRunning()) {
             starterText.setText(text.substring("Starttest: ".length()));
         }
@@ -1037,10 +1026,29 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             if (busy) starterText.setText("Starttest läuft …");
         }
         updateOpButtons();
-        if (op == ObdSession.Op.DTC && busy) dtcState.setText("Lese Fehlercodes 03 / 07 / 0A …");
+        if (op == ObdSession.Op.DTC) showDtcBusy(busy);
         if (op == ObdSession.Op.MISFIRE && busy) mode06Text.setText("Lese Mode 06 (Aussetzer) …");
         if (op == ObdSession.Op.MONITOR_TESTS && busy) mode06Text.setText("Lese Mode-06-Monitortests …");
         if (op == ObdSession.Op.INSPECTION && busy) inspectionText.setText("HU/AU-Vorcheck läuft …");
+    }
+
+    private static final String DTC_READING = "Lese Fehlercodes 03 / 07 / 0A …";
+    private static final String DTC_CANCELLING = "DTC-Scan wird abgebrochen …";
+
+    /**
+     * DTC-Karte folgt dem Busy-Zustand statt Statustexten (Review #35–#37): STOP, Trennen und Neuverbinden enden
+     * alle mit onBusy(DTC, false); ein danach eintreffendes Ergebnis überschreibt den Hinweis.
+     */
+    private void showDtcBusy(boolean busy) {
+        if (dtcState == null) return;
+        if (busy) {
+            dtcState.setText(session.isDtcCancellationPending() ? DTC_CANCELLING : DTC_READING);
+            return;
+        }
+        String shown = dtcState.getText().toString();
+        if (shown.equals(DTC_READING) || shown.equals(DTC_CANCELLING)) {
+            dtcState.setText("DTC-Scan ohne Ergebnis beendet. Zum Lesen erneut LESEN wählen.");
+        }
     }
 
     @Override

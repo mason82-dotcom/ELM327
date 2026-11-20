@@ -2,6 +2,24 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.11.2 (Monitor) / 0.16.1 (Dashboard): DTC-Abbruch, Sitzungswechsel, Bluetooth-Korrektur
+
+- **DTC-Scan abbrechen** (#36): STOP in beiden Apps beendet genau den laufenden Scan; der Adapter wird neu
+  verbunden, 03/07/0A werden nicht wiederholt, kein Dialog und kein Prüfplaneintrag.
+- **Sitzungswechsel** (#35, #37): Ergebnisse, Status und Livewerte einer alten Verbindung landen nicht mehr in der
+  neuen; Header-Wechsel (`ATSH`) gelten erst nach „OK“ des Adapters.
+- **Behoben (Review von #35–#37)**:
+  - Bluetooth: seit 1.11.0 brach jeder Verbindungsaufbau sofort ab, weil das Schließen vor dem Verbinden den
+    Bluetooth-Öffner endgültig abbrach. Abgebrochen wird jetzt nur noch beim Trennen oder bei neuer Verbindung.
+  - `ATZ` gilt auch bei Nachbauten, deren Kennung weder „ELM“ noch „OBD“ enthält (nur `?`/`ERROR`/Echo nicht).
+  - Ein fertiges Diagnoseergebnis geht nicht mehr verloren, wenn gleich danach eine neue Diagnose startet oder die
+    Verbindung wechselt, und STOP nach Abschluss verwirft es nicht mehr.
+  - STOP während der Resynchronisierung zählt keinen Adapter-Timeout und trennt nicht doppelt.
+  - Dashboard: die DTC-Karte folgt dem Arbeitszustand statt Statustexten und bleibt nicht auf „wird abgebrochen“.
+  - Doppelter Zustell- und Cache-Code zusammengeführt.
+- Offen: `ObdSession` hängt Android-seitig an `Handler`/`Context`; die Sitzungsregeln sind als reine Funktionen
+  getestet (`SessionEpoch`, `DiagnosisToken`), die Verdrahtung nur im Emulator.
+
 ## Dashboard 0.16.0 (Monitor 1.11.1): Automatisch verbinden fürs Radio
 
 - **Automatisch verbinden** ([ADR-006](docs/adr-006-autostart.md), INFO, ausgeliefert aus): beim Öffnen der App und
