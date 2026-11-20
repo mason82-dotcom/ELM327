@@ -239,4 +239,26 @@ public class StarterTestTest {
         assertFalse(r, r.contains("sehr lang"));
         assertTrue(r, r.contains("lädt nicht ausreichend"));
     }
+
+    /** E: Herstellerwerte – Batterietest erst ab 12,4 V, Startgrenze ~7 V, Ladung bis 15 V normal. */
+    @Test
+    public void manufacturerValuesInReport() {
+        StarterTest t = new StarterTest(9);
+        play(t, 1000, new double[][] {{3500, 11.6}, {2000, 11.5}, {900, 7.6}, {400, 11.8}, {11_000, 14.9}});
+        String r = t.report(700);
+        assertTrue(r, r.contains("Nahe der Startgrenze: unter etwa 7,0 V"));
+        assertTrue(r, r.contains("auch der Werkstatt-Batterietest braucht über 12,4 V Ruhespannung"));
+        assertTrue(r, r.contains("Lichtmaschine lädt"));          // 14,9 V: bis 15 V normal (WIS)
+        assertEquals(StarterTest.Rating.GOOD, StarterTest.rateCharge(15.0));
+        assertEquals(StarterTest.Rating.FAIR, StarterTest.rateCharge(15.1));
+    }
+
+    /** Review: Ruhespannung knapp (12,3 V) bleibt „knapp“, kein eigener Handlungspunkt. */
+    @Test
+    public void fairRestStaysBorderline() {
+        StarterTest t = new StarterTest(15);
+        play(t, 1000, new double[][] {{3500, 12.3}, {2000, 12.2}, {900, 10.6}, {400, 12.0}, {11_000, 14.2}});
+        String r = t.report(700);
+        assertTrue(r, r.contains("Gesamt: unauffällig, einzelne Werte knapp"));
+    }
 }

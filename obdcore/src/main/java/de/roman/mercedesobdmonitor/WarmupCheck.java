@@ -17,6 +17,8 @@ public final class WarmupCheck {
     static final double WARM = 80;
     /** Ab hier gilt der Motor als betriebswarm; erst danach zählt ein Abfall. */
     static final double OPERATING = 85;
+    /** Ab hier ist das Thermostat immer ganz offen (Notlauf, WIS GF20.10-P-3162CY). */
+    static final double LIMP_HOME = 110;
     static final double CRUISE_SPEED = 60;
     static final double DRIVING_SPEED = 5;
     /** So lange muss die Temperatur bei zügiger Fahrt unter WARM liegen, um als Abfall zu gelten. */
@@ -126,7 +128,7 @@ public final class WarmupCheck {
         StringBuilder sb = new StringBuilder();
         sb.append(switch (v) {
             case OK -> "✅ Warmlauf unauffällig";
-            case SUSPICIOUS -> "⚠️ Thermostat-Verdacht";
+            case SUSPICIOUS -> overheated() ? "⚠️ Überhitzung" : "⚠️ Thermostat-Verdacht";
             case INCONCLUSIVE -> "ℹ️ Nicht aussagekräftig";
         }).append('\n').append(reason(v)).append("\n\n");
 
@@ -144,10 +146,11 @@ public final class WarmupCheck {
         if (longestDropMs > 0) {
             sb.append("Längster Abfall unter 80 °C bei Fahrt: ").append(minutes(longestDropMs)).append('\n');
         }
-        sb.append("\nM272 (Kennfeldthermostat): betriebswarm meist etwa 90–105 °C, unter Last auch darunter. ")
-                .append("Ein offen hängendes Thermostat zeigt sich vor allem bei Landstraße oder Autobahn in ")
-                .append("kühler Umgebung; typischer Fehlercode P0128. Die Schwellen dieses Checks sind Richtwerte, ")
-                .append("keine Herstellerangaben.");
+        sb.append("\nM272 (elektronisch geregeltes Drei-Scheiben-Thermostat, WIS GF20.10-P-3162CY): regelt ")
+                .append("kennfeldabhängig etwa 80–100 °C, unter Last eher niedriger; ab etwa 110 °C immer ganz offen. ")
+                .append("Ein offen hängendes Thermostat zeigt sich als zu langsamer Anstieg (P0128) und als Abfall ")
+                .append("unter 80 °C bei Landstraße oder Autobahn in kühler Umgebung. Die Zeitschwellen dieses Checks ")
+                .append("sind Richtwerte.");
         return sb.toString();
     }
 
@@ -156,6 +159,7 @@ public final class WarmupCheck {
     }
 
     synchronized Verdict verdict() {
+        if (overheated()) return Verdict.SUSPICIOUS;
         if (longestDropMs >= DROP_MIN_MS) return Verdict.SUSPICIOUS;
         if (isColdStart()) {
             if (timeTo80 == null) {
@@ -170,6 +174,10 @@ public final class WarmupCheck {
 
     private String reason(Verdict v) {
         if (v == Verdict.SUSPICIOUS) {
+            if (overheated()) {
+                return "Kühlmittel erreichte " + temp(maxCoolant) + " – über " + temp(LIMP_HOME)
+                        + " öffnet das Thermostat im Notlauf ganz. Kühlmittelstand, Lüfter und Kühler prüfen.";
+            }
             if (longestDropMs >= DROP_MIN_MS) {
                 return "Die Temperatur fiel nach dem Warmlauf bei Fahrt über 60 km/h für "
                         + minutes(longestDropMs) + " unter 80 °C (bis " + temp(dropMin)
@@ -193,6 +201,10 @@ public final class WarmupCheck {
         if (isColdStart()) return "80 °C noch nicht erreicht – Fahrt zu kurz für eine Aussage.";
         return "Kein Kaltstart und zu wenig zügige Fahrt nach dem Warmlauf (mindestens "
                 + minutes(MIN_CRUISE_MS) + " über 60 km/h).";
+    }
+
+    private boolean overheated() {
+        return !Double.isNaN(maxCoolant) && maxCoolant >= LIMP_HOME;
     }
 
     private boolean isColdStart() {

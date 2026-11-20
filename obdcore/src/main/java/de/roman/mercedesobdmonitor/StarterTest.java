@@ -312,9 +312,14 @@ public final class StarterTest {
         return 8.5;
     }
 
+    /** Unter dieser Ruhespannung ist der Mercedes-Batterietest nicht aussagekräftig (AR54.10-P-1129-01A). */
+    public static final double MB_TEST_MIN_REST = 12.4;
+    /** Unter etwa dieser Spannung startet das ME den Motor nicht mehr (WIS GF07.61-P-2003V). */
+    public static final double ME_START_MIN = 7.0;
+
     public static Rating rateRest(double v) {
         if (Double.isNaN(v)) return Rating.UNKNOWN;
-        if (v >= 12.4) return Rating.GOOD;
+        if (v >= MB_TEST_MIN_REST) return Rating.GOOD;
         if (v >= 12.2) return Rating.FAIR;
         return Rating.WEAK;
     }
@@ -327,9 +332,14 @@ public final class StarterTest {
         return Rating.WEAK;
     }
 
+    /**
+     * Ladespannung kurz nach dem Start. Das ME regelt die Lichtmaschine (WIS GF07.61-P-3003CY): Obergrenze bis 15 V,
+     * bei gestörter Schnittstelle fest 13,45–14,15 V; nach dem Anlassen lädt es die Batterie nach, eine Absenkung
+     * gibt es erst bei voller Batterie im Leerlauf.
+     */
     public static Rating rateCharge(double v) {
         if (Double.isNaN(v)) return Rating.UNKNOWN;
-        if (v >= 13.5 && v <= 14.9) return Rating.GOOD;
+        if (v >= 13.5 && v <= EngineAnalysis.CHARGE_MAX_NORMAL) return Rating.GOOD;
         if (v >= 13.2 && v <= 15.2) return Rating.FAIR;
         return Rating.WEAK;
     }
@@ -399,6 +409,10 @@ public final class StarterTest {
             double limit = crankLimit(temp);
             b.append("Beim Anlassen: tiefster Wert ").append(fmtV(crankMin)).append(" V (Einbruch ")
                     .append(fmtV(preCrank - crankMin)).append(" V) – ").append(crankText(rCrank)).append('\n');
+            if (!Double.isNaN(crankMin) && crankMin < ME_START_MIN + 1.0) {
+                b.append("  Nahe der Startgrenze: unter etwa ").append(fmt1(ME_START_MIN))
+                        .append(" V startet das Motorsteuergerät den Motor nicht mehr (WIS).\n");
+            }
             b.append("  Richtwert ≥ ").append(fmt1(limit)).append(" V ")
                     .append(Double.isNaN(temp) ? "(21 °C angenommen, keine Außentemperatur)"
                             : "bei " + Math.round(temp) + " °C Außentemperatur").append('\n');
@@ -426,10 +440,12 @@ public final class StarterTest {
         b.append("\nHinweise: ATRV misst am OBD-Stecker (Pin 16) mit etwa ±0,2 V Toleranz");
         if (iv > 0) b.append(", Abtastung alle ~").append(iv).append(" ms – die kurze Einschaltspitze kann tiefer liegen");
         b.append(". Nach einer Fahrt liegt die Ruhespannung durch Oberflächenladung höher; aussagekräftig ist ein Start "
-                + "nach mehreren Stunden Standzeit. Die Lichtmaschine des M272 regelt das Motorsteuergerät über LIN "
-                + "(M272-Schulungsunterlage); ein Wert knapp über 13 V kann bei warmer, voller Batterie gewollt sein – "
-                + "dann nach einigen Minuten mit eingeschalteten Verbrauchern wiederholen. Richtwerte für "
-                + "12-V-Bleibatterien, keine Herstellerangaben.");
+                + "nach mehreren Stunden Standzeit. Die Lichtmaschine regelt das Motorsteuergerät (Schnittstelle, "
+                + "WIS GF07.61-P-3003CY): bis 15 V sind normal, bei voller Batterie senkt es die Ladespannung im "
+                + "Leerlauf deutlich ab – ein Wert knapp über 13 V kann dann gewollt sein; mit eingeschalteten "
+                + "Verbrauchern wiederholen. Herstellerwerte: Startgrenze ~" + fmt1(ME_START_MIN) + " V, Batterietest ab "
+                + fmt1(MB_TEST_MIN_REST) + " V Ruhespannung, Ladung bis " + fmt1(EngineAnalysis.CHARGE_MAX_NORMAL)
+                + " V; die übrigen Schwellen sind Richtwerte für 12-V-Bleibatterien.");
         return b.toString().trim();
     }
 
@@ -437,13 +453,16 @@ public final class StarterTest {
         if (phase != Phase.DONE) return null;
         List<String> issues = new ArrayList<>();
         if (rest == Rating.WEAK && crank == Rating.WEAK) {
-            issues.add("Batterie entladen oder verschlissen: erst vollständig laden, dann den Test wiederholen.");
+            issues.add("Batterie entladen oder verschlissen: erst vollständig laden, dann den Test wiederholen – auch "
+                    + "der Werkstatt-Batterietest braucht über " + fmt1(MB_TEST_MIN_REST) + " V Ruhespannung.");
         } else if (crank == Rating.WEAK) {
             issues.add("Ruhespannung in Ordnung, aber starker Einbruch: Batterie mit wenig Kapazität (Kaltstartstrom) "
                     + "oder Übergangswiderstand – Batterieklemmen, Massebänder, Anlasserkabel prüfen.");
         } else if (rest == Rating.WEAK) {
-            issues.add("Ruhespannung niedrig: Batterie nachladen (Ruhestromverbraucher? Kurzstrecken?).");
+            issues.add("Ruhespannung niedrig: Batterie nachladen (Ruhestromverbraucher? Kurzstrecken?) – der "
+                    + "Werkstatt-Batterietest braucht über " + fmt1(MB_TEST_MIN_REST) + " V.");
         }
+
         if (charge == Rating.WEAK) {
             double c = charge();
             issues.add(c > 15.2 ? "Ladespannung zu hoch: Regler der Lichtmaschine prüfen lassen."
@@ -486,7 +505,7 @@ public final class StarterTest {
     private static String chargeText(double v, Rating r) {
         return switch (r) {
             case GOOD -> "Lichtmaschine lädt";
-            case FAIR -> v > 14.9 ? "etwas hoch" : "knapp (viele Verbraucher an?)";
+            case FAIR -> v > EngineAnalysis.CHARGE_MAX_NORMAL ? "etwas hoch" : "knapp (viele Verbraucher an?)";
             case WEAK -> v > 15.2 ? "zu hoch" : "lädt nicht ausreichend";
             default -> "–";
         };

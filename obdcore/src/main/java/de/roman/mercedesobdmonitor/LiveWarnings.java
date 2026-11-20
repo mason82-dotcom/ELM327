@@ -44,7 +44,7 @@ public final class LiveWarnings {
     static final double CHARGE_LOW_WARN = 12.6;
     static final double CHARGE_LOW_ALARM = 12.2;
     static final double CHARGE_LOW_CLEAR = 12.9;
-    static final double CHARGE_HIGH_ALARM = 15.0;
+    static final double CHARGE_HIGH_ALARM = EngineAnalysis.CHARGE_MAX_NORMAL;
     static final double CHARGE_HIGH_CLEAR = 14.8;
 
     // Zündung an, Motor aus: Ruhespannung. Log 20.11.2026: 11,5–11,6 V vor dem Start.

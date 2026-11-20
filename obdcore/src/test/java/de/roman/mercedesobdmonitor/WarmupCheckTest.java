@@ -118,4 +118,15 @@ public class WarmupCheckTest {
         check.cancel();
         assertFalse(check.isRunning());
     }
+
+    /** E: über 110 °C ist das Thermostat im Notlauf ganz offen – Hinweis auf Kühlung. */
+    @Test public void aboveLimpHomeTemperatureIsFlagged() {
+        startCold(20);
+        drive(12 * 60, 50, 20, 85);
+        drive(5 * 60, 30, 85, 112);
+        String r = check.finish(now);
+        assertTrue(r, r.startsWith("⚠️ Überhitzung"));
+        assertTrue(r, r.contains("Kühlmittel erreichte 112 °C"));
+        assertTrue(r, r.contains("regelt kennfeldabhängig etwa 80–100 °C"));
+    }
 }

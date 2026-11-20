@@ -142,6 +142,11 @@ public final class InspectionCheck {
             sb.append("\nNicht verfügbar: ").append(String.join(", ", in.unavailable)).append('\n');
         }
 
+        if (VehicleProfile.ACTIVE.m272Hints) {
+            String guide = ReadinessGuide.section(in.readiness, in.pendingKnown && !in.pending.isEmpty());
+            if (guide != null) sb.append('\n').append(guide).append('\n');
+        }
+
         sb.append("\nHinweise:\n");
         List<String> notes = notes(in);
         if (notes.isEmpty()) sb.append("  keine\n");
@@ -171,8 +176,9 @@ public final class InspectionCheck {
         }
         if (r != null && r.incompleteCount() > 0) {
             out.add(r.incompleteCount() + " Monitor(e) nicht abgeschlossen. Typisch nach Löschen der "
-                    + "Fehlercodes oder Batterie-Abklemmen. Gemischter Fahrzyklus (Kaltstart, Stadt, "
-                    + "gleichmäßige Landstraße 80–100 km/h, Leerlaufphasen) über mehrere Tage.");
+                    + "Fehlercodes oder einem Steuergerät-Reset. Gemischter Fahrzyklus (Kaltstart, Stadt, "
+                    + "gleichmäßige Landstraße 80–100 km/h, Leerlaufphasen) über mehrere Tage"
+                    + (VehicleProfile.ACTIVE.m272Hints ? " – je Monitor siehe Fahrzyklus-Hilfe." : "."));
         }
         if (in.iupr != null) {
             for (VehicleInfo.Iupr m : in.iupr.monitors) {
@@ -186,7 +192,8 @@ public final class InspectionCheck {
         }
         if (recentReset(in)) {
             out.add("Diagnosespeicher wurde vor kurzem zurückgesetzt (" + describeClear(in) + "). "
-                    + "Ursache kann Löschen per Tester, Steuergerät-Reset oder Batterietrennung sein; "
+                    + "Ursache kann Löschen per Tester oder ein Steuergerät-Reset sein (Batterie-Abklemmen löscht "
+                    + "den Speicher des ME9.7 laut WIS nicht); "
                     + "die Monitore brauchen danach Fahrzyklen, um sich neu zu bewerten.");
         }
         return out;

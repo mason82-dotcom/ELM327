@@ -77,7 +77,7 @@ public class V109RegressionTest {
         assertTrue(InspectionCheck.recentReset(in));
         String rep = InspectionCheck.report(in);
         assertTrue(rep, rep.contains("Diagnosespeicher wurde vor kurzem zurückgesetzt (12 km, 2 Warmläufe)"));
-        assertTrue(rep, rep.contains("Batterietrennung"));
+        assertTrue(rep, rep.contains("Batterie-Abklemmen löscht den Speicher des ME9.7 laut WIS nicht"));
         assertTrue(rep, rep.contains("Seit dem letzten Rücksetzen des Diagnosespeichers"));
         assertFalse(rep, rep.contains("kürzlich gelöscht"));
         assertFalse(rep, rep.contains("Prüfstellen erkennen"));

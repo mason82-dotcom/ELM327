@@ -2,6 +2,22 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.12.1 (Monitor) / 0.19.1 (Dashboard): Herstellerwerte und Fahrzyklus-Hilfe
+
+Vorschläge E und D aus der Handbuch-Auswertung (WIS-Nummern im Code).
+
+- **Starttest:** Hinweis „nahe der Startgrenze“ unter etwa 8 V (das ME startet unter ~7 V nicht mehr); bei niedriger
+  Ruhespannung der Hinweis, dass auch der Werkstatt-Batterietest erst ab 12,4 V aussagekräftig ist; Ladung bis
+  15,0 V gilt als normal (das ME regelt bis 15 V). Gleiche 15-V-Grenze jetzt in Analyse, Spannungsbewertung und
+  Warnungen.
+- **Warmlauf-Check:** Thermostat-Beschreibung nach WIS (regelt etwa 80–100 °C, ab ~110 °C Notlauf ganz offen);
+  über 110 °C lautet das Ergebnis „Überhitzung“ mit Prüfhinweis.
+- **HU/AU-Check:** neuer Abschnitt „Fahrzyklus-Hilfe (ME9.7)“ bei offenen Monitoren oder Fehlern – Fahrhinweis je
+  Monitor (Kat, Sekundärluft nur nach Kaltstart, Tankentlüftung, Sonden), welche Prüfungen den Readiness-Code setzen,
+  Lampenlogik (an nach 2, aus nach 3 Zyklen, gelöscht nach 40/80). Hinweis korrigiert: Batterie-Abklemmen löscht den
+  Fehlerspeicher des ME9.7 nicht.
+- Code-Review (medium): 10 Befunde behoben.
+
 ## Version 1.12.0 (Monitor) / 0.19.0 (Dashboard): Gemischadaption je Bank, Trims nach Kaltstarts
 
 - **Gemischadaption je Bank** (Monitortests/Mode 06, beide Apps): Das ME9.7 meldet unter MID 81/82 die gelernte
