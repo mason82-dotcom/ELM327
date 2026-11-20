@@ -31,6 +31,7 @@ import de.roman.mercedesobdmonitor.ObdService;
 import de.roman.mercedesobdmonitor.AdapterChoice;
 import de.roman.mercedesobdmonitor.ObdSession;
 import de.roman.mercedesobdmonitor.PlanUi;
+import de.roman.mercedesobdmonitor.ServiceLabDialogs;
 import de.roman.mercedesobdmonitor.VehicleProfile;
 
 import java.util.ArrayList;
@@ -391,7 +392,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         LinearLayout page = column();
         page.setPadding(dp(12), dp(4), dp(12), dp(4));
         page.addView(heading("FEHLERCODES"));
-        page.addView(text("Mode 03 gespeichert · 07 ausstehend · 0A permanent – nur lesen, kein Löschen", 13, Palette.TEAL));
+        page.addView(text("03 gespeichert · 07 ausstehend · 0A permanent · Standard nur lesen", 13, Palette.TEAL));
         LinearLayout card = card();
         dtcState = text(dtcSummary != null ? dtcSummary : "Noch kein Scan. Fehlercodes werden nur auf Knopfdruck gelesen.", 16, Palette.LIGHT);
         dtcState.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
@@ -408,6 +409,10 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         actions.addView(button("DETAILS", v -> show(Page.DTC_DETAILS)), weighted());
         actions.addView(opButton(ObdSession.Op.INSPECTION, "HU/AU", v -> { show(Page.INSPECTION); session.runInspectionCheck(); }), weighted());
         page.addView(actions);
+        Button serviceLab = button("SERVICE-LABOR · EXPERIMENTELL", v ->
+                ServiceLabDialogs.showMenu(this, android.R.style.Theme_Material_Dialog_Alert, session));
+        serviceLab.setContentDescription("Service-Labor mit getrennt bestätigtem Mode 04 und Dach-Simulation öffnen");
+        page.addView(serviceLab);
         return page;
     }
 
