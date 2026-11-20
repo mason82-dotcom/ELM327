@@ -1,5 +1,13 @@
 # ELM327 – Mercedes OBD2 Monitor
 
+> **Experimenteller Branch `feature/w204-service-lab-mode04-roof-coding-20261120`**
+> Der unveränderte `main`-Branch arbeitet read-only. Dieser Branch enthält ausschließlich
+> eine **ausdrücklich bestätigte, einmalige Mode-04-Ausnahme**, die Emissions-Diagnosedaten
+> verändert. Dachöffnen/-schließen ist **nur eine Offline-Simulation**; Codierung,
+> EEPROM und weitere Stellglieder sind **ausschließlich Forschungs-/Dokumentationsfunktionen**.
+> Details: [ADR-007](docs/adr-007-service-labor-w204.md) und [UX-Vertrag](UX-CONTRACT.md).
+
+
 Zwei Android-Apps, die über einen ELM327-WLAN-Adapter die Diagnosedose eines **Mercedes C350 T-Modell S204 (M272,
 7G-Tronic, Baujahr 2008)** auslesen – **nur lesend**: keine Codierung, kein Löschen von Fehlercodes, keine
 Stellglieder.
