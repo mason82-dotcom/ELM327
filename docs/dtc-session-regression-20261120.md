@@ -32,6 +32,8 @@ bleiben gesperrt. Es wird keine Fahrzeugkonfiguration verändert.
 | DTC-02 | Während DTC Trennen drücken | Status Getrennt, Ladehinweis beendet; kein später DTC-Dialog oder Prüfplaneintrag | UNBEKANNT |
 | DTC-03 | Nach Abbruch neu verbinden | Kein Ergebnis/Spinner aus vorheriger Verbindung | UNBEKANNT |
 | DTC-04 | DTC zweimal schnell antippen | Nur ein 03/07/0A-Durchlauf, keine Doppel-Ergebnisse | UNBEKANNT |
+| DTC-07 | Während 07 blockiert, eigene STOP-/Abbrechen-Taste antippen | Socket wird geschlossen; keine 0A-/0100-Nachabfrage, kein Ergebnis/Prüfplaneintrag, Reconnect | UNBEKANNT |
+| DTC-08 | Direkt nach Abbruch neue Diagnose starten, alte UI-Callbacks spät zustellen | Keine alte Busy-/Status-/Ergebnisanzeige in der neuen Auftragskennung | UNBEKANNT |
 | DTC-05 | DTC-Antwort künstlich verzögern | Timeout/Resync korrekt sichtbar, keine veraltete Antwort | UNBEKANNT |
 | DTC-06 | Adapter während DTC trennen | Reconnect/Fehler statt eines irreführenden Erfolgs | UNBEKANNT |
 | HDR-01 | Simulator antwortet auf ATSH7E1 mit ? | Header unbekannt; keine 2130-Aussendung | UNBEKANNT |
@@ -44,7 +46,7 @@ Adapter, Android-Version, Zeitpunkt und relevante anonymisierte Rohlogs dokument
 
 ## Anschlussaufgaben
 
-- Eigener Abbrechen-Button für DTC (gegenwärtig: Trennen als sichere Unterbrechung).
-- Auftragskennung zusätzlich zur Sitzungskennung für sehr schnell nacheinander gestartete
-  Diagnosen innerhalb derselben Verbindung.
+- DTC-Abbruch und Auftragskennungen wurden als nächster Entwicklungsstand auf dem Feature-Branch
+  implementiert. Nicht mit einer Fahrzeugabnahme verwechseln: die oben genannten praktischen Tests
+  stehen weiterhin aus.
 - Android-Instrumentierungstest für Handler-Queue, Activity-Lifecycle und Service.

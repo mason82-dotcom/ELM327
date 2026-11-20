@@ -123,7 +123,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private TextView status, linkState, operating, idleState, busState, voltage, driveCycle, stats, console;
     private TextView connectHint, wifiHint;
     private TextView dtcState, dtcDetails, mode06Text, inspectionText, trimStatus, warmupStatus, trimReport;
-    private Button connectButton, fuelButton, warmupButton, starterButton;
+    private Button connectButton, fuelButton, warmupButton, starterButton, dtcCancelButton;
     private TextView starterText;
     private TrendView trendView;
     private TextView trendTitle;
@@ -377,6 +377,10 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         page.addView(connectHint);
         LinearLayout actions = row();
         actions.addView(opButton(ObdSession.Op.DTC, "LESEN", v -> session.readDtcs()), weighted());
+        dtcCancelButton = button("STOP", v -> session.cancelDtcScan());
+        dtcCancelButton.setContentDescription("Laufenden DTC-Scan abbrechen und Verbindung neu aufbauen");
+        dtcCancelButton.setEnabled(false);
+        actions.addView(dtcCancelButton, weighted());
         actions.addView(button("DETAILS", v -> show(Page.DTC_DETAILS)), weighted());
         actions.addView(opButton(ObdSession.Op.INSPECTION, "HU/AU", v -> { show(Page.INSPECTION); session.runInspectionCheck(); }), weighted());
         page.addView(actions);
@@ -835,6 +839,11 @@ public final class DashboardActivity extends Activity implements ObdSession.List
                 b.setAlpha(connected && !busy ? 1f : 0.45f);
             }
         }
+        if (dtcCancelButton != null) {
+            dtcCancelButton.setEnabled(connected && Boolean.TRUE.equals(busyOps.get(ObdSession.Op.DTC))
+                    && !session.isDtcCancellationPending());
+            dtcCancelButton.setAlpha(dtcCancelButton.isEnabled() ? 1f : 0.45f);
+        }
         if (connectHint != null) connectHint.setVisibility(connected ? View.GONE : View.VISIBLE);
     }
 
@@ -882,9 +891,15 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     public void onStatus(String text) {
         status.setText(text);
         // Ein abgebrochener DTC-Scan darf nicht dauerhaft als „Lese …“ stehen bleiben.
-        if ("Getrennt".equals(text) && dtcState != null
-                && dtcState.getText().toString().startsWith("Lese Fehlercodes")) {
-            dtcState.setText("DTC-Scan abgebrochen · Verbindung getrennt. Erneut verbinden und LESEN wählen.");
+        if (dtcState != null && text != null) {
+            if (text.startsWith("DTC-Scan wird abgebrochen")) {
+                dtcState.setText("DTC-Scan wird abgebrochen …");
+            } else if (text.startsWith("DTC-Scan abgebrochen")) {
+                dtcState.setText("DTC-Scan abgebrochen. Der Adapter wird wieder verbunden.");
+            } else if ("Getrennt".equals(text)
+                    && dtcState.getText().toString().startsWith("Lese Fehlercodes")) {
+                dtcState.setText("DTC-Scan abgebrochen · Verbindung getrennt. Erneut verbinden und LESEN wählen.");
+            }
         }
         if (starterText != null && text != null && text.startsWith("Starttest:") && session.isStarterTestRunning()) {
             starterText.setText(text.substring("Starttest: ".length()));
