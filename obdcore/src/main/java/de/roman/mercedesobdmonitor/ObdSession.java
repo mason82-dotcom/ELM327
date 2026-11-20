@@ -483,7 +483,7 @@ public final class ObdSession {
                 // new branch) leaves it at "–" – the timeout branch once forgot this (review of #4).
                 boolean fresh = false;
                 try {
-                    int timeoutMs = firstRequestAfterInit ? LinkPolicy.FIRST_REQUEST_TIMEOUT_MS : 1800;
+                    int timeoutMs = firstRequestAfterInit ? LinkPolicy.FIRST_REQUEST_TIMEOUT_MS : LinkPolicy.POLL_TIMEOUT_MS;
                     Elm327Client.CommandResult r = command(session, pid.command(), timeoutMs);
                     firstRequestAfterInit = false;
                     pollTimeouts.onResponse();
@@ -571,7 +571,7 @@ public final class ObdSession {
     /** 01 41 im langsamen Takt: welche Monitore in dieser Fahrt schon abgeschlossen sind. */
     private void pollDriveCycle(int session, Elm327Client c) {
         try {
-            Elm327Client.CommandResult r = command(session, "0141", 1800);
+            Elm327Client.CommandResult r = command(session, "0141", LinkPolicy.POLL_TIMEOUT_MS);
             pollTimeouts.onResponse();
             Readiness cycle = Readiness.parseDriveCycle(r.raw);
             if (cycle == null || cycle.monitors.isEmpty()) return;
