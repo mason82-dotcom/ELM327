@@ -198,4 +198,67 @@ public class TripComputerTest {
         assertTrue(report, report.endsWith("… 1 ältere"));
         assertTrue(TripBook.report(List.of(), BERLIN, 0, 3).startsWith("noch keine Fahrt"));
     }
+
+    private static byte[] resource(String name) throws Exception {
+        try (InputStream in = TripComputerTest.class.getClassLoader().getResourceAsStream(name)) {
+            return in.readAllBytes();
+        }
+    }
+
+    private static LogReplay.Result readFrom(byte[] data, int length, long from) throws Exception {
+        return LogReplay.readFrom(new java.io.ByteArrayInputStream(data, 0, length), BERLIN, from);
+    }
+
+    private static String describe(List<TripComputer.Trip> trips) {
+        StringBuilder sb = new StringBuilder();
+        for (TripComputer.Trip t : TripBook.joined(trips)) {
+            sb.append(String.format(java.util.Locale.US, "%d-%d %.3f km %.3f l %d/%d ms %s%n", t.startMs, t.endMs, t.km,
+                    t.liters, t.runMs, t.idleMs, t.trimDiff == null ? "-" : String.format(java.util.Locale.US, "%.2f", t.trimDiff)));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Das aktive Log wächst: stückweise gelesen (Fortsetzen ab resumeOffset, Schnitt auch mitten in einer Zeile)
+     * ergibt dasselbe Fahrtenbuch wie einmal ganz gelesen.
+     */
+    @Test
+    public void growingLogReadInPiecesMatchesFullRead() throws Exception {
+        byte[] data = resource("c350_log_20261119.csv");
+        String expected = describe(readFrom(data, data.length, 0).drives);
+        assertEquals(2, TripBook.joined(readFrom(data, data.length, 0).drives).size());
+        int[][] cutSets = {{data.length / 2}, {data.length / 4, data.length / 2 + 7, data.length * 3 / 4 + 3},
+                {data.length / 3 + 11}};
+        for (int[] cuts : cutSets) {
+            List<TripComputer.Trip> stored = new java.util.ArrayList<>();
+            long from = 0;
+            for (int cut : cuts) {
+                LogReplay.Result r = readFrom(data, cut, from);
+                assertTrue(r.resumeOffset >= from && r.resumeOffset <= cut);
+                stored = TripBook.merge(stored, r.drives);
+                from = r.resumeOffset;
+            }
+            LogReplay.Result last = readFrom(data, data.length, from);
+            stored = TripBook.merge(stored, last.drives);
+            assertEquals(java.util.Arrays.toString(cuts), expected, describe(stored));
+            // weitergelesen wird nicht ab 0 (außer der Motor lief seit Logbeginn) und nie über das Ende hinaus
+            assertTrue(last.resumeOffset <= data.length);
+        }
+        // nichts Neues: ab dem Ende gelesen liefert keine Fahrt und dieselbe Position
+        LogReplay.Result full = readFrom(data, data.length, 0);
+        LogReplay.Result again = readFrom(data, data.length, full.resumeOffset);
+        assertEquals(full.resumeOffset, again.resumeOffset);
+        // Log endet bei laufendem Motor: weiter ab Beginn der zweiten Fahrt, nicht ab 0 (Ersparnis ~64 %)
+        assertTrue(full.resumeOffset > data.length / 2);
+    }
+
+    @Test
+    public void stampsKeepSizeAndPosition() {
+        java.util.Map<String, long[]> m = TripStore.parseStamps("a.csv=100;40\nalt.csv=77\nkaputt\nb.csv=10;99\n");
+        assertEquals(40, m.get("a.csv")[1]);
+        assertEquals(0, m.get("alt.csv")[1]);        // ältere Zeile ohne Position → von vorn
+        assertEquals(10, m.get("b.csv")[1]);         // nie hinter die Dateigröße
+        assertEquals(3, m.size());
+        assertEquals(100, TripStore.parseStamps(TripStore.formatStamps(m)).get("a.csv")[0]);
+    }
 }

@@ -168,6 +168,11 @@ public final class TripComputer {
         }
     }
 
+    /** Start (ms) der gerade offenen Fahrt oder -1. Ein neuer Wert heißt: mit diesem Wert begann eine Fahrt. */
+    public long openStart() {
+        return state == null ? -1 : start;
+    }
+
     /** Laufende Fahrt abschließen (Ende des Logs). Lief der Motor zuletzt noch, bleibt das Ende offen. */
     public List<Trip> finish() {
         if (state != null) close(last, offSince < 0);
