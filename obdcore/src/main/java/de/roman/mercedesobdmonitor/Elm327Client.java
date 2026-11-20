@@ -79,6 +79,26 @@ public final class Elm327Client implements Closeable {
                     ? "Befehl passt nicht zum aktuellen Header " + header + " (ADR-001/ADR-004)"
                     : CommandSafety.blockedReason(cmd)));
         }
+        return exchangeCommand(cmd, timeoutMs);
+    }
+
+    /**
+     * Einzige Schreibausnahme im separaten Service-Labor: exakt Mode 04.
+     * Kein öffentlicher Write-/Raw-Befehl und keine Erweiterung von CommandSafety.
+     * Ein vor Freigabe verbrauchtes Ticket bleibt auch bei Timeout dauerhaft verbraucht.
+     */
+    synchronized CommandResult clearEmissionsOnce(ServiceMode04Gate.Ticket ticket, int timeoutMs)
+            throws IOException {
+        ensureConnected();
+        if (!CommandSafety.DEFAULT_HEADER.equals(header))
+            throw new IOException("Service-Labor: Standard-Header 7DF nicht bestätigt");
+        if (ticket == null || !ticket.consume())
+            throw new IOException("Service-Labor: Einmalfreigabe fehlt oder wurde verbraucht");
+        return exchangeCommand("04", timeoutMs);
+    }
+
+    /** Nur unter dem Socket-Monitor: Sender und Prompt-Leser bleiben atomar. */
+    private CommandResult exchangeCommand(String cmd, int timeoutMs) throws IOException {
         drainAvailable();
         // Until the adapter confirms a header command, its header is unknown: only ATSH7DF/ATZ may follow.
         if (CommandSafety.changesHeader(cmd)) header = CommandSafety.UNKNOWN_HEADER;
