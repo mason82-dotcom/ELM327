@@ -155,6 +155,7 @@ public class Elm327ClientTest {
             assertTrue(expected.getMessage().contains("Header 7DF"));
         }
         assertEquals(1, received.get()); // nur erlaubter ATSH-Befehl
+        assertFalse("Bei fehlerhaftem Header ist das Ticket verbraucht", ticket.consume());
         assertFalse(CommandSafety.isAllowed("04"));
     }
 
