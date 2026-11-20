@@ -133,12 +133,15 @@ public final class EngineAnalysis {
      * Einordnung der Steuergerätespannung (01 42). Laufender Motor: unter 13,0 V auffällig – das Mercedes-
      * Energiemanagement regelt zeitweise tiefer, daher nur Hinweis. Motor aus: unter 12,2 V Batterie schwach.
      */
+    /** Obergrenze der normalen Ladespannung: Das ME regelt bis 15 V (WIS GF07.61-P-3003CY). */
+    public static final double CHARGE_MAX_NORMAL = 15.0;
+
     public static String voltageVerdict(Double volts, Double rpm) {
         if (volts == null) return "–";
         boolean running = rpm != null && rpm > 400;
         if (running) {
             if (volts < 13.0) return "niedrig für laufenden Motor (Lichtmaschine/Energiemanagement prüfen)";
-            if (volts > 14.9) return "zu hoch (Laderegler prüfen)";
+            if (volts > CHARGE_MAX_NORMAL) return "zu hoch (Laderegler prüfen)";
             return "Ladespannung unauffällig";
         }
         if (volts < 12.2) return "Batterie schwach geladen";

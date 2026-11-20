@@ -1288,7 +1288,7 @@ public final class ObdSession {
                         "Spannungsbewertung: %.3f V · Ladespannung auffällig niedrig",
                         voltage);
             }
-            if (voltage <= 14.9) {
+            if (voltage <= EngineAnalysis.CHARGE_MAX_NORMAL) {
                 return String.format(Locale.GERMANY,
                         "Spannungsbewertung: %.3f V · Ladespannung plausibel",
                         voltage);
