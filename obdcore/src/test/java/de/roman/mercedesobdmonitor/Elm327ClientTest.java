@@ -104,6 +104,60 @@ public class Elm327ClientTest {
         assertEquals(0, client.getTxBytes());
     }
 
+    /** Exakter Service-Pfad erlaubt EINEN 04, allgemeiner Parser/Terminal bleiben gesperrt. */
+    @Test
+    public void mode04TicketWorksExactlyOnceOutsideReadOnlyTerminal() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger received = new java.util.concurrent.atomic.AtomicInteger();
+        start((cmd, out, in) -> {
+            if (!"04".equals(cmd)) throw new AssertionError("unerlaubter Befehl: " + cmd);
+            received.incrementAndGet();
+            write(out, "44\r\r>");
+        });
+        try {
+            client.sendCommand("04", 1000);
+            fail("Allgemeiner Pfad muss Mode 04 sperren");
+        } catch (IOException expected) {
+            assertTrue(expected.getMessage().startsWith("Read-Only-Schutz"));
+        }
+        ServiceMode04Gate.Preflight p = new ServiceMode04Gate.Preflight(
+                true, true, true, true, true,
+                0.0, 900L, 0.0, 900L, 12.4, 900L, 1000L);
+        ServiceMode04Gate.Ticket ticket = ServiceMode04Gate.issue(p);
+        Elm327Client.CommandResult result = client.clearEmissionsOnce(ticket, 1000);
+        assertTrue(ServiceMode04Gate.positiveAck(result.raw));
+        assertEquals(1, received.get());
+        try {
+            client.clearEmissionsOnce(ticket, 1000);
+            fail("Einmalfreigabe darf niemals ein zweites Mal senden");
+        } catch (IOException expected) {
+            assertTrue(expected.getMessage().contains("Einmalfreigabe"));
+        }
+        assertEquals(1, received.get());
+        assertEquals(3, client.getTxBytes()); // genau ein '04' + CR
+    }
+
+    /** Unter fremdem/unklarem Header darf auch ein gültiges Service-Ticket nichts senden. */
+    @Test
+    public void serviceTicketDeniedOutsideFunctionalDefaultHeader() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger received = new java.util.concurrent.atomic.AtomicInteger();
+        start((cmd, out, in) -> {
+            received.incrementAndGet();
+            write(out, "OK\r\r>");
+        });
+        client.sendCommand("ATSH7E1", 1000);
+        ServiceMode04Gate.Ticket ticket = ServiceMode04Gate.issue(
+                new ServiceMode04Gate.Preflight(true, true, true, true, true,
+                        0.0, 900L, 0.0, 900L, 12.4, 900L, 1000L));
+        try {
+            client.clearEmissionsOnce(ticket, 1000);
+            fail("Header 7E1 ist nicht zulässig");
+        } catch (IOException expected) {
+            assertTrue(expected.getMessage().contains("Header 7DF"));
+        }
+        assertEquals(1, received.get()); // nur erlaubter ATSH-Befehl
+        assertFalse(CommandSafety.isAllowed("04"));
+    }
+
     /** Header gilt erst nach bestätigter Antwort; nach einem Timeout ist nur der Rückweg frei (ADR-001). */
     @Test
     public void headerFollowsOnlyConfirmedCommands() throws Exception {
