@@ -99,25 +99,53 @@ public class TripComputerTest {
 
     @Test
     public void mergeReplacesOverlapsAndJoinsLogRotation() {
-        TripComputer.Trip a = new TripComputer.Trip(0, 600_000, 5, 0.6, 600_000, 60_000, 80, 6.0);
+        // Log A endet bei laufendem Motor (offenes Ende)
+        TripComputer.Trip a = new TripComputer.Trip(0, 600_000, 5, 0.6, 600_000, 60_000, 80, 6.0, true);
         // dasselbe Log später länger gelesen: überlappt → ersetzt
-        TripComputer.Trip a2 = new TripComputer.Trip(0, 900_000, 7, 0.9, 900_000, 90_000, 90, 7.0);
+        TripComputer.Trip a2 = new TripComputer.Trip(0, 900_000, 7, 0.9, 900_000, 90_000, 90, 7.0, true);
         List<TripComputer.Trip> m = TripBook.merge(List.of(a), List.of(a2));
         assertEquals(1, m.size());
         assertEquals(7, m.get(0).km, 0);
-        // Logwechsel mitten in der Fahrt: zweites Stück 30 s später → verbunden, Trim nach Laufzeit gewichtet
-        TripComputer.Trip b = new TripComputer.Trip(930_000, 1_230_000, 3, Double.NaN, 300_000, 0, 120, 3.0);
+        // Logwechsel mitten in der Fahrt: Stück aus Log B 30 s später → beim Anzeigen verbunden
+        TripComputer.Trip b = new TripComputer.Trip(930_000, 1_230_000, 3, Double.NaN, 300_000, 0, 120, 3.0, true);
         m = TripBook.merge(m, List.of(b));
-        assertEquals(1, m.size());
-        TripComputer.Trip j = m.get(0);
-        assertEquals(10, j.km, 1e-9);
-        assertEquals(1_200_000, j.runMs);
-        assertEquals(120, j.maxKmh, 0);
-        assertFalse(j.fuelKnown());                    // ein Stück ohne Luftmasse → Summe unbekannt
-        assertEquals((7.0 * 900 + 3.0 * 300) / 1200, j.trimDiff, 1e-9);
+        assertEquals(2, m.size());                     // gespeichert bleiben die Teilstücke
+        List<TripComputer.Trip> j = TripBook.joined(m);
+        assertEquals(1, j.size());
+        assertEquals(10, j.get(0).km, 1e-9);
+        assertEquals(1_200_000, j.get(0).runMs);
+        assertEquals(120, j.get(0).maxKmh, 0);
+        assertFalse(j.get(0).fuelKnown());             // ein Stück ohne Luftmasse → Summe unbekannt
+        assertEquals((7.0 * 900 + 3.0 * 300) / 1200, j.get(0).trimDiff, 1e-9);
+        // Log B wächst weiter, nur B wird neu gelesen: das Stück aus Log A bleibt erhalten
+        TripComputer.Trip b2 = new TripComputer.Trip(930_000, 1_530_000, 5, Double.NaN, 600_000, 0, 120, 3.0, false);
+        m = TripBook.merge(m, List.of(b2));
+        j = TripBook.joined(m);
+        assertEquals(1, j.size());
+        assertEquals(12, j.get(0).km, 1e-9);
+        assertEquals(1_500_000, j.get(0).runMs);
         // nächste Fahrt nach 10 min Pause bleibt eigene Fahrt
-        TripComputer.Trip c = new TripComputer.Trip(1_830_000, 2_430_000, 4, 0.5, 600_000, 0, 60, null);
-        assertEquals(2, TripBook.merge(m, List.of(c)).size());
+        TripComputer.Trip c = new TripComputer.Trip(2_130_000, 2_730_000, 4, 0.5, 600_000, 0, 60, null);
+        assertEquals(2, TripBook.joined(TripBook.merge(m, List.of(c))).size());
+    }
+
+    /** Tankstopp: 60 s Motor aus ist eine echte Fahrtgrenze, auch unter {@link TripBook#JOIN_GAP_MS}. */
+    @Test
+    public void shortEngineOffStaysTwoTrips() {
+        TripComputer c = new TripComputer();
+        long t = 0;
+        for (; t <= 300_000; t += 2_000) c.onSample(t, 0x0C, 800);
+        for (t = 302_000; t <= 362_000; t += 2_000) c.onSample(t, 0x0C, 0);
+        for (t = 364_000; t <= 664_000; t += 2_000) c.onSample(t, 0x0C, 800);
+        List<TripComputer.Trip> trips = c.finish();
+        assertEquals(2, trips.size());
+        assertFalse(trips.get(0).openEnd);
+        assertTrue(trips.get(1).openEnd);              // Log endete bei laufendem Motor
+        assertEquals(2, TripBook.joined(TripBook.merge(List.of(), trips)).size());
+        // „offen“ übersteht das Speichern
+        List<TripComputer.Trip> back = TripComputer.parse(TripComputer.serialize(trips));
+        assertFalse(back.get(0).openEnd);
+        assertTrue(back.get(1).openEnd);
     }
 
     @Test

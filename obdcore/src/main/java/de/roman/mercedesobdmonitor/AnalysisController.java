@@ -92,9 +92,24 @@ public final class AnalysisController {
         return TripBook.report(TripStore.load(app, prefsName), ZoneId.systemDefault(), System.currentTimeMillis(), maxRows);
     }
 
+    /** So viele Fahrten zeigen beide Apps. */
+    public static final int TRIP_ROWS = 8;
+
     /** Eigene CSV-Logs im Hintergrund nachlesen, danach {@code done} auf dem UI-Thread. */
     public void refreshTrips(Runnable done) {
         TripStore.refreshAsync(app, prefsName, done);
+    }
+
+    /** Gespeicherten Stand zeigen, Logs im Hintergrund nachlesen, danach aktualisieren (solange {@code owner} lebt). */
+    public void refreshTripsInto(TextView view, Activity owner) {
+        if (view == null) return;
+        view.setText(tripReport(TRIP_ROWS) + "\n\nLese Logs …");
+        refreshTrips(() -> { if (!owner.isFinishing() && !owner.isDestroyed()) showTripsIn(view); });
+    }
+
+    /** Gespeicherten Fahrtenbuch-Stand in {@code view} schreiben. */
+    public void showTripsIn(TextView view) {
+        if (view != null) view.setText(tripReport(TRIP_ROWS));
     }
 
     /** Fahrtenbuch als CSV teilen. */

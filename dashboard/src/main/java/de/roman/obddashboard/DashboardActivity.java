@@ -456,7 +456,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private TextView tripsText;
 
     private View buildTrips() {
-        tripsText = resultText(controller.tripReport(8));
+        tripsText = resultText(controller.tripReport(AnalysisController.TRIP_ROWS));
         tripsText.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         Button refresh = button("AKTUALISIEREN", v -> refreshTrips());
         refresh.setContentDescription("Fahrtenbuch aus den Logs aktualisieren");
@@ -470,11 +470,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
 
     /** Logs im Hintergrund nachlesen; die Seite zeigt solange den gespeicherten Stand. */
     private void refreshTrips() {
-        if (tripsText != null) tripsText.setText(controller.tripReport(8) + "\n\nLese Logs …");
-        controller.refreshTrips(() -> {
-            if (tripsText != null && !isFinishing() && !isDestroyed()) tripsText.setText(controller.tripReport(8));
-        });
+        controller.refreshTripsInto(tripsText, this);
     }
+
 
     /**
      * Unterseite mit Zurück-Kopf (Ziel {@link #parentOf}), Hinweiszeilen, festen Statuszeilen, Scrollinhalt und Aktionsknöpfen. Hochformat: Knöpfe als Zeile unten
@@ -736,7 +734,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         controller.onActivityResult(requestCode, REQUEST_TRIM_LOG, resultCode, data,
-                () -> { if (tripsText != null) tripsText.setText(controller.tripReport(8)); });
+                () -> controller.showTripsIn(tripsText));
     }
 
     private void saveSettings() {
