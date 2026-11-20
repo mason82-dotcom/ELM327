@@ -117,6 +117,56 @@ public class C350LogTest {
         assertFalse(v, v.contains("bankspezifisch"));
     }
 
+    /** Trim-Karte vom 19.11.2026 (App-Werte): gemeinsamer Anteil ~+4 % lastunabhängig, Bank 1 ~+7 % zusätzlich. */
+    @Test
+    public void trimSplitC350Pattern() {
+        EngineAnalysis.TrimMap map = new EngineAnalysis.TrimMap();
+        feed(map, 30, 12.1, 4.6, 680, 0, 26);
+        feed(map, 30, 10.7, 2.9, 1500, 50, 30);
+        feed(map, 30, 10.7, 4.1, 2100, 90, 60);
+        String v = map.split();
+        assertTrue(v, v.startsWith("Anteile: gemeinsam +4,6 % Leerlauf / +3,5 % Last · Bank 1 zusätzlich +7,5 % / +7,2 %"));
+        assertTrue(v, v.contains("lastunabhängig"));
+        assertFalse(v, v.contains("passt zu Falschluft"));
+    }
+
+    @Test
+    public void trimSplitPatterns() {
+        EngineAnalysis.TrimMap leak = new EngineAnalysis.TrimMap();
+        feed(leak, 30, 16.0, 15.0, 680, 0, 25);
+        feed(leak, 30, 4.0, 3.0, 1800, 60, 35);
+        assertTrue(leak.split(), leak.split().contains("fällt mit der Last: passt zu Falschluft"));
+        assertTrue(leak.split(), leak.split().contains("Y-Stück"));
+        EngineAnalysis.TrimMap oneBank = new EngineAnalysis.TrimMap();
+        feed(oneBank, 30, 9.0, 0.5, 680, 0, 25);
+        feed(oneBank, 30, 8.0, -0.5, 1800, 60, 35);
+        assertTrue(oneBank.split(), oneBank.split().contains("kein nennenswerter gemeinsamer Anteil"));
+        assertTrue(oneBank.split(), oneBank.split().contains("Bank 1 zusätzlich"));
+        EngineAnalysis.TrimMap rising = new EngineAnalysis.TrimMap();
+        feed(rising, 30, 4.0, 4.0, 680, 0, 25);
+        feed(rising, 30, 11.0, 10.0, 1800, 60, 35);
+        assertTrue(rising.split(), rising.split().contains("steigt mit der Last"));
+        EngineAnalysis.TrimMap idleOnly = new EngineAnalysis.TrimMap();
+        feed(idleOnly, 30, 6.0, 5.0, 680, 0, 25);
+        assertTrue(idleOnly.split(), idleOnly.split().contains("Lastbereich fehlt"));
+        assertNull(new EngineAnalysis.TrimMap().split());
+        // Review: Bank nach der Differenz, die die Schwelle erreicht (Leerlauf −0,5, Last +6 → Bank 1)
+        EngineAnalysis.TrimMap loadOnly = new EngineAnalysis.TrimMap();
+        feed(loadOnly, 30, 1.0, 1.5, 680, 0, 25);
+        feed(loadOnly, 30, 9.0, 3.0, 1800, 60, 35);
+        assertTrue(loadOnly.split(), loadOnly.split().contains("Bank 1 zusätzlich"));
+        // Review: gemeinsamer Anteil 0 im Leerlauf (Vorzeichen verschieden) ist keine Überfettung
+        EngineAnalysis.TrimMap mixed = new EngineAnalysis.TrimMap();
+        feed(mixed, 30, 2.0, -2.0, 680, 0, 25);
+        feed(mixed, 30, 6.0, 5.0, 1800, 60, 35);
+        assertFalse(mixed.split(), mixed.split().contains("Überfettung"));
+        assertTrue(mixed.split(), mixed.split().contains("steigt mit der Last"));
+        EngineAnalysis.TrimMap rich = new EngineAnalysis.TrimMap();
+        feed(rich, 30, -6.0, -5.0, 680, 0, 25);
+        feed(rich, 30, -6.0, -5.0, 1800, 60, 35);
+        assertTrue(rich.split(), rich.split().contains("Überfettung gemeinsam"));
+    }
+
     @Test
     public void trimMapUnremarkable() {
         EngineAnalysis.TrimMap map = new EngineAnalysis.TrimMap();
@@ -206,6 +256,9 @@ public class C350LogTest {
         assertNotNull(map.table(), part1);
         assertTrue(map.table(), idle1 - idle2 >= 5 && part1 - part2 >= 5);
         assertTrue(map.verdict(), map.verdict().startsWith("Bank 1 wird in Leerlauf und unter Last stärker angefettet"));
+        // echtes Log: gemeinsamer Anteil klein und lastunabhängig, der Unterschied liegt bei Bank 1
+        assertTrue(map.split(), map.split().contains("lastunabhängig"));
+        assertTrue(map.split(), map.split().contains("Bank 1 zusätzlich +6,7 % / +7,7 %"));
     }
 
     // ------------------------------------------------------------------ zwei Antwortende (Motor + Getriebe)

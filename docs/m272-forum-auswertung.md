@@ -48,6 +48,9 @@ Nicht im Thread: Messwerte, Grenzwerte, Nockenwellen-Abweichung in °KW, Live-Da
    - Der gerissene Entlüftungsschlauch unter dem LMM zieht Falschluft **hinter** dem Luftmassenmesser, also für
      beide Bänke. Er passt zu einem Anteil beider Bänke (Bank 2 liegt auch bei +4,7 % LTFT), erklärt aber den
      Unterschied zwischen den Bänken nicht allein. Trotzdem zuerst prüfen: billig, häufig, im Thread mehrfach.
+     **Nachgerechnet (Trim-Zerlegung ab 1.9.0, Log 07.11.):** gemeinsamer Anteil +2,5 % im Leerlauf und +3,8 %
+     unter Last – klein und lastunabhängig. Falschluft hinter dem LMM wäre im Leerlauf deutlich größer als unter
+     Last; ein gerissener Schlauch ist damit unwahrscheinlich (Sichtprüfung schadet trotzdem nicht).
    - Für den **Bankunterschied** bleiben einseitige Ursachen: Abgasleck vor der Vorkat-Sonde, Sonde selbst,
      Einspritzventile der Bank. Der Kraftstoffdruck ist für beide Bänke gleich (rücklauffrei, 3,8 bar).
    - Zuordnung (Ableitung, nicht belegt): Der Forenbericht #38 nennt 1208/P0016 „rechte Zylinderbank“, P0016 ist
