@@ -2,6 +2,16 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.11.0 (Monitor) / 0.15.0 (Dashboard): Bluetooth-ELM327
+
+- **Bluetooth** ([ADR-005](docs/adr-005-bluetooth.md)): „Adapter: … · ändern“ (Monitor-App unter Adresse/Port,
+  Dashboard unter INFO) wählt WLAN oder einen gekoppelten Bluetooth-ELM327 (SPP). Gedacht für das Android-Radio im
+  Auto, das so sein WLAN behält. Nur gekoppelte Geräte, Berechtigung `BLUETOOTH_CONNECT`.
+- **Transportschicht** `ElmLink` (TCP/Bluetooth) und `TimedInputStream` (Lese-Timeout für Bluetooth); Tests über
+  einen Transport ohne Socket-Timeout. Dabei behoben: bei vollem Puffer weckte der Lesefaden den Leser nicht (Test:
+  12 s → 7 ms).
+- Am echten Bluetooth-Adapter noch ungeprüft; WLAN im Emulator am Simulator unverändert.
+
 ## Version 1.10.2 (Monitor) / 0.14.2 (Dashboard): Diagnoseabläufe herausgelöst
 
 - **`DiagnosticJobs`**: die Abläufe (DTC, Mode 06, HU/AU, Fahrzeugprofil, ATF, Kennung/Getriebe-Fehler, Bus

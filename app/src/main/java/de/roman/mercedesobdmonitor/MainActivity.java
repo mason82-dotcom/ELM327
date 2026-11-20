@@ -67,6 +67,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private TextView analysisText;
     private TextView tripsText;
     private TextView planText;
+    private Button adapterButton;
 
     /**
      * Gemeinsame Auswertung mit dem Dashboard (Verbrauch, Lambda, Trim-Karte und -Verlauf, Kat-Tendenz, E-Gas,
@@ -101,6 +102,12 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     public void onResult(ObdSession.Op op, String title, String message) {
         onDialog(title, message);
         refreshPlan();
+    }
+
+    private void updateAdapterLabel() {
+        if (adapterButton == null) return;
+        adapterButton.setText(AdapterChoice.label(this, PREFS, hostInput.getText().toString().trim(),
+                portInput.getText().toString().trim()) + " · ändern");
     }
 
     private void refreshPlan() {
@@ -151,6 +158,11 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         endpoint.addView(hostInput, new LinearLayout.LayoutParams(0, dp(48), 2f));
         endpoint.addView(portInput, new LinearLayout.LayoutParams(0, dp(48), 1f));
         root.addView(endpoint);
+        adapterButton = button("");
+        adapterButton.setAllCaps(false);
+        adapterButton.setOnClickListener(v -> AdapterChoice.pick(this, PREFS, 0, this::updateAdapterLabel));
+        root.addView(adapterButton);
+        AdapterChoice.watch(hostInput, portInput, this::updateAdapterLabel);
 
         LinearLayout controls = row();
         Button connect = button("Verbinden");
@@ -371,17 +383,20 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         if (!ensurePermissions()) return;
 
         final String host = hostInput.getText().toString().trim();
-        final int port;
+        int port;
         try {
             port = Integer.parseInt(portInput.getText().toString().trim());
             if (port < 1 || port > 65535) throw new NumberFormatException();
         } catch (NumberFormatException e) {
-            status.setText("Ungültiger TCP-Port");
-            return;
+            if (!AdapterChoice.usesBluetooth(this, PREFS)) {
+                status.setText("Ungültiger TCP-Port");
+                return;
+            }
+            port = 35000;   // Bluetooth braucht keinen Port
         }
 
         saveSettings();
-        if (!session.connect(this, host, port)) return;
+        if (!AdapterChoice.connect(this, session, PREFS, host, port)) return;
         // Neue Verbindung, evtl. anderes Fahrzeug: die alte behält ihren Verlaufseintrag, Karte und Kat-Tendenz neu
         controller.newConnection();
         // Ab hier läuft die Verbindung im Foreground-Service weiter, auch ohne sichtbare Activity.
@@ -390,13 +405,21 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
 
     private boolean ensurePermissions() {
         List<String> needed = new ArrayList<>();
-        if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-            needed.add(Manifest.permission.NEARBY_WIFI_DEVICES);
-        }
-        if (Build.VERSION.SDK_INT >= 37
-                && checkSelfPermission(LOCAL_NET_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
-            needed.add(LOCAL_NET_PERMISSION);
+        if (AdapterChoice.usesBluetooth(this, PREFS)) {
+            // ADR-005: Bluetooth braucht nur BLUETOOTH_CONNECT, keine Berechtigung fürs lokale Netz
+            if (Build.VERSION.SDK_INT >= 31
+                    && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                needed.add(Manifest.permission.BLUETOOTH_CONNECT);
+            }
+        } else {
+            if (Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
+                needed.add(Manifest.permission.NEARBY_WIFI_DEVICES);
+            }
+            if (Build.VERSION.SDK_INT >= 37
+                    && checkSelfPermission(LOCAL_NET_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
+                needed.add(LOCAL_NET_PERMISSION);
+            }
         }
         // Benachrichtigung ist optional (Dienst läuft auch ohne); nur einmal nachfragen.
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
@@ -423,7 +446,8 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
             ok &= results[i] == PackageManager.PERMISSION_GRANTED;
         }
         if (ok) connectRequested();
-        else Toast.makeText(this, "Netzwerkberechtigung wurde nicht erteilt", Toast.LENGTH_LONG).show();
+        else Toast.makeText(this, AdapterChoice.usesBluetooth(this, PREFS) ? "Bluetooth-Berechtigung wurde nicht erteilt"
+                : "Netzwerkberechtigung wurde nicht erteilt", Toast.LENGTH_LONG).show();
     }
 
     // ---------------------------------------------------------------- ObdSession.Listener
@@ -576,6 +600,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
         hostInput.setText(p.getString("host", "192.168.0.10"));
         portInput.setText(p.getString("port", "35000"));
+        updateAdapterLabel();
         boolean adr004 = p.getBoolean(PREF_ADR004, false);
         adr004Box.setChecked(adr004);
         session.setAdr004Enabled(adr004);

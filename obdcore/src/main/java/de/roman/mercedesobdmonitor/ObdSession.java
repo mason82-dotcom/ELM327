@@ -217,10 +217,17 @@ public final class ObdSession {
      * @return false, wenn gerade eine Diagnose läuft und nicht verbunden wurde
      */
     public boolean connect(Context context, String host, int port) {
+        return start(context, host, port, null);
+    }
+
+    /** @param transport Bluetooth-Öffner oder null für WLAN; gilt erst, wenn der Start angenommen ist (Review). */
+    private boolean start(Context context, String host, int port, ElmLink.Opener transport) {
         if (exclusiveRequest.get()) {
             toast("Diagnosevorgang läuft gerade");
             return false;
         }
+        // Ab hier gehört der Transport zur neuen Sitzung; eine abgelehnte Anfrage ändert den laufenden nicht.
+        bluetooth = transport;
         // Application-Context: ConnectivityManager hielt auf älteren Android-Versionen die Activity fest.
         connectivity = context.getApplicationContext().getSystemService(ConnectivityManager.class);
         csv.setDirectory(CsvLogger.logDirectory(context.getApplicationContext()));
@@ -235,11 +242,32 @@ public final class ObdSession {
         state.driveCycleText = null;
         if (listener != null) listener.onPassive(state);
         // Status vor „aktiv“ setzen, damit die Benachrichtigung nicht kurz „Getrennt“ zeigt.
-        showStatus("Verbinde mit " + host + ":" + port + " …");
+        showStatus("Verbinde mit " + target(host, port) + " …");
         setActive(true);
 
         io.execute(() -> connectAndStart(session, host, port));
         return true;
+    }
+
+    /**
+     * ADR-005: Bluetooth-Adapter (gekoppelt, SPP) statt WLAN. null = WLAN. Hält nur den Öffner (kein Context);
+     * gilt für diese Verbindung und ihr automatisches Wiederverbinden.
+     */
+    private volatile ElmLink.Opener bluetooth;
+
+    /**
+     * Verbindet über einen gekoppelten Bluetooth-ELM327 (ADR-005). Der Aufrufer hat BLUETOOTH_CONNECT geprüft.
+     * @return false, wenn nicht verbunden wurde (Diagnose läuft, Bluetooth aus, Berechtigung fehlt)
+     */
+    public boolean connectBluetooth(Context context, String address, String name) {
+        ElmLink.Opener opener;
+        try {
+            opener = BluetoothLink.opener(context, address, name);
+        } catch (IOException e) {
+            toast(e.getMessage());
+            return false;
+        }
+        return start(context, opener.describe(), 0, opener);
     }
 
     /** Vom Benutzer ausgelöstes Trennen (App oder Benachrichtigung). */
@@ -273,9 +301,9 @@ public final class ObdSession {
             if (session != sessionGeneration.get()) return;
             // Protocol of a previous adapter/car must not be shown or used for this connection.
             protocolIsCan = null;
-            showStatus("Verbinde mit " + host + ":" + port + " …");
+            showStatus("Verbinde mit " + target(host, port) + " …");
             long connectMs = connectWithFallback(host, port, session);
-            append("TCP verbunden in " + connectMs + " ms");
+            append((bluetooth != null ? bluetooth.describe() : "TCP") + " verbunden in " + connectMs + " ms");
 
             command(session, "ATZ", 3000);
             command(session, "ATE0", 1500);
@@ -1070,7 +1098,27 @@ public final class ObdSession {
 
     // ---------------------------------------------------------------- Netzwerk
 
+    /** Ziel für Status und Benachrichtigung: „192.168.0.10:35000“ oder „Bluetooth OBDII“. */
+    private String target(String host, int port) {
+        ElmLink.Opener bt = bluetooth;
+        return bt != null ? bt.describe() : host + ":" + port;
+    }
+
     private long connectWithFallback(String host, int port, int session) throws IOException {
+        ElmLink.Opener bt = bluetooth;
+        if (bt != null) {
+            // ADR-005: kein WLAN-Routing; RFCOMM-Aufbau dauert bei Nachbauten bis zu einigen Sekunden.
+            if (session != sessionGeneration.get()) throw new IOException("Veraltete Diagnose-Session");
+            Elm327Client c = new Elm327Client(bt);
+            try {
+                long ms = c.connect(8000);
+                installClientForSession(c, session);
+                return ms;
+            } catch (IOException e) {
+                c.close();
+                throw e;
+            }
+        }
         IOException standardRouteError;
 
         // Auf dem OnePlus 13R routet Android die lokale 192.168.0.x-Strecke korrekt über WLAN.

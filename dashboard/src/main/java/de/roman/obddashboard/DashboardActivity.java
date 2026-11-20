@@ -28,6 +28,7 @@ import android.widget.Toast;
 import de.roman.mercedesobdmonitor.AnalysisController;
 import de.roman.mercedesobdmonitor.ObdPid;
 import de.roman.mercedesobdmonitor.ObdService;
+import de.roman.mercedesobdmonitor.AdapterChoice;
 import de.roman.mercedesobdmonitor.ObdSession;
 import de.roman.mercedesobdmonitor.PlanUi;
 import de.roman.mercedesobdmonitor.VehicleProfile;
@@ -395,6 +396,13 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         settings.addView(hostInput, new LinearLayout.LayoutParams(0, dp(52), 2f));
         settings.addView(portInput, new LinearLayout.LayoutParams(0, dp(52), 1f));
         page.addView(settings);
+        adapterButton = button("", v -> AdapterChoice.pick(this, PREFS, android.R.style.Theme_Material_Dialog_Alert,
+                this::updateAdapterLabel));
+        adapterButton.setAllCaps(false);
+        adapterButton.setContentDescription("ELM327-Adapter wählen: WLAN oder gekoppeltes Bluetooth-Gerät");
+        page.addView(adapterButton, new LinearLayout.LayoutParams(-1, dp(48)));
+        AdapterChoice.watch(hostInput, portInput, this::updateAdapterLabel);
+        updateAdapterLabel();
         linkState = text("ELM327: getrennt", 15, Palette.LIGHT);
         page.addView(linkState);
         busState = text(profile.busCheck(null), 13, Palette.MUTED);
@@ -746,12 +754,15 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             port = Integer.parseInt(portInput.getText().toString().trim());
             if (port < 1 || port > 65535) throw new NumberFormatException();
         } catch (NumberFormatException e) {
-            status.setText("Ungültiger TCP-Port (INFO-Seite)");
-            show(Page.INFO);
-            return;
+            if (!AdapterChoice.usesBluetooth(this, PREFS)) {
+                status.setText("Ungültiger TCP-Port (INFO-Seite)");
+                show(Page.INFO);
+                return;
+            }
+            port = 35000;   // Bluetooth braucht keinen Port
         }
         saveSettings();
-        if (!session.connect(this, host, port)) return;
+        if (!AdapterChoice.connect(this, session, PREFS, host, port)) return;
         // Neue Verbindung, evtl. anderes Fahrzeug: die alte behält ihren Verlaufseintrag, Karte und Kat-Tendenz neu
         controller.newConnection();
         startForegroundService(new Intent(this, ObdService.class).setAction(ObdService.ACTION_START));
@@ -759,10 +770,16 @@ public final class DashboardActivity extends Activity implements ObdSession.List
 
     private boolean ensurePermissions() {
         List<String> needed = new ArrayList<>();
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED)
-            needed.add(Manifest.permission.NEARBY_WIFI_DEVICES);
-        if (Build.VERSION.SDK_INT >= 37 && checkSelfPermission(LOCAL_NET_PERMISSION) != PackageManager.PERMISSION_GRANTED)
-            needed.add(LOCAL_NET_PERMISSION);
+        if (AdapterChoice.usesBluetooth(this, PREFS)) {
+            // ADR-005: Bluetooth braucht nur BLUETOOTH_CONNECT, keine Berechtigung fürs lokale Netz
+            if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
+                needed.add(Manifest.permission.BLUETOOTH_CONNECT);
+        } else {
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED)
+                needed.add(Manifest.permission.NEARBY_WIFI_DEVICES);
+            if (Build.VERSION.SDK_INT >= 37 && checkSelfPermission(LOCAL_NET_PERMISSION) != PackageManager.PERMISSION_GRANTED)
+                needed.add(LOCAL_NET_PERMISSION);
+        }
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         boolean askNotifications = Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -787,7 +804,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             ok &= grantResults[i] == PackageManager.PERMISSION_GRANTED;
         }
         if (ok) toggleConnection();
-        else Toast.makeText(this, "Ohne Berechtigung für das lokale Netzwerk ist keine Verbindung zum ELM327 möglich", Toast.LENGTH_LONG).show();
+        else Toast.makeText(this, AdapterChoice.usesBluetooth(this, PREFS)
+                ? "Ohne Bluetooth-Berechtigung ist keine Verbindung zum ELM327 möglich"
+                : "Ohne Berechtigung für das lokale Netzwerk ist keine Verbindung zum ELM327 möglich", Toast.LENGTH_LONG).show();
     }
 
     private static final int REQUEST_TRIM_LOG = 42;   // 41 = REQ_NET (Berechtigungen)
@@ -802,6 +821,14 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         super.onActivityResult(requestCode, resultCode, data);
         controller.onActivityResult(requestCode, REQUEST_TRIM_LOG, resultCode, data,
                 () -> controller.showTripsIn(tripsText));
+    }
+
+    private Button adapterButton;
+
+    private void updateAdapterLabel() {
+        if (adapterButton == null || hostInput == null) return;
+        adapterButton.setText(AdapterChoice.label(this, PREFS, hostInput.getText().toString().trim(),
+                portInput.getText().toString().trim()) + " · ändern");
     }
 
     private void saveSettings() {
