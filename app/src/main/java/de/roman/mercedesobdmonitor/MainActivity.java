@@ -83,6 +83,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         session.attachTestPlan(this);
+        session.attachStores(this);   // Verlauf Gemischadaption (Monitortests)
         controller = new AnalysisController(this, PREFS, 1000);
         buildUi();
         loadSettings();

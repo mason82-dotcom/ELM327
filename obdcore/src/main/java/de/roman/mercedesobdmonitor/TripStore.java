@@ -24,6 +24,8 @@ import java.util.Map;
  */
 public final class TripStore {
     public static final String KEY = "trips";
+    /** Kühldaten je Fahrt (eigener Schlüssel, damit ältere Versionen „trips“ unverändert lesen). */
+    static final String KEY_COOLING = "trips_cooling";
     private static final String STAMPS = "trip_log_stamps";
     private static final Object LOCK = new Object();
     /** Rückrufe, die auf den laufenden Einlesevorgang warten; null = keiner läuft (nur unter SCAN). */
@@ -33,7 +35,10 @@ public final class TripStore {
     private TripStore() { }
 
     public static List<TripComputer.Trip> load(Context c, String prefsName) {
-        return TripComputer.parse(prefs(c, prefsName).getString(KEY, null));
+        SharedPreferences p = prefs(c, prefsName);
+        List<TripComputer.Trip> trips = TripComputer.parse(p.getString(KEY, null));
+        TripComputer.applyCooling(trips, p.getString(KEY_COOLING, null));
+        return trips;
     }
 
     /** Fahrten zusammenführen und speichern (Lesen-Ändern-Schreiben unter Sperre). */
@@ -41,7 +46,8 @@ public final class TripStore {
         if (fresh.isEmpty()) return;
         synchronized (LOCK) {
             List<TripComputer.Trip> merged = TripBook.merge(load(c, prefsName), fresh);
-            prefs(c, prefsName).edit().putString(KEY, TripComputer.serialize(merged)).apply();
+            prefs(c, prefsName).edit().putString(KEY, TripComputer.serialize(merged))
+                    .putString(KEY_COOLING, TripComputer.serializeCooling(merged)).apply();
         }
     }
 

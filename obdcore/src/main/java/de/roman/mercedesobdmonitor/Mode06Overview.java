@@ -277,6 +277,12 @@ public final class Mode06Overview {
         scale(0xFC, 0.01, "kPa"); scale(0xFD, 0.001, "kPa"); scale(0xFE, 0.25, "Pa");
     }
 
+    /** Rohwert skaliert (ohne Einheit); null bei unbekannter UASID. */
+    public static Double scaled(int raw, int uasid) {
+        Scale s = SCALES.get(uasid);
+        return s == null ? null : raw * s.factor + s.offset;
+    }
+
     /** Rohwert → Anzeige mit Einheit; unbekannte UASID als Rohwert. */
     public static String format(int raw, int uasid) {
         Scale s = SCALES.get(uasid);
@@ -340,8 +346,8 @@ public final class Mode06Overview {
         sb.append("\nGrenzwerte liefert das Steuergerät selbst. „Knapp“ = weniger als ")
                 .append(CLOSE_PERCENT).append(" % Reserve zur Grenze. „Nicht gelaufen“ = Test im ")
                 .append("aktuellen Fahrzyklus noch ohne Ergebnis. Tests ab 0x80 sind herstellerspezifisch; ")
-                .append("ihre Bedeutung ist ohne Mercedes-Unterlagen unbekannt, die Bewertung gegen die ")
-                .append("Grenzwerte gilt trotzdem.");
+                .append("benannt sind die des ME9.7 laut Mode-06-Tabelle des Werkstatthandbuchs (Ref. = Beispielbereich ")
+                .append("dort), die übrigen sind unbekannt – die Bewertung gegen die Grenzwerte gilt trotzdem.");
         return sb.toString();
     }
 

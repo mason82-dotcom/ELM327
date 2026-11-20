@@ -261,4 +261,70 @@ public class TripComputerTest {
         assertEquals(3, m.size());
         assertEquals(100, TripStore.parseStamps(TripStore.formatStamps(m)).get("a.csv")[0]);
     }
+
+    /** F: Warmlaufzeit und Kühlmittel-Maximum je Fahrt, gespeichert und wieder gelesen. */
+    @Test
+    public void realLog20261119HasWarmTimeAndMaxCoolant() throws Exception {
+        List<TripComputer.Trip> trips = replay("c350_log_20261119.csv");
+        TripComputer.Trip a = trips.get(0);
+        assertTrue(a.coolantKnown());
+        assertTrue("max " + a.maxCoolantC, a.maxCoolantC >= 95);          // Thermostat regelte ab 99 °C
+        assertTrue("warm " + a.warmMs, a.warmMs > 3 * 60_000 && a.warmMs < a.runMs);
+        List<TripComputer.Trip> back0 = TripComputer.parse(TripComputer.serialize(trips));
+        assertFalse("Fahrtenformat bleibt für ältere Versionen gleich", back0.get(0).coolantKnown());
+        TripComputer.applyCooling(back0, TripComputer.serializeCooling(trips));
+        TripComputer.Trip back = back0.get(0);
+        assertEquals(a.warmMs, back.warmMs);
+        assertEquals(a.maxCoolantC, back.maxCoolantC, 0.1);
+        // Zeilen ohne die neuen Felder (bis 0.18) bleiben lesbar und „unbekannt“
+        TripComputer.Trip old = TripComputer.parse("1;2;3.0;;60000;0;50;1.5;0\n").get(0);
+        assertFalse(old.coolantKnown());
+    }
+
+    private static TripComputer.Trip trip(long startMin, long warmMin, double maxC, Double trim) {
+        TripComputer.Trip t = new TripComputer.Trip(startMin * 60_000, (startMin + 30) * 60_000, 10, Double.NaN,
+                30 * 60_000, 0, 80, trim);
+        t.warmMs = warmMin * 60_000;
+        t.maxCoolantC = maxC;
+        return t;
+    }
+
+    /** F: kalte Kurzstrecken belasten die folgenden Fahrten, bis eine lange warme Fahrt das Öl ausdampft. */
+    @Test
+    public void coldShortTripsMarkFollowingTrimsUntilLongWarmDrive() {
+        List<TripComputer.Trip> trips = List.of(
+                trip(0, 25, 98, 7.0),        // lang warm: vergleichbar
+                trip(100, 0, 55, null),      // kalte Kurzstrecke (wie 20.11.)
+                trip(200, 8, 92, 3.0),       // warm, aber kurz: Kraftstoff im Öl möglich
+                trip(300, 22, 99, 7.5),      // lange warm: dampft aus, zählt
+                trip(400, 10, 95, 7.2));     // danach wieder vergleichbar
+        List<TripBook.TrimQuality> q = TripBook.trimQuality(trips);
+        assertEquals(List.of(TripBook.TrimQuality.OK, TripBook.TrimQuality.COLD_SHORT, TripBook.TrimQuality.DILUTED,
+                TripBook.TrimQuality.OK, TripBook.TrimQuality.OK), q);
+        String r = TripBook.report(trips, BERLIN, trips.get(4).endMs, 10);
+        assertTrue(r, r.contains("Δ Trim B1−B2 aus vergleichbaren Fahrten: Ø +7,2 % (3) · 1 nach Kaltstarts ausgelassen"));
+        assertTrue(r, r.contains("kalte Kurzstrecke (max 55 °C)"));
+        assertTrue(r, r.contains("(Δ Trim +3,0 %)"));
+        assertTrue(r, r.contains("nach Kaltstarts: Kraftstoff im Öl möglich"));
+        String csv = TripBook.csv(trips, BERLIN);
+        assertTrue(csv, csv.contains(";kraftstoff_im_oel_moeglich\n"));
+        assertTrue(csv, csv.contains(";kalte_kurzstrecke\n"));
+    }
+
+    /** Review: Fahrten ohne Kühldaten zählen nicht als vergleichbar; Teilstück ohne Daten löscht die des anderen nicht. */
+    @Test
+    public void unknownCoolingIsNotComparableAndJoinKeepsKnownPart() {
+        TripComputer.Trip old = new TripComputer.Trip(0, 30 * 60_000, 10, Double.NaN, 30 * 60_000, 0, 80, 9.0);
+        List<TripComputer.Trip> trips = List.of(old, trip(100, 25, 98, 7.0));
+        String r = TripBook.report(trips, BERLIN, trips.get(1).endMs, 10);
+        assertTrue(r, r.contains("Ø +7,0 % (1) · 1 ohne Kühldaten"));
+        TripComputer.Trip a = new TripComputer.Trip(0, 60_000, 1, Double.NaN, 60_000, 0, 30, null, true);
+        a.warmMs = 0;
+        a.maxCoolantC = 40;
+        TripComputer.Trip b = new TripComputer.Trip(60_000, 120_000, 1, Double.NaN, 60_000, 0, 30, null);
+        TripComputer.Trip j = TripComputer.Trip.join(a, b);
+        assertTrue(j.coolantKnown());
+        assertEquals(40, j.maxCoolantC, 0);
+        assertEquals(TripBook.TrimQuality.COLD_SHORT, TripBook.trimQuality(List.of(j)).get(0));
+    }
 }

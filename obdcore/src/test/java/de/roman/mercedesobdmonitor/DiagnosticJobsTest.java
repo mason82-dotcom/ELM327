@@ -320,4 +320,25 @@ public class DiagnosticJobsTest {
         assertTrue(r, r.contains("nur über CAN"));
         assertTrue(received.isEmpty());
     }
+
+    /** A: Gemischadaption je Bank steht im Monitortest-Bericht unter der Überschrift und wird gespeichert. */
+    @Test
+    public void monitorTestsReportMixtureAdaptationPerBank() throws Exception {
+        java.util.concurrent.atomic.AtomicReference<String> saved = new java.util.concurrent.atomic.AtomicReference<>();
+        FakeHost h = new FakeHost() {
+            @Override public void saveMixtureAdaptation(String text) { saved.set(text); }
+            @Override public double liveCoolant() { return 88; }
+        };
+        answers = map(Map.of(
+                "0600", "46 00 00 00 00 01", "0620", "46 20 00 00 00 01", "0640", "46 40 00 00 00 01",
+                "0660", "46 60 00 00 00 01", "0680", "46 80 C0 00 00 00",
+                "0681", "46 81 80 AF FF CC FE 3E 01 C2 81 82 05 86 8E 59 A7 A6 81",
+                "0682", "46 82 80 AF FF D1 FE 3E 01 C2 82 82 05 83 2C 59 A7 A6 81"));
+        String r = new DiagnosticJobs(h).readMonitorTests(client);
+        assertTrue(r, r.startsWith("Monitortests (Mode 06)\n\nGEMISCHADAPTION JE BANK"));
+        assertTrue(r, r.contains("Bank 1 (rechts, Zyl. 1–3): Faktor 1,051"));
+        assertTrue(r, r.contains("Bank 2 (links, Zyl. 4–6): Faktor 1,024"));
+        assertTrue(r, r.contains("Gemischadaption Faktor (Ref. 0,70–1,30)"));
+        assertTrue(saved.get(), saved.get() != null && saved.get().contains(";88.00000;"));
+    }
 }

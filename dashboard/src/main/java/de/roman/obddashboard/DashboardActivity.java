@@ -143,7 +143,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             trendPid = savedInstanceState.getInt("trendPid", 0x0C);
         }
         session.attachTestPlan(this);
-        session.attachLocalIdScanStore(this);
+        session.attachStores(this);
         session.setWarningsEnabled(true);   // Kühlmittel-/Bordnetzwarnungen mit Ton (auch im Hintergrund)
         // ADR-004: Testfreigabe aus den Einstellungen, ausgeliefert aus
         session.setAdr004Enabled(getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_ADR004, false));
