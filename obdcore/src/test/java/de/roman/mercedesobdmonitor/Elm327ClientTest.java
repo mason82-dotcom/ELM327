@@ -134,7 +134,7 @@ public class Elm327ClientTest {
     @Test
     public void rejectedHeaderKeepsEcuSpecificRequestsBlocked() throws Exception {
         start((cmd, out, in) -> {
-            if (cmd.equals("ATSH7E1")) write(out, "?\\r\\r>");
+            if (cmd.equals("ATSH7E1")) write(out, "?\r\r>");
             else if (cmd.equals("ATSH7DF")) write(out, "OK\r\r>");
             else if (cmd.equals("010C")) write(out, "41 0C 1A F8\r\r>");
             else write(out, "?\r\r>");
@@ -166,6 +166,8 @@ public class Elm327ClientTest {
         assertFalse(Elm327Client.headerAcknowledged("ATSH7E1", "OK\rERROR"));
         assertFalse(Elm327Client.headerAcknowledged("ATSH7E1", ""));
         assertTrue(Elm327Client.headerAcknowledged("ATZ", "ELM327 v1.5"));
+        assertFalse(Elm327Client.headerAcknowledged("ATZ", "?"));
+        assertFalse(Elm327Client.headerAcknowledged("ATZ", "ATZ"));
     }
 
     @Test
