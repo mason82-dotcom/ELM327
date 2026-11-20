@@ -29,6 +29,7 @@ import de.roman.mercedesobdmonitor.AnalysisController;
 import de.roman.mercedesobdmonitor.ObdPid;
 import de.roman.mercedesobdmonitor.ObdService;
 import de.roman.mercedesobdmonitor.ObdSession;
+import de.roman.mercedesobdmonitor.PlanUi;
 import de.roman.mercedesobdmonitor.VehicleProfile;
 
 import java.util.ArrayList;
@@ -507,28 +508,12 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         if (planText != null) planText.setText(session.testPlanChecklist());
     }
 
-    /** Löschen mit Bestätigung, die die Anzahl nennt (nicht rückgängig zu machen). */
     private void confirmClearPlan() {
-        int n = session.testPlanSize();
-        if (n == 0) return;
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-                .setTitle("Prüfplan leeren?")
-                .setMessage(n + (n == 1 ? " gespeichertes Ergebnis wird" : " gespeicherte Ergebnisse werden")
-                        + " gelöscht. Vorher teilen, wenn du sie noch brauchst.")
-                .setPositiveButton("Leeren", (d, w) -> {
-                    session.clearTestPlan();
-                    refreshPlan();
-                })
-                .setNegativeButton("Abbrechen", null)
-                .show();
+        PlanUi.confirmClear(this, android.R.style.Theme_Material_Dialog_Alert, session, this::refreshPlan);
     }
 
     private String appVersion() {
-        try {
-            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
-            return "?";
-        }
+        return PlanUi.appVersion(this);
     }
 
     /** Logs im Hintergrund nachlesen; die Seite zeigt solange den gespeicherten Stand. */
