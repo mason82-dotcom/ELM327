@@ -21,6 +21,34 @@ public final class ServiceActionLab {
 
     public enum Readiness { RESEARCH_ONLY, REQUIRES_VEHICLE_VERIFICATION }
 
+    /**
+     * Fahrzeugangabe: normales Schiebe-/Hebedach, kein Panorama.
+     * Code 414/N70/M12m1 stammen aus W204-Unterlagen;
+     * SA-Code und N70-Teilenummer müssen noch mit der Datenkarte abgeglichen werden.
+     * Diese Metadaten berechtigen zu keiner Fahrzeugsteuerung.
+     */
+    public static final class RoofConfiguration {
+        public final String type;
+        public final String expectedSaCode;
+        public final String expectedController;
+        public final String expectedMotor;
+        public final boolean confirmedFromVehicleDataCard;
+
+        private RoofConfiguration(String type, String expectedSaCode,
+                String expectedController, String expectedMotor, boolean confirmedFromVehicleDataCard) {
+            this.type = type;
+            this.expectedSaCode = expectedSaCode;
+            this.expectedController = expectedController;
+            this.expectedMotor = expectedMotor;
+            this.confirmedFromVehicleDataCard = confirmedFromVehicleDataCard;
+        }
+    }
+
+    public static RoofConfiguration currentVehicleRoof() {
+        return new RoofConfiguration("Normales elektrisches Glas-Schiebe-/Hebedach",
+                "414", "N70", "M12m1", false);
+    }
+
     public static final class Proposal {
         public final Action action;
         public final String label;
@@ -51,11 +79,13 @@ public final class ServiceActionLab {
             case SUNROOF_OPEN, SUNROOF_CLOSE -> new Proposal(action,
                     action == Action.SUNROOF_OPEN ? "Schiebedach öffnen" : "Schiebedach schließen",
                     Readiness.RESEARCH_ONLY,
-                    List.of("Exakte W204-Baumuster- und Dachausstattung feststellen",
-                            "Dachsteuergerät, Bus und Diagnosezugang identifizieren",
-                            "Einklemmschutz, Normierung und Blockiererkennung nachweisen",
+                    List.of("Normales Glas-Schiebe-/Hebedach bestätigt; SA 414 laut W204-Unterlagen, Datenkarte prüfen",
+                            "Dachbedieneinheit N70 und Dachmotor M12m1 am konkreten Fahrzeug verifizieren",
+                            "Einklemmschutz, Normierung und Blockiererkennung nach Herstellerunterlage nachweisen",
+                            "Erreichbarkeit von N70 über OBD-Gateway und unterstützte Werkstattfunktion belegen",
                             "Bediener am stehenden Fahrzeug mit freiem Sichtbereich"),
-                    "Keine verifizierte M272/W204-ELM327-Diagnosesequenz. Keine CAN-Injektion oder Stellgliedsteuerung.");
+                    "Keine verifizierte N70/M272/W204-ELM327-Diagnosesequenz. Panoramadach A98 nicht relevant. "
+                            + "Keine CAN-Injektion oder Stellgliedsteuerung.");
             case CODING_REVIEW -> new Proposal(action, "Codierung prüfen", Readiness.RESEARCH_ONLY,
                     List.of("SA-Codes und Steuergeräteteilenummern dokumentieren",
                             "Originalcodierung mit zugelassenem Werkstattgerät sichern",
