@@ -1,3 +1,32 @@
+---
+version: 1
+name: "Mercedes ELM327 Monitor / Service-Labor"
+description: "Dunkles technisches Diagnoseinstrument für den C350 S204/W204, ergänzt um klar getrennte Service-Experimentalaktionen."
+colors:
+  background: "#0D1523"
+  card: "#152338"
+  border: "#344A66"
+  primary: "#225889"
+  info: "#70C8FF"
+  success: "#81C784"
+  warning: "#FFCC76"
+  danger: "#FF6B6B"
+typography:
+  sans:
+    fontFamily: "Roboto, sans-serif"
+  mono:
+    fontFamily: "monospace"
+components:
+  button: {}
+  card: {}
+  dialog: {}
+omitted:
+  - section: spacing
+    reason: "Native Android LayoutParams und dp-Werte in beiden vorhandenen Activities bleiben kanonisch."
+  - section: rounded
+    reason: "Bereits bestehende Android-Drawable/Button-Radien; keine neue Tokenquelle eingeführt."
+---
+
 # ELM327 – Designkontext
 
 ## Anwendung und Identität
