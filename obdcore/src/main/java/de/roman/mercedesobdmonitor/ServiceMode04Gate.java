@@ -47,8 +47,8 @@ public final class ServiceMode04Gate {
         if (!p.active || !p.connected) return "ELM327-Verbindung nicht aktiv";
         if (!p.explicitlyArmed || !p.userConfirmed) return "Service-Labor nicht ausdrücklich freigegeben";
         if (!p.dtcSnapshotValid) return "Vorher Mode 03/07/0A erfolgreich lesen und Ergebnis sichern";
-        if (!fresh(p.rpm, p.rpmAt, p.nowMs) || p.rpm < 0 || p.rpm > 50)
-            return "Motor aus (frische Drehzahl 0 U/min) nicht belegt";
+        if (!fresh(p.rpm, p.rpmAt, p.nowMs) || p.rpm != 0)
+            return "Motor aus (frische Drehzahl exakt 0 U/min) nicht belegt";
         if (!fresh(p.kmh, p.speedAt, p.nowMs) || p.kmh != 0)
             return "Stillstand (frische Geschwindigkeit 0 km/h) nicht belegt";
         if (!fresh(p.ecuVoltage, p.voltageAt, p.nowMs)
@@ -62,6 +62,28 @@ public final class ServiceMode04Gate {
     private static boolean fresh(Double value, Long at, long now) {
         return value != null && Double.isFinite(value) && at != null && at >= 0
                 && now >= at && now - at <= MAX_SENSOR_AGE_MS;
+    }
+
+    /**
+     * Vorhandene Diagnosetexte enthalten auch Teilresultate und noch nicht auswertbare Rohantworten.
+     * Für eine irreversible Maßnahme zählen nur eindeutig ausgewertete Mode-03/07/0A-Berichte.
+     * 'NO DATA' für Mode 0A kann fehlende Unterstützung bedeuten, niemals jedoch ein Timeout.
+     */
+    public static boolean hasCompleteDtcSnapshot(String report) {
+        if (report == null || report.isBlank()) return false;
+        for (String key : new String[] {"Gespeichert:", "Pending:", "Permanent:"}) {
+            if (!report.contains(key)) return false;
+        }
+        String body = report.toLowerCase(Locale.ROOT);
+        for (String invalid : new String[] {
+                "timeout", "kommunikationsfehler", "übersprungen", "abgebrochen",
+                "nicht gelesen", "fehlgeschlagen", "keine antwort",
+                "keine fehlercodes erkannt", "status unklar", "adapter meldet",
+                "verbindung wird neu aufgebaut"
+        }) {
+            if (body.contains(invalid)) return false;
+        }
+        return true;
     }
 
     /** Wird ausschließlich nach vollständigem Preflight ausgegeben und ist nur einmal nutzbar. */
