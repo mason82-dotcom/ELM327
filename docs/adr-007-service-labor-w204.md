@@ -28,8 +28,8 @@ ELM Electronics erläutert Mode 04 und die **Folgen** auf Daten- und Readiness-E
 - Kein Mode-04-Aufruf aus Autostart, Hintergrunddienst, automatischem Reconnect, Simulator oder CSV-Import.
 - Explizites Aktivieren nur für die gegenwärtige Verbindung; gesonderte Warnung; zweite Bestätigung
   durch exakte Eingabe `LÖSCHEN`.
-- Vorher ein vollständiger DTC-Report (Modes 03/07/0A) **innerhalb derselben Sitzung, höchstens 5 Minuten alt**.
-- Im exklusiven Auftrag unmittelbar vor dem Versand neu lesen: `010C` RPM ≤ 50, `010D` Tempo 0,
+- Vorher ein vollständig ausgewerteter DTC-Report (Modes 03/07/0A) **innerhalb derselben Sitzung, höchstens 5 Minuten alt**. Teilantworten wie „keine Antwort“, nicht identifizierte Rohantworten und Fehler-/Timeout-Status zählen ausdrücklich nicht.
+- Im exklusiven Auftrag unmittelbar vor dem Versand neu lesen: `010C` RPM = 0, `010D` Tempo 0,
   `0142` ECU-Versorgung 11,8–15,5 V. Fehlen diese Messwerte, **keine Ausführung**.
   Grenzwerte sind vorsichtige Entwicklungs-Interlocks, keine Herstellerfreigabe.
 - Nur bestätigtes 11-bit-CAN-Protokoll und funktionaler Standardheader `7DF`.
