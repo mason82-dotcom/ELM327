@@ -111,6 +111,11 @@ final class TimedInputStream extends InputStream {
         return true;
     }
 
+    /** false nach Ende, Lesefehler oder Schließen – die Verbindung darunter ist tot (Review: isOpen). */
+    synchronized boolean alive() {
+        return !eof && failure == null && !closed;
+    }
+
     @Override
     public synchronized int available() {
         return count;

@@ -35,7 +35,6 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     private static final int REQ_NET = 41;
     private static final int REQ_TRIM_LOG = 42;
     private static final String PREFS = "elm";
-    private static final String LOCAL_NET_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK";
     private static final String PREF_NOTIFICATIONS_ASKED = "notificationsAsked";
     private static final String PREF_ADR004 = "adr004_enabled";
 
@@ -383,16 +382,10 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         if (!ensurePermissions()) return;
 
         final String host = hostInput.getText().toString().trim();
-        int port;
-        try {
-            port = Integer.parseInt(portInput.getText().toString().trim());
-            if (port < 1 || port > 65535) throw new NumberFormatException();
-        } catch (NumberFormatException e) {
-            if (!AdapterChoice.usesBluetooth(this, PREFS)) {
-                status.setText("Ungültiger TCP-Port");
-                return;
-            }
-            port = 35000;   // Bluetooth braucht keinen Port
+        Integer port = AdapterChoice.port(this, PREFS, portInput.getText().toString());
+        if (port == null) {
+            status.setText("Ungültiger TCP-Port");
+            return;
         }
 
         saveSettings();
@@ -404,23 +397,8 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     }
 
     private boolean ensurePermissions() {
-        List<String> needed = new ArrayList<>();
-        if (AdapterChoice.usesBluetooth(this, PREFS)) {
-            // ADR-005: Bluetooth braucht nur BLUETOOTH_CONNECT, keine Berechtigung fürs lokale Netz
-            if (Build.VERSION.SDK_INT >= 31
-                    && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                needed.add(Manifest.permission.BLUETOOTH_CONNECT);
-            }
-        } else {
-            if (Build.VERSION.SDK_INT >= 33
-                    && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
-                needed.add(Manifest.permission.NEARBY_WIFI_DEVICES);
-            }
-            if (Build.VERSION.SDK_INT >= 37
-                    && checkSelfPermission(LOCAL_NET_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
-                needed.add(LOCAL_NET_PERMISSION);
-            }
-        }
+        // je nach Adapter Bluetooth- oder WLAN-Berechtigungen (ADR-005)
+        List<String> needed = AdapterChoice.missingPermissions(this, PREFS);
         // Benachrichtigung ist optional (Dienst läuft auch ohne); nur einmal nachfragen.
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         boolean askNotifications = Build.VERSION.SDK_INT >= 33
@@ -438,6 +416,10 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == AdapterChoice.REQ_BT) {
+            AdapterChoice.onPermissionResult(this, PREFS, 0, results, this::updateAdapterLabel);
+            return;
+        }
         if (requestCode != REQ_NET) return;
         // Leere Ergebnisse = Anfrage abgebrochen; nicht erneut anfragen (Endlosschleife).
         boolean ok = results.length > 0;
@@ -446,8 +428,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
             ok &= results[i] == PackageManager.PERMISSION_GRANTED;
         }
         if (ok) connectRequested();
-        else Toast.makeText(this, AdapterChoice.usesBluetooth(this, PREFS) ? "Bluetooth-Berechtigung wurde nicht erteilt"
-                : "Netzwerkberechtigung wurde nicht erteilt", Toast.LENGTH_LONG).show();
+        else Toast.makeText(this, AdapterChoice.deniedText(this, PREFS), Toast.LENGTH_LONG).show();
     }
 
     // ---------------------------------------------------------------- ObdSession.Listener

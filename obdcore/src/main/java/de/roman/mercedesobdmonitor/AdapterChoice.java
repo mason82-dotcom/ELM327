@@ -17,8 +17,10 @@ import java.util.List;
 public final class AdapterChoice {
     public static final String KEY_BT_ADDRESS = "adapter_bt_address";
     public static final String KEY_BT_NAME = "adapter_bt_name";
-    /** Anfragecode für BLUETOOTH_CONNECT; die Activity leitet onRequestPermissionsResult hierher. */
+    /** Anfragecode für BLUETOOTH_CONNECT aus {@link #pick}; die Activity leitet ihn an {@link #onPermissionResult}. */
     public static final int REQ_BT = 43;
+    /** Android 17+: Laufzeitberechtigung fürs lokale Netz (WLAN-Adapter). */
+    public static final String LOCAL_NET_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK";
 
     private AdapterChoice() { }
 
@@ -38,6 +40,76 @@ public final class AdapterChoice {
         return "Adapter: Bluetooth " + p.getString(KEY_BT_NAME, "") + " (" + addr + ")";
     }
 
+    /** Fehlende Laufzeitberechtigungen für den gewählten Weg: Bluetooth oder WLAN (lokales Netz). */
+    public static java.util.List<String> missingPermissions(Context c, String prefsName) {
+        java.util.List<String> needed = new java.util.ArrayList<>();
+        if (usesBluetooth(c, prefsName)) {
+            if (!BluetoothLink.hasPermission(c)) needed.add(Manifest.permission.BLUETOOTH_CONNECT);
+        } else {
+            if (Build.VERSION.SDK_INT >= 33 && c.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                needed.add(Manifest.permission.NEARBY_WIFI_DEVICES);
+            }
+            if (Build.VERSION.SDK_INT >= 37 && c.checkSelfPermission(LOCAL_NET_PERMISSION)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                needed.add(LOCAL_NET_PERMISSION);
+            }
+        }
+        return needed;
+    }
+
+    /** Text, wenn die nötige Berechtigung abgelehnt wurde. */
+    public static String deniedText(Context c, String prefsName) {
+        return usesBluetooth(c, prefsName)
+                ? "Ohne Bluetooth-Berechtigung ist keine Verbindung zum ELM327 möglich"
+                : "Ohne Berechtigung für das lokale Netzwerk ist keine Verbindung zum ELM327 möglich";
+    }
+
+    /** Port aus dem Eingabefeld; bei Bluetooth egal (35000), bei WLAN null, wenn ungültig. */
+    public static Integer port(Context c, String prefsName, String text) {
+        try {
+            int p = Integer.parseInt(text.trim());
+            if (p >= 1 && p <= 65535) return p;
+        } catch (NumberFormatException ignored) {
+            // unten
+        }
+        return usesBluetooth(c, prefsName) ? 35000 : null;
+    }
+
+    /**
+     * Ergebnis der Anfrage aus {@link #pick}: erteilt → Auswahl erneut öffnen; dauerhaft abgelehnt → Weg in die
+     * Systemeinstellungen oder zurück zu WLAN (Review: das Ergebnis wurde vorher ignoriert).
+     */
+    public static void onPermissionResult(Activity a, String prefsName, int theme, int[] results, Runnable changed) {
+        if (results.length == 0) return;   // abgebrochen
+        if (results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            pick(a, prefsName, theme, changed);
+            return;
+        }
+        boolean permanently = Build.VERSION.SDK_INT >= 31
+                && !a.shouldShowRequestPermissionRationale(Manifest.permission.BLUETOOTH_CONNECT);
+        (theme == 0 ? new AlertDialog.Builder(a) : new AlertDialog.Builder(a, theme))
+                .setTitle("Bluetooth-Berechtigung fehlt")
+                .setMessage(permanently
+                        ? "Die Berechtigung „Geräte in der Nähe“ ist dauerhaft abgelehnt. In den App-Einstellungen unter "
+                        + "Berechtigungen erlauben oder den WLAN-Adapter verwenden."
+                        : "Ohne die Berechtigung „Geräte in der Nähe“ kann die App keinen Bluetooth-Adapter verwenden.")
+                .setPositiveButton(permanently ? "Einstellungen öffnen" : "Erneut fragen", (d, w) -> {
+                    if (permanently) {
+                        a.startActivity(new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.fromParts("package", a.getPackageName(), null)));
+                    } else {
+                        ensurePermission(a);
+                    }
+                })
+                .setNeutralButton("WLAN verwenden", (d, w) -> {
+                    prefs(a, prefsName).edit().remove(KEY_BT_ADDRESS).remove(KEY_BT_NAME).apply();
+                    changed.run();
+                })
+                .setNegativeButton("Abbrechen", null)
+                .show();
+    }
+
     /** Fehlt BLUETOOTH_CONNECT (Android 12+), wird gefragt; true = vorhanden. */
     public static boolean ensurePermission(Activity a) {
         if (BluetoothLink.hasPermission(a)) return true;
@@ -53,6 +125,7 @@ public final class AdapterChoice {
     public static void pick(Activity a, String prefsName, int theme, Runnable changed) {
         List<BluetoothLink.Paired> paired;
         String hint = null;
+        boolean bluetoothOff = false;
         if (!BluetoothLink.hasPermission(a)) {
             // Ohne Berechtigung trotzdem zurück zu WLAN können (Review)
             (theme == 0 ? new AlertDialog.Builder(a) : new AlertDialog.Builder(a, theme))
@@ -73,6 +146,7 @@ public final class AdapterChoice {
         } catch (IOException e) {
             paired = java.util.Collections.emptyList();
             hint = e.getMessage();
+            bluetoothOff = hint != null && hint.contains("ausgeschaltet");
         }
         String[] items = new String[paired.size() + 1];
         items[0] = "WLAN-Adapter (Adresse und Port wie eingetragen)";
@@ -95,7 +169,10 @@ public final class AdapterChoice {
                 })
                 .setNegativeButton("Abbrechen", null);
         if (list.isEmpty()) {
-            b.setMessage((hint != null ? hint + ". " : "") + "Kein gekoppeltes Bluetooth-Gerät: den Adapter zuerst in den "
+            // Bluetooth aus ist etwas anderes als „nicht gekoppelt“ (Review)
+            b.setMessage(bluetoothOff
+                    ? "Bluetooth ist ausgeschaltet. Einschalten und erneut wählen."
+                    : (hint != null ? hint + ". " : "") + "Kein gekoppeltes Bluetooth-Gerät: den Adapter zuerst in den "
                     + "Android-Einstellungen koppeln (PIN meist 1234 oder 0000).");
             b.setPositiveButton("WLAN verwenden", (d, w) -> {
                 prefs(a, prefsName).edit().remove(KEY_BT_ADDRESS).remove(KEY_BT_NAME).apply();

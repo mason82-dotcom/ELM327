@@ -90,6 +90,21 @@ public class TimedLinkTest {
         assertTrue((System.nanoTime() - t0) / 1_000_000L < 2000);
     }
 
+    /** Nach Ende oder Schließen gilt der Strom als tot – BluetoothLink.isOpen hängt daran (Review). */
+    @Test
+    public void aliveFollowsEndAndClose() throws Exception {
+        PipedOutputStream w = new PipedOutputStream();
+        TimedInputStream in = new TimedInputStream(new PipedInputStream(w, 64), 16, "t");
+        assertTrue(in.alive());
+        w.close();
+        in.setTimeout(2000);
+        assertEquals(-1, in.read());
+        assertTrue(!in.alive());
+        TimedInputStream other = new TimedInputStream(new PipedInputStream(new PipedOutputStream(), 64), 16, "t");
+        other.close();
+        assertTrue(!other.alive());
+    }
+
     @Test
     public void closeEndsWaitingReader() throws Exception {
         PipedOutputStream w = new PipedOutputStream();
