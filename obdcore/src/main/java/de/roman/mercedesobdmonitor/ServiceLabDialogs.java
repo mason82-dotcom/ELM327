@@ -28,8 +28,8 @@ public final class ServiceLabDialogs {
                 "Codierung, EEPROM, Stellglieder – Forschungsstand"
         };
         dialog(a, theme).setTitle("SERVICE-LABOR · EXPERIMENTELL")
-                .setMessage("Nicht die Standard-Read-only-App. Nur Mode 04 kann Fahrzeugdaten verändern. "
-                        + "Komfort, Codierung und EEPROM bleiben ohne Fahrzeugansteuerung.")
+                // Android-Dialoglisten und Nachrichtentext überlagern sich; die Aktionen gehören
+                // nur in die Liste, Warntexte in den jeweils expliziten Bestätigungsdialog.
                 .setItems(items, (d, which) -> {
                     switch (which) {
                         case 0 -> confirmArm(a, theme, session);
