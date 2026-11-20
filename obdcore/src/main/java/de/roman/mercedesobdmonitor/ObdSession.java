@@ -174,6 +174,9 @@ public final class ObdSession {
     /** Erste Fahrzeuganfrage nach Reconnect bekommt längeren Timeout (Protokollsuche). */
     private volatile boolean firstRequestAfterInit = false;
     private volatile String adapterVoltage = "–";
+    private volatile int serviceArmedGeneration = -1;
+    private volatile int lastValidDtcReadGeneration = -1;
+    private volatile long lastValidDtcReadAt = -1;
 
     // Nur Main-Thread.
     private final State state = new State();
@@ -334,6 +337,7 @@ public final class ObdSession {
             session = sessionGeneration.incrementAndGet();
         }
         clearDiagnosisUiForSessionChange();
+        revokeServiceLab();
         userDisconnect = false;
         monitoring.set(false);
         // Neue Verbindung übernimmt niemals Livewerte oder Anzeigen aus dem Vorgänger.
@@ -403,6 +407,7 @@ public final class ObdSession {
             session = sessionGeneration.incrementAndGet();
         }
         userDisconnect = true;
+        revokeServiceLab();
         clearDiagnosisUiForSessionChange();
         monitoring.set(false);
         protocolIsCan = null;
@@ -765,6 +770,90 @@ public final class ObdSession {
         runExclusiveDiagnosis(Op.DTC, "OBD-II Fehlercodes", jobs::readDtcReport);
     }
 
+    /** Service-Labor nur flüchtig und für exakt diese Sitzung freischalten. */
+    public void armServiceLab(boolean enabled) {
+        serviceArmedGeneration = enabled && active && !userDisconnect && client != null && client.isConnected()
+                ? sessionGeneration.get() : -1;
+    }
+
+    public boolean isServiceLabArmed() {
+        return serviceArmedGeneration == sessionGeneration.get() && active && !userDisconnect;
+    }
+
+    private void revokeServiceLab() {
+        serviceArmedGeneration = -1;
+        lastValidDtcReadGeneration = -1;
+        lastValidDtcReadAt = -1;
+    }
+
+    /** Nur nach zweistufiger ausdrücklicher UI-Bestätigung auf dem isolierten Service-Branch. */
+    public void clearEmissionCodesConfirmed() {
+        if (!isServiceLabArmed()) {
+            toast("Service-Labor ist in dieser Sitzung nicht freigegeben");
+            return;
+        }
+        if (lastValidDtcReadGeneration != sessionGeneration.get() || lastValidDtcReadAt < 0
+                || SystemClock.elapsedRealtime() - lastValidDtcReadAt > ServiceMode04Gate.MAX_DTC_READ_AGE_MS) {
+            toast("Zuerst DTC 03/07/0A vollständig lesen und Ergebnis sichern");
+            return;
+        }
+        runExclusiveDiagnosis(Op.SERVICE_CLEAR, "Mode 04 – Emissionsdiagnosedaten löschen", this::clearServiceMode04Once);
+    }
+
+    /** Exakt ein Mode-04-Sendeversuch; auch bei unbekannter Antwort kein automatischer Retry. */
+    private String clearServiceMode04Once(Elm327Client c) {
+        boolean armed = isServiceLabArmed();
+        serviceArmedGeneration = -1; // vor jeder I/O-Arbeit verbrauchen
+        final int generation = sessionGeneration.get();
+        if (!armed || !LinkPolicy.isCan11Bit(protocolNumber)) {
+            return "NICHT ausgeführt: Service-Freigabe fehlt oder 11-bit-CAN nicht bestätigt.";
+        }
+        boolean evidence = lastValidDtcReadGeneration == generation && lastValidDtcReadAt >= 0
+                && SystemClock.elapsedRealtime() - lastValidDtcReadAt <= ServiceMode04Gate.MAX_DTC_READ_AGE_MS;
+        if (!evidence) return "NICHT ausgeführt: aktuelle DTC-Bestandsaufnahme fehlt.";
+
+        try {
+            // Nicht auf historische Livewerte vertrauen: den Zustand unmittelbar vor Mode 04 lesen.
+            double rpm = readServicePid(c, 0x0C);
+            double speed = readServicePid(c, 0x0D);
+            double voltage = readServicePid(c, 0x42);
+            long now = SystemClock.elapsedRealtime();
+            ServiceMode04Gate.Preflight check = new ServiceMode04Gate.Preflight(
+                    diagnosisIsCurrent(generation), c.isConnected(), armed, true, evidence,
+                    rpm, now, speed, now, voltage, now, now);
+            String blocked = ServiceMode04Gate.blockedReason(check);
+            if (blocked != null) return "NICHT ausgeführt: " + blocked + ".";
+            ServiceMode04Gate.Ticket ticket = ServiceMode04Gate.issue(check);
+            lastValidDtcReadGeneration = -1;  // bei unklarem Status erneut lesen erforderlich
+            lastValidDtcReadAt = -1;
+            append("Service-Labor: einmaliger Mode-04-Versuch, kein Retry");
+            Elm327Client.CommandResult response = c.clearEmissionsOnce(ticket, 3500);
+            if (!ServiceMode04Gate.positiveAck(response.raw)) {
+                closeClientIfCurrent(c);
+                return "STATUS UNKLAR: keine eindeutige 44-Quittung. Nicht wiederholen. "
+                        + "Nach Reconnect Codes neu lesen. Rohantwort: " + ElmText.clean(response.raw);
+            }
+            return "Mode 04 vom Steuergerät mit 44 bestätigt.\n"
+                    + "Emissions-DTCs, Freeze-Frame-Daten und Readiness können zurückgesetzt sein. "
+                    + "Permanente Mode-0A-DTCs werden nicht direkt gelöscht.\n"
+                    + "Nach Reconnect 03/07/0A und Readiness manuell neu lesen.";
+        } catch (IOException e) {
+            closeClientIfCurrent(c);
+            return "STATUS UNKLAR: Vorprüfung oder Mode-04-Versuch fehlgeschlagen. "
+                    + "Nicht automatisch wiederholen; nach Reconnect manuell neu auslesen. Ursache: " + e.getMessage();
+        }
+    }
+
+    private double readServicePid(Elm327Client c, int id) throws IOException {
+        for (ObdPid pid : ObdPid.defaultPids()) {
+            if (pid.pid != id) continue;
+            Double v = pid.parse(c.sendCommand(pid.command(), 2200).raw);
+            if (v == null || !Double.isFinite(v)) throw new IOException("Keine gültige Antwort für " + pid.command());
+            return v;
+        }
+        throw new IOException("Unbekannte Vorprüf-PID " + id);
+    }
+
     /** True, solange ein DTC-Auftrag einschließlich seiner Abbruchphase exklusiv arbeitet. */
     public boolean isDtcScanBusy() {
         return exclusiveRequest.get() && activeDiagnosisOp == Op.DTC;
@@ -938,6 +1027,15 @@ public final class ObdSession {
                         // also after a parser error; an I/O error here drops the connection like any other
                         if (c.isConnected()) leaveDiagnosis(c);
                     }
+                }
+                // Nur vollständiger 03/07/0A-Bericht zählt als Bestandsaufnahme für Service Mode 04.
+                if (op == Op.DTC && !dtcAbortRequested && report.contains("Gespeichert:")
+                        && report.contains("Pending:") && report.contains("Permanent:")
+                        && !report.contains("Timeout") && !report.contains("Kommunikationsfehler")
+                        && !report.contains("übersprungen") && !report.contains("abgebrochen")
+                        && !report.contains("nicht gelesen")) {
+                    lastValidDtcReadGeneration = acceptedSession;
+                    lastValidDtcReadAt = SystemClock.elapsedRealtime();
                 }
                 // Review #35–#37: Ab hier ist das Ergebnis vollständig; STOP kommt zu spät und verwirft es nicht.
                 synchronized (ObdSession.this) {
