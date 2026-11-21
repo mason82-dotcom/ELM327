@@ -34,8 +34,8 @@ import java.util.Map;
 public final class MainActivity extends Activity implements ObdSession.Listener {
     private static final int REQ_NET = 41;
     private static final int REQ_TRIM_LOG = 42;
-    private static final String PREFS = "elm";
-    private static final String PREF_NOTIFICATIONS_ASKED = "notificationsAsked";
+    static final String PREFS = "elm";   // paketsichtbar für die UI-Tests (androidTest)
+    static final String PREF_NOTIFICATIONS_ASKED = "notificationsAsked";   // paketsichtbar für die UI-Tests
     private static final String PREF_ADR004 = "adr004_enabled";
 
     private EditText hostInput;

@@ -45,29 +45,41 @@ tools/android-emulator/nav.sh rot 1               # Querformat (0 = hoch)
 `tap` liest die Oberfläche mit `uiautomator dump`. Das hängt, solange Live-Werte laufen; dann mit
 `$ADB shell input tap <x> <y>` tippen.
 
-## UI-Tests (Dashboard)
+## UI-Tests (Monitor und Dashboard)
 
 ```bash
 tools/android-emulator/start.sh radio      # oder ohne radio: Telefon im Hochformat
-tools/android-emulator/uitest.sh           # baut, startet den Proxy, installiert, führt aus (etwa 3 min)
-tools/android-emulator/uitest.sh --no-build storedCodesAreReadOnlyOnRequest   # ein Test, ohne Neubau
+tools/android-emulator/uitest.sh           # beide Apps: bauen, Proxy, installieren, ausführen (etwa 4 min)
+tools/android-emulator/uitest.sh dashboard # nur eine App
+tools/android-emulator/uitest.sh --no-build app terminalRefusesWritingCommandsAndSendsReadOnlyOnes   # ein Test
 ```
 
-`dashboard/src/androidTest/…/DashboardUiTest.java` (Espresso) prüft gegen den Simulator `:35000` und
-`proxy.py hot,dtc` auf `:35010`:
+Espresso-Tests in `app/src/androidTest/…/MonitorUiTest.java` und `dashboard/src/androidTest/…/DashboardUiTest.java`,
+gemeinsame Hilfen (Warten, Simulator-Probe, Argumente) im Modul `:testsupport`. Gegen den Simulator `:35000` und
+`proxy.py hot,dtc` auf `:35010`, der jede Anfrage der Apps protokolliert:
 
-| Test | Prüft |
-|---|---|
-| `startsDisconnectedWithoutValues` | ohne Verbindung überall „–“, Kopf „READ-ONLY“ |
-| `connectShowsValuesAndDisconnectClearsThemAtOnce` | Verbinden liefert Werte, nach „Trennen“ sofort wieder „–“ |
-| `unreachableAdapterNeverShowsValues` | Adapter nicht erreichbar: 8 s lang nie ein Wert |
-| `overheatingFromLiveValueRaisesAlarmAndDisconnectClearsIt` | 120 °C → Alarm „Motor überhitzt“, Trennen nimmt ihn weg |
-| `storedCodesAreReadOnlyOnRequest` | Verbinden liest keinen Fehlerspeicher; „LESEN“ zeigt P0171 und P0302 |
+| Test | Monitor | Dashboard | Prüft |
+|---|---|---|---|
+| `startsDisconnectedWithoutValues` | ✓ | ✓ | ohne Verbindung überall „–“, „READ-ONLY“ sichtbar |
+| `connectShowsValuesAndDisconnectClearsThemAtOnce` | ✓ | ✓ | Verbinden liefert Werte, nach „Trennen“ sofort wieder „–“ |
+| `unreachableAdapterNeverShowsValues` | ✓ | ✓ | Adapter nicht erreichbar: 8 s lang nie ein Wert |
+| `storedCodesAreReadOnlyOnRequest` | ✓ | ✓ | Verbinden liest keinen Fehlerspeicher; erst auf Knopfdruck P0171 und P0302 |
+| `overheatingFromLiveValueRaisesAlarmAndDisconnectClearsIt` | – | ✓ | 120 °C → Alarm „Motor überhitzt“, Trennen nimmt ihn weg |
+| `terminalRefusesWritingCommandsAndSendsReadOnlyOnes` | ✓ | – | Terminal sperrt `04`, `14 FF 00`, `2E F1 90 00`, `ATSH7E1`; `ATIGN` geht hinaus |
+
+Danach prüft `uitest.sh` im Protokoll des Proxys (Ende-zu-Ende-Prüfung der Read-only-Grenze):
+
+- **Kein gesperrter Befehl hat den Adapter erreicht**, auch nicht mit Anhang (z. B. `04 1`). Die Liste steht nur
+  in `uitest.sh` (`BLOCKED`) und geht als Argument an den Terminal-Test. Gegenprobe: `ATIGN` aus dem Terminal-Test
+  muss im Protokoll stehen (die App sendet es sonst nie); fehlt der Test, meldet das Skript SKIP statt OK.
+- **Verbinden sendet kein Mode 03:** Der DTC-Test der Monitor-App setzt vor dem Klick auf „DTC“ die Marke `ATDPN`
+  (ebenfalls nie von der App gesendet); zwischen dem `ATZ` dieser Verbindung und der Marke darf kein `03` stehen.
 
 Der Simulator bedient wie ein WLAN-ELM327 nur eine Verbindung zur Zeit; nach jedem Test wartet der Test, bis er
-wieder antwortet (im Protokoll `simulator free after … ms`, bisher etwa 0,5 s). Exit-Code 0 nur, wenn alle bestehen.
-Eine mit anderem Schlüssel installierte App (z. B. APK aus der CI) wird im Emulator ersetzt; deren Daten gehen
-dort verloren. Die CI kompiliert die Tests nur (`assembleDebugAndroidTest`), ausführen kann sie sie nicht.
+wieder antwortet (im Protokoll `simulator free after … ms`, bisher etwa 0,5 s). `uitest.sh` schaltet im Emulator
+die Animationen für den Lauf ab (Espresso) und stellt sie danach wieder her. Exit-Code 0 nur, wenn alles besteht. Eine mit anderem Schlüssel installierte App
+(z. B. APK aus der CI) wird im Emulator ersetzt; deren Daten gehen dort verloren. Die CI kompiliert die Tests nur
+(`assembleDebugAndroidTest`), ausführen kann sie sie nicht.
 
 Als ELM327 in der App `192.168.178.50` mit Port `35000` (normal), `35001` (Fehlerphasen) oder `35010` (Proxy)
 eintragen – siehe [tools/elm327-emulator](../elm327-emulator/README.md).

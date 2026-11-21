@@ -51,7 +51,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     static final String PREFS = "dashboard";
     /** ADR-006: je Prozess höchstens ein automatischer Verbindungsversuch beim App-Start. */
     private static boolean autoConnectTried;
-    private static final String PREF_NOTIFICATIONS_ASKED = "notifications_asked";
+    static final String PREF_NOTIFICATIONS_ASKED = "notifications_asked";   // paketsichtbar für die UI-Tests
     private static final int REQ_NET = 41;
     private static final int TREND_POINTS = 240;
 

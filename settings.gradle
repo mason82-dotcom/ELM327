@@ -18,3 +18,5 @@ rootProject.name = "MercedesOBD2Monitor"
 include ':obdcore'
 include ':app'
 include ':dashboard'
+// nur für UI-Tests (androidTest) der beiden Apps
+include ':testsupport'

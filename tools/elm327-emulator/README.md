@@ -104,7 +104,9 @@ python3 tools/elm327-emulator/proxy.py weak,slow    # Modi lassen sich kombinier
 | `dtc` | Fehlerspeicher 03: statt „keine“ P0171 und P0302 | Erklärungen, M272-Hinweise |
 | `slow` / `slow=1.5` | jede Antwort 0,7 s (bzw. 1,5 s) später | Ladezustände, Abfragetakt |
 
-Andere Adressen mit `--listen host:port` und `--upstream host:port`. Anfragen der App gehen unverändert durch.
+Andere Adressen mit `--listen host:port` und `--upstream host:port`. Anfragen der App gehen unverändert durch;
+`--log datei` schreibt jede Anfrage als eigene Zeile mit (die UI-Tests prüfen damit, dass gesperrte Befehle den
+Adapter nie erreichen).
 
 ## Bekannte Schwäche des Emulators
 
