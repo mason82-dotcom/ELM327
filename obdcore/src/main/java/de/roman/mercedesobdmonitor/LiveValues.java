@@ -46,6 +46,13 @@ public final class LiveValues {
         return out;
     }
 
+    /** Messwert nur, wenn er höchstens {@link #MAX_AGE_MS} alt ist; sonst null (Review: Prüfplan nahm alte Drehzahl). */
+    public static Double fresh(Map<Integer, Double> values, Map<Integer, Long> freshAt, int pid, long nowMs) {
+        Double v = values.get(pid);
+        Long at = freshAt.get(pid);
+        return v == null || at == null || nowMs - at > MAX_AGE_MS ? null : v;
+    }
+
     public static boolean isValid(String text) {
         return text != null && !INVALID.equals(text);
     }

@@ -1685,7 +1685,10 @@ public final class ObdSession {
 
     private void recordForPlan(Op op, String message) {
         if (op == null) return;
-        Double coolant = latestValues.get(0x05), rpm = latestValues.get(0x0C);
+        // nur frische Werte: eine Drehzahl von kurz vor dem Abstellen darf nicht „Motor läuft“ melden
+        long now = SystemClock.elapsedRealtime();
+        Double coolant = LiveValues.fresh(latestValues, latestAt, 0x05, now);
+        Double rpm = LiveValues.fresh(latestValues, latestAt, 0x0C, now);
         // Die Kennungssuche liest 01 05 selbst; der Live-Wert kann fehlen oder alt sein (kalt/warm im Prüfplan).
         if (op == Op.LID_SCAN) {
             double own = LocalIdScan.coolantFromReport(message);
