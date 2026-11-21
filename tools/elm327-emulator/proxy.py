@@ -140,7 +140,13 @@ def pipe(src, dst, rewrites=(), delay=0.0):
     except OSError:
         pass
     finally:
+        # shutdown before close: close() alone does not wake the other thread blocked in recv() on the same socket,
+        # the connection stayed open and kept the single-client emulator busy after the app had disconnected.
         for s in (src, dst):
+            try:
+                s.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             try:
                 s.close()
             except OSError:
