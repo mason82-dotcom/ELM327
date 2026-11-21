@@ -70,6 +70,9 @@ echo -n "Warte auf Android ($avd)"
 "$ADB" start-server >/dev/null 2>&1 || true
 for _ in $(seq 1 120); do
   if [ "$("$ADB" -s emulator-5560 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; then
+    # Keine Absturz-/ANR-Dialoge (Entwickleroption): „System UI isn't responding“ nach dem ersten Start blieb
+    # sonst im Snapshot stehen und nahm der App den Fokus (UI-Tests scheiterten).
+    "$ADB" -s emulator-5560 shell settings put global hide_error_dialogs 1 >/dev/null 2>&1 || true
     echo; echo "Bereit nach $(( $(date +%s) - t0 )) s – adb -s emulator-5560, Helfer ./nav.sh"; exit 0
   fi
   docker ps -q --filter name='^elm-emu$' | grep -q . || { echo; echo "Container beendet:"; docker logs --tail 30 elm-emu 2>&1; exit 1; }

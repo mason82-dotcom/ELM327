@@ -14,7 +14,8 @@ tools/android-emulator/stop.sh             # beenden, Snapshot speichern (etwa 5
 
 - Der erste Start eines Profils legt das AVD an (etwa 80 s). Danach startet es aus dem Snapshot in etwa 10 s.
   Apps, Berechtigungen und die eingetragene Adapteradresse bleiben erhalten.
-- Beim allerersten Start meldet Android „System UI isn't responding“ → `nav.sh tap Wait`.
+- Absturz- und „reagiert nicht“-Dialoge sind im Emulator abgeschaltet (`hide_error_dialogs`); ein schon offener
+  Dialog aus einem älteren Snapshot: `nav.sh tap Wait`.
 - Immer nur ein Profil gleichzeitig (adb-Gerät `emulator-5560`). Der Container hat einen niedrigen CPU-Anteil, damit
   Gradle-Builds Vorrang haben. Nach der Prüfung `stop.sh`: der Emulator belegt 2–3 GB Arbeitsspeicher.
 - Beenden nur mit `stop.sh` (SIGTERM speichert den Snapshot). Wurde der Container hart beendet und startet danach
@@ -43,6 +44,30 @@ tools/android-emulator/nav.sh rot 1               # Querformat (0 = hoch)
 
 `tap` liest die Oberfläche mit `uiautomator dump`. Das hängt, solange Live-Werte laufen; dann mit
 `$ADB shell input tap <x> <y>` tippen.
+
+## UI-Tests (Dashboard)
+
+```bash
+tools/android-emulator/start.sh radio      # oder ohne radio: Telefon im Hochformat
+tools/android-emulator/uitest.sh           # baut, startet den Proxy, installiert, führt aus (etwa 3 min)
+tools/android-emulator/uitest.sh --no-build storedCodesAreReadOnlyOnRequest   # ein Test, ohne Neubau
+```
+
+`dashboard/src/androidTest/…/DashboardUiTest.java` (Espresso) prüft gegen den Simulator `:35000` und
+`proxy.py hot,dtc` auf `:35010`:
+
+| Test | Prüft |
+|---|---|
+| `startsDisconnectedWithoutValues` | ohne Verbindung überall „–“, Kopf „READ-ONLY“ |
+| `connectShowsValuesAndDisconnectClearsThemAtOnce` | Verbinden liefert Werte, nach „Trennen“ sofort wieder „–“ |
+| `unreachableAdapterNeverShowsValues` | Adapter nicht erreichbar: 8 s lang nie ein Wert |
+| `overheatingFromLiveValueRaisesAlarmAndDisconnectClearsIt` | 120 °C → Alarm „Motor überhitzt“, Trennen nimmt ihn weg |
+| `storedCodesAreReadOnlyOnRequest` | Verbinden liest keinen Fehlerspeicher; „LESEN“ zeigt P0171 und P0302 |
+
+Der Simulator bedient wie ein WLAN-ELM327 nur eine Verbindung zur Zeit; nach jedem Test wartet der Test, bis er
+wieder antwortet (im Protokoll `simulator free after … ms`, bisher etwa 0,5 s). Exit-Code 0 nur, wenn alle bestehen.
+Eine mit anderem Schlüssel installierte App (z. B. APK aus der CI) wird im Emulator ersetzt; deren Daten gehen
+dort verloren. Die CI kompiliert die Tests nur (`assembleDebugAndroidTest`), ausführen kann sie sie nicht.
 
 Als ELM327 in der App `192.168.178.50` mit Port `35000` (normal), `35001` (Fehlerphasen) oder `35010` (Proxy)
 eintragen – siehe [tools/elm327-emulator](../elm327-emulator/README.md).
