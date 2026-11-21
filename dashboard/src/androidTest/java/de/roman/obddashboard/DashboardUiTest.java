@@ -7,6 +7,7 @@ import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.isEnabled;
 import static androidx.test.espresso.matcher.ViewMatchers.withChild;
+import static androidx.test.espresso.matcher.ViewMatchers.withContentDescription;
 import static androidx.test.espresso.matcher.ViewMatchers.withParent;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 import static org.hamcrest.Matchers.allOf;
@@ -41,7 +42,7 @@ import org.junit.runner.RunWith;
 @RunWith(AndroidJUnit4.class)
 public class DashboardUiTest {
     private static final String NONE = ObdSession.INVALID_TEXT;
-    private static final String[] TILES = {"STFT B1", "STFT B2", "LTFT B1", "LTFT B2", "ECU-Spannung"};
+    private static final String[] TILES = {"STFT B1", "STFT B2", "LTFT B1", "LTFT B2", "ECU-Spannung", "ATF Getriebe"};
 
     private ActivityScenario<DashboardActivity> scenario;
 
@@ -116,6 +117,34 @@ public class DashboardUiTest {
         // proxy: Mode 03 answers P0171 and P0302
         waitFor(withText(containsString("P0171")), 45_000);
         on(withText(containsString("P0302"))).check(matches(isDisplayed()));
+    }
+
+    @Test
+    public void gearAndTransmissionOilAreLiveWithWarning() {
+        launch(ElmTest.atfProxyPort());
+        on(withText("Verbinden")).perform(click());
+        // proxy.py atf: recorded answer of 21.11. (D, gear 3 → 2) with ATF 125 °C
+        waitFor(allOf(tileValue("ATF Getriebe"), withText("125 °C")), 25_000);
+        waitFor(withContentDescription(containsString("Gang D 3→2")), 5_000);
+        // 125 °C ≥ 120 °C: warning after its hold time, gone at once after disconnecting
+        waitFor(withText(containsString("Getriebeöl 125 °C")), 20_000);
+        on(withText("Trennen")).perform(click());
+        waitFor(withText("Verbinden"), 5_000);
+        ElmTest.poll(() -> {
+            on(tileValue("ATF Getriebe")).check(matches(withText(NONE)));
+            on(withContentDescription(containsString("Gang unbekannt"))).check(matches(isDisplayed()));
+        }, 1_500);
+        waitGone(withText(containsString("Getriebeöl")), 3_000);
+    }
+
+    @Test
+    public void transmissionLiveSwitchesOffWhenTheGearboxNeverAnswers() {
+        // the simulator answers 21 30 with NO DATA: after three tries Getriebe live is off for this connection
+        launch(ElmTest.simulatorPort());
+        on(withText("Verbinden")).perform(click());
+        waitFor(allOf(tileValue("ATF Getriebe"), withText("aus"),
+                withContentDescription("ATF Getriebe: aus – Getriebe antwortet nicht")), 30_000);
+        on(tileValue("ECU-Spannung")).check(matches(not(withText(NONE))));   // the other values keep coming
     }
 
     // --- helpers ---

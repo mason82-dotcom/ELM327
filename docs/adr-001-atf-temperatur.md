@@ -1,6 +1,7 @@
 # ADR-001: ATF-Temperatur der 7G-Tronic als eng begrenzte Ausnahme vom Header-Verbot
 
-**Status:** Angenommen (07.11.2026), Byteindex korrigiert durch [ADR-003](adr-003-atf-antwort-layout.md) (20.11.2026)
+**Status:** Angenommen (07.11.2026), Byteindex korrigiert durch [ADR-003](adr-003-atf-antwort-layout.md) (20.11.2026),
+„kein Dauer-Polling“ für das Dashboard ersetzt durch [ADR-008](adr-008-getriebe-live.md) (21.11.2026)
 **Datum:** 07.11.2026
 **Entscheidet:** Betreiber (mason)
 
@@ -31,7 +32,7 @@ Plausibilitätsprüfung.
 - Die Sequenz `ATSH7E1` → `2130` → `ATSH7DF` läuft nur als exklusive Diagnose (Live-Polling pausiert) und stellt den
   Header im `finally` wieder her. Scheitert die Wiederherstellung, wird die Verbindung neu aufgebaut (`ATZ` setzt
   den Header ohnehin zurück).
-- Kein Dauer-Polling: Die ATF-Temperatur wird auf Knopfdruck gelesen (Ölstand-Check, Warmlauf) und mit Rohantwort
+- Kein Dauer-Polling (gilt seit [ADR-008](adr-008-getriebe-live.md) nur noch für die Monitor-App): Die ATF-Temperatur wird auf Knopfdruck gelesen (Ölstand-Check, Warmlauf) und mit Rohantwort
   angezeigt, damit sie am echten C350 gegen die Warmlaufkurve geprüft werden kann.
 - Rohwert 0x00/0x01 oder unplausible Werte (unter −40 °C, über 150 °C) gelten als „kein gültiger Wert“.
 

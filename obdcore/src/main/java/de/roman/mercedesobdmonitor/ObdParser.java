@@ -2,8 +2,10 @@ package de.roman.mercedesobdmonitor;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -15,6 +17,9 @@ public final class ObdParser {
     private static final Pattern ISO_TP_SEGMENT = Pattern.compile("[0-9A-F]:[0-9A-F]*");
     /** 11-bit-Antwortkennung 7E8–7EF + Single-Frame-PCI 01–07 (ATH1, ATS0), z. B. „7E803410C0EE7“. */
     private static final Pattern CAN_SINGLE_FRAME = Pattern.compile("^(7E[89A-F])0([1-7])([0-9A-F]*)$");
+    /** Mit Header (ATH1): ISO-TP-Erstrahmen „7E9 10 18 …“ (Länge 12 bit) und Folgerahmen „7E9 21 …“. */
+    private static final Pattern CAN_FIRST_FRAME = Pattern.compile("^(7E[89A-F])1([0-9A-F]{3})([0-9A-F]*)$");
+    private static final Pattern CAN_CONSECUTIVE_FRAME = Pattern.compile("^(7E[89A-F])2([0-9A-F])([0-9A-F]*)$");
 
     /** Antwortkennung des Motorsteuergeräts (ME9.7 beim M272). */
     public static final String ENGINE_ECU = "7E8";
@@ -325,16 +330,35 @@ public final class ObdParser {
      * hätte die zuerst eintreffende Antwort gegolten.
      */
     static List<String> payloadLines(String raw) {
-        List<String> engine = new ArrayList<>();
-        List<String> other = new ArrayList<>();
+        // Je Steuergerät gesammelt (Motor 7E8 zuerst), damit mehrteilige Antworten zweier Steuergeräte nicht
+        // ineinander geraten; Zeilen ohne Header bleiben in ihrer Reihenfolge am Ende.
+        Map<String, List<String>> byEcu = new LinkedHashMap<>();
+        byEcu.put(ENGINE_ECU, new ArrayList<>());
+        List<String> plain = new ArrayList<>();
         for (String line : normalizedLines(raw)) {
             String[] split = splitCanHeader(line);
-            if (split == null) other.add(line);
-            else if (ENGINE_ECU.equals(split[0])) engine.add(split[1]);
-            else other.add(split[1]);
+            if (split != null) {
+                byEcu.computeIfAbsent(split[0], k -> new ArrayList<>()).add(split[1]);
+                continue;
+            }
+            // Mehrteilige Antwort mit Header (Getriebe live, ADR-008): in die Form ohne Header übersetzen
+            // (Längenzeile, „N:“-Segmente), die assembleCanMessages zusammensetzt.
+            Matcher first = CAN_FIRST_FRAME.matcher(line);
+            Matcher next = CAN_CONSECUTIVE_FRAME.matcher(line);
+            if (first.matches()) {
+                List<String> target = byEcu.computeIfAbsent(first.group(1), k -> new ArrayList<>());
+                target.add(first.group(2));
+                target.add("0:" + first.group(3));
+            } else if (next.matches()) {
+                byEcu.computeIfAbsent(next.group(1), k -> new ArrayList<>()).add(next.group(2) + ":" + next.group(3));
+            } else {
+                plain.add(line);
+            }
         }
-        engine.addAll(other);
-        return engine;
+        List<String> lines = new ArrayList<>();
+        for (List<String> ecu : byEcu.values()) lines.addAll(ecu);
+        lines.addAll(plain);
+        return lines;
     }
 
     static List<String> normalizedLines(String raw) {

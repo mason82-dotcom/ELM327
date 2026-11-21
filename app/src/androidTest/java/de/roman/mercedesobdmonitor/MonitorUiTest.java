@@ -98,9 +98,10 @@ public class MonitorUiTest {
         // connecting alone reads no fault memory: no result dialog, the activity keeps the focus …
         SystemClock.sleep(3_000);
         onView(withText("Verbinden")).check(matches(isDisplayed()));
-        // … and no Mode 03 request: ATDPN (never sent by the app itself) marks this moment in the proxy log;
-        // uitest.sh checks that no "03" lies between the connection's ATZ and this mark.
-        sendAnswered("ATDPN");
+        // … and no Mode 03 request: AT@1 (never sent by the apps themselves – unlike ATDPN, which the connection
+        // setup sends) marks this moment in the proxy log; uitest.sh checks that no "03" lies between the
+        // connection's ATZ and this mark.
+        sendAnswered("AT@1");
 
         scrollPage(View.FOCUS_UP);   // the terminal is at the bottom, the DTC button near the top
         onView(withText("DTC")).perform(click());

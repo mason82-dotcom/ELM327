@@ -2,6 +2,22 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.14.2 (Monitor) / 0.22.0 (Dashboard): Gang und Getriebeöl live
+
+- **Gang und ATF live im Dashboard (ADR-008):** Gang groß im Drehzahlmesser („D 3“, beim Schalten „D 3→2“, „P“/„R“/„N“),
+  ATF-Temperatur als Kachel (im Querformat statt „ALLE WERTE“, der Knopf steht jetzt in der Fußzeile). Gelesen alle
+  2 s mit derselben Sequenz wie „ATF lesen“ (`ATSH7E1` → `21 30` → `ATSH7DF`), im Thread der Live-Abfragen; Header
+  immer zurück, sonst wird die Verbindung verworfen. Nach drei ungültigen Antworten oder einem gescheiterten
+  Rückweg für die Verbindung aus, die Kachel nennt den Grund. Werte im CSV-Log, Alterslimit wie alle Live-Werte.
+- **Warnung Getriebeöl:** gelb ab 120 °C, rot ab 130 °C (5 s Haltezeit, 4 K Hysterese) – Richtwerte; das WIS nennt
+  nur den Arbeitsbereich bis 110 °C und Momentenrücknahme bei Übertemperatur.
+- **Parser:** mehrteilige CAN-Antworten mit Header (ATH1) werden zusammengesetzt; vorher nur Einzelrahmen, die
+  Getriebeantwort im Live-Betrieb wäre nicht lesbar gewesen (Unit-Test mit der Antwort vom 21.11.).
+- **UI-Tests:** Dashboard prüft Gang/ATF mit Warnung (`proxy.py atf`) und die Selbstabschaltung am Simulator ohne
+  Getriebe. Die Marke für „kein Mode 03 beim Verbinden“ ist jetzt `AT@1` – `ATDPN` sendet die App beim Verbindungs-
+  aufbau selbst, die Prüfung aus #58 war damit ohne Aussage. Neu im Terminal-Test: `31 01 FF 00` und `27 01`; `ATSH7E1`
+  bleibt im Terminal gesperrt, ist aber von der Protokollprüfung ausgenommen (vom Dashboard jetzt legitim gesendet).
+
 ## Version 1.14.1 (Monitor) / 0.21.1 (Dashboard): Starttest mit Spannungsabgleich
 
 - **Abgleich Adapter ↔ Motorsteuergerät:** Am 21.11. maß der WLAN-Adapter (`ATRV`) in Ruhe 10,6 V, das Steuergerät

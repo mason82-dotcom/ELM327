@@ -6,13 +6,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -28,11 +22,10 @@ import org.junit.Test;
  * zurückgesetzt und bei Störungen die Verbindung verworfen wird (Tech-Debt Phase 2, vorher ohne Test).
  */
 public class DiagnosticJobsTest {
-    /** Antwort je Befehl; null = keine Antwort (Timeout). */
+    /** Antwort je Befehl; null = keine Antwort (Timeout). Wird vor dem ersten Befehl gesetzt. */
     private Function<String, String> answers;
-    private final List<String> received = Collections.synchronizedList(new ArrayList<>());
-    private ServerSocket server;
-    private Thread thread;
+    private List<String> received;
+    private ElmFake elm;
     private Elm327Client client;
     private FakeHost host;
     private java.util.function.LongSupplier savedClock;
@@ -69,41 +62,16 @@ public class DiagnosticJobsTest {
         savedClock = Elm327Client.clock;
         Elm327Client.clock = () -> System.nanoTime() / 1_000_000L;
         host = new FakeHost();
-        server = new ServerSocket(0);
-        thread = new Thread(() -> {
-            try (Socket s = server.accept()) {
-                InputStream in = s.getInputStream();
-                OutputStream out = s.getOutputStream();
-                StringBuilder cmd = new StringBuilder();
-                int b;
-                while ((b = in.read()) >= 0) {
-                    if (b != '\r') {
-                        cmd.append((char) b);
-                        continue;
-                    }
-                    String c = cmd.toString();
-                    cmd.setLength(0);
-                    received.add(c);
-                    String a = answers.apply(c);
-                    if (a != null) {
-                        out.write((a + "\r\r>").getBytes(StandardCharsets.US_ASCII));
-                        out.flush();
-                    }
-                }
-            } catch (IOException ignored) {
-                // Verbindung zu
-            }
-        });
-        thread.start();
-        client = new Elm327Client("127.0.0.1", server.getLocalPort(), null);
-        client.connect(2000);
+        elm = new ElmFake();
+        elm.answers = c -> answers.apply(c);
+        received = elm.received;
+        client = elm.connect();
     }
 
     @After
     public void tearDown() throws Exception {
         client.close();
-        server.close();
-        thread.join(2000);
+        elm.close();
         Elm327Client.clock = savedClock;
     }
 

@@ -100,6 +100,8 @@ public final class ObdSession {
         public String warmupStatus = WARMUP_READY;
         /** Monitorstatus der laufenden Fahrt (01 41); null, solange nicht gelesen/unterstützt. */
         public String driveCycleText;
+        /** Getriebe live (ADR-008): null = läuft oder nicht eingeschaltet, sonst „aus – Grund“. */
+        public String transmissionNote;
         public final Set<Op> busy = EnumSet.noneOf(Op.class);
 
         public String console() {
@@ -194,6 +196,7 @@ public final class ObdSession {
     private final LiveWarnings liveWarnings = new LiveWarnings();
     private final WarningAlerts warningAlerts = new WarningAlerts();
     private boolean warningsEnabled;
+    private volatile boolean transmissionLive;
     private LiveWarnings.Warning currentWarning;
     private boolean currentCanMute;
     private android.media.ToneGenerator tone;
@@ -208,6 +211,23 @@ public final class ObdSession {
         warningsEnabled = enabled;
         if (!enabled) resetWarnings();
         else if (active) evaluateWarnings();   // Sitzung lief schon (z. B. vom Radiostart)
+    }
+
+    /**
+     * ADR-008: Gang und ATF-Temperatur im Live-Takt lesen (Dashboard). Die Monitor-App liest die ATF weiter auf
+     * Knopfdruck. Wirkt ab der nächsten Live-Runde.
+     */
+    public void setTransmissionLiveEnabled(boolean enabled) {
+        transmissionLive = enabled;
+    }
+
+    public boolean isTransmissionLiveEnabled() {
+        return transmissionLive;
+    }
+
+    /** Letzter gültiger Live-Wert unter diesem Schlüssel (PID oder {@link TransmissionLive}), null ohne frischen Wert. */
+    public synchronized Double latestValue(int key) {
+        return LiveValues.fresh(latestValues, latestAt, key, SystemClock.elapsedRealtime());
     }
 
     public LiveWarnings.Warning currentWarning() {
@@ -343,6 +363,7 @@ public final class ObdSession {
         fuelTrimTest.cancel();
         closeClient();
         state.driveCycleText = null;
+        state.transmissionNote = null;
         if (listener != null) listener.onPassive(state);
         // Status vor „aktiv“ setzen, damit die Benachrichtigung nicht kurz „Getrennt“ zeigt.
         showStatusForConnection(session, "Verbinde mit " + target(host, port, transport) + " …");
@@ -413,6 +434,7 @@ public final class ObdSession {
         if (warmupCheck.isRunning()) finishWarmupCheck();
         showStatusForConnection(session, "Getrennt");
         invalidateAllLive(session);
+        publishTransmissionNote(session, null);   // „aus – …“ gehört zur getrennten Verbindung (ADR-008)
         if (reason != null) append(reason);
         append("Verbindung getrennt");
         replaceTransport(null);   // laufenden Bluetooth-Aufbau abbrechen (Review)
@@ -551,6 +573,9 @@ public final class ObdSession {
 
     private void monitorLoop(int session, String host, int port, ElmLink.Opener transport) {
         int pollCycle = 0;
+        TransmissionLive.Schedule gearbox = new TransmissionLive.Schedule();   // je Verbindung (ADR-008)
+        boolean gearboxNoCanNoted = false;
+        publishTransmissionNote(session, null);
         while (monitoring.get() && !userDisconnect && session == sessionGeneration.get()) {
             // Age limit on every path (slow PIDs, paused polling during diagnoses, any future branch).
             for (Integer old : LiveValues.expired(latestAt, SystemClock.elapsedRealtime(), LiveValues.MAX_AGE_MS)) {
@@ -592,35 +617,7 @@ public final class ObdSession {
                         else parserErrors.incrementAndGet();
                         continue;
                     }
-                    final double value = result.value;
-                    samples.incrementAndGet();
-                    totalLatency.addAndGet(r.elapsedMs);
-                    // Sessionwechsel und Veröffentlichung der drei Metadaten sind atomar:
-                    // eine verspätete Antwort darf die Live-Cachewerte der neuen Verbindung nicht überschreiben.
-                    synchronized (this) {
-                        if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) break;
-                        latestValues.put(pid.pid, value);
-                        latestSequences.put(pid.pid, telemetrySequence.incrementAndGet());
-                        latestAt.put(pid.pid, SystemClock.elapsedRealtime());
-                    }
-                    // CSV nicht unter dem Sitzungs-Lock schreiben (Dateisystem-I/O).
-                    if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) break;
-                    csv.record(System.currentTimeMillis(), pid, value, r.elapsedMs, r.raw);
-                    final String text = pid.format(value);
-                    final long latency = r.elapsedMs;
-                    final double sample = value;
-                    ui.post(() -> {
-                        if (session != sessionGeneration.get()) return;
-                        state.pidTexts.put(pid.pid, text);
-                        if (state.latencies.size() >= LATENCY_POINTS) state.latencies.removeFirst();
-                        state.latencies.addLast(latency);
-                        if (warningsEnabled) liveWarnings.onSample(pid.pid, sample, SystemClock.elapsedRealtime());
-                        if (listener != null) {
-                            listener.onPidValue(pid.pid, text);
-                            listener.onPidSample(pid.pid, sample);
-                            listener.onLatency(latency);
-                        }
-                    });
+                    if (!publishLive(session, pid, result.value, pid.format(result.value), r.elapsedMs, r.raw, true)) break;
                     fresh = true;
                     updateStats();
                 } catch (SocketTimeoutException e) {
@@ -657,6 +654,16 @@ public final class ObdSession {
                 }
                 ElmText.sleepQuiet(25);
             }
+            if (transmissionLive && monitoring.get() && !userDisconnect && !exclusiveRequest.get()
+                    && session == sessionGeneration.get()) {
+                if (!LinkPolicy.isCan11Bit(protocolNumber)) {
+                    if (!gearboxNoCanNoted) publishTransmissionNote(session, "aus – nur über CAN 11 bit");
+                    gearboxNoCanNoted = true;
+                } else if (gearbox.due(SystemClock.elapsedRealtime())) {
+                    Elm327Client current = client;
+                    if (current != null && current.isConnected()) pollTransmission(session, current, gearbox);
+                }
+            }
             if (driveCyclePid && cycle % DRIVE_CYCLE_EVERY == 0 && monitoring.get() && !userDisconnect
                     && !exclusiveRequest.get() && session == sessionGeneration.get()) {
                 Elm327Client current = client;
@@ -665,6 +672,119 @@ public final class ObdSession {
             updatePassiveDiagnostics(session);
             ElmText.sleepQuiet(70);
         }
+    }
+
+    /**
+     * Gültigen Live-Wert veröffentlichen: Zwischenspeicher mit Alterslimit, CSV, Warnungen, Anzeige.
+     * @param ownRequest true für den ersten Wert einer Anfrage: zählt in der Statistik und trägt die Rohantwort ins
+     *                   CSV; weitere Werte derselben Antwort (Gang neben ATF) zählen nicht doppelt
+     * @return false nach einem Sitzungswechsel (dann wurde nichts veröffentlicht)
+     */
+    private boolean publishLive(int session, ObdPid pid, double value, String text, long latency, String raw,
+            boolean ownRequest) {
+        if (ownRequest) {
+            samples.incrementAndGet();
+            totalLatency.addAndGet(latency);
+        }
+        // Sessionwechsel und Veröffentlichung der drei Metadaten sind atomar:
+        // eine verspätete Antwort darf die Live-Cachewerte der neuen Verbindung nicht überschreiben.
+        synchronized (this) {
+            if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) return false;
+            latestValues.put(pid.pid, value);
+            latestSequences.put(pid.pid, telemetrySequence.incrementAndGet());
+            latestAt.put(pid.pid, SystemClock.elapsedRealtime());
+        }
+        // CSV nicht unter dem Sitzungs-Lock schreiben (Dateisystem-I/O).
+        if (!SessionEpoch.matchesGeneration(session, sessionGeneration.get())) return false;
+        csv.record(System.currentTimeMillis(), pid, value, latency, ownRequest ? raw : "");
+        ui.post(() -> {
+            if (session != sessionGeneration.get()) return;
+            state.pidTexts.put(pid.pid, text);
+            if (ownRequest) {
+                if (state.latencies.size() >= LATENCY_POINTS) state.latencies.removeFirst();
+                state.latencies.addLast(latency);
+            }
+            if (warningsEnabled) liveWarnings.onSample(pid.pid, value, SystemClock.elapsedRealtime());
+            if (listener != null) {
+                listener.onPidValue(pid.pid, text);
+                listener.onPidSample(pid.pid, value);
+                if (ownRequest) listener.onLatency(latency);
+            }
+        });
+        return true;
+    }
+
+    /**
+     * ADR-008: Gang und ATF im Live-Thread (eigene Schlüssel, Alterslimit wie alle Live-Werte). Verbindung verloren
+     * oder Header nicht zurück → Verbindung verworfen und Getriebe-live für die Sitzung aus; wiederholt keine gültige
+     * Antwort → ebenfalls aus.
+     */
+    private void pollTransmission(int session, Elm327Client c, TransmissionLive.Schedule schedule) {
+        schedule.started(SystemClock.elapsedRealtime());
+        TransmissionLive.Sample s;
+        try {
+            s = TransmissionLive.poll(c, () -> closeClientIfCurrent(c));
+        } catch (TransmissionLive.HeaderNotRestored e) {
+            // Verbindung stand, aber der Header ist nicht sicher 7DF: Verbindung ist verworfen, Getriebe live aus
+            if (userDisconnect || session != sessionGeneration.get()) return;
+            timeouts.incrementAndGet();
+            schedule.onDropped(e.getMessage());
+            invalidateTransmission(session);
+            append("Getriebe live: " + schedule.offReason() + " · Verbindung wird neu aufgebaut, Getriebe live für "
+                    + "diese Verbindung aus (ADR-008)");
+            publishTransmissionNote(session, "aus – Header-Rückweg gescheitert");
+            cancelFuelTrimForConnectionLoss("Verbindungsfehler");
+            updateStats();
+            return;
+        } catch (IOException e) {
+            // Verbindungsabriss mitten in der Sequenz: normaler Neuaufbau, Getriebe live bleibt an
+            if (userDisconnect || session != sessionGeneration.get()) return;
+            ioErrors.incrementAndGet();
+            invalidateTransmission(session);
+            append("I/O: " + e.getMessage());
+            cancelFuelTrimForConnectionLoss("Verbindungsfehler");
+            updateStats();
+            return;
+        }
+        if (s.timedOut) {
+            // wie ein PID-Timeout: gezählt, und wiederholt in Folge führt es zum Neuaufbau
+            timeouts.incrementAndGet();
+            if (pollTimeouts.onTimeout(true)) {
+                append("Timeout bei 21 30 (" + pollTimeouts.consecutive() + "× in Folge) · Verbindung wird neu aufgebaut");
+                pollTimeouts.reset();
+                cancelFuelTrimForConnectionLoss("Timeout");
+                closeClientIfCurrent(c);
+            }
+        } else {
+            pollTimeouts.onResponse();
+        }
+        if (schedule.onResult(s.valid(), s.problem)) {
+            append("Getriebe live: " + schedule.offReason() + " · für diese Verbindung aus (ADR-008)");
+            publishTransmissionNote(session, "aus – Getriebe antwortet nicht");
+        }
+        // ATF trägt Statistik und Rohantwort, der Gang aus derselben Antwort nicht noch einmal
+        boolean atfShown = s.celsius != null && publishLive(session, TransmissionLive.ATF_PID, s.celsius,
+                TransmissionLive.ATF_PID.format(s.celsius), s.elapsedMs, s.raw, true);
+        if (!atfShown) invalidatePid(session, TransmissionLive.KEY_ATF);
+        if (s.gear == null || !publishLive(session, TransmissionLive.GEAR_PID, s.gearNumber, s.gear, s.elapsedMs,
+                s.raw, !atfShown)) {
+            invalidatePid(session, TransmissionLive.KEY_GEAR);
+        }
+        updateStats();
+    }
+
+    private void invalidateTransmission(int session) {
+        invalidatePid(session, TransmissionLive.KEY_ATF);
+        invalidatePid(session, TransmissionLive.KEY_GEAR);
+    }
+
+    /** Hinweis zu Getriebe-live für die Anzeige (null = läuft bzw. nicht eingeschaltet). */
+    private void publishTransmissionNote(int session, String note) {
+        ui.post(() -> {
+            if (session != sessionGeneration.get()) return;
+            state.transmissionNote = note;
+            if (listener != null) listener.onPassive(state);
+        });
     }
 
     /** 01 41 im langsamen Takt: welche Monitore in dieser Fahrt schon abgeschlossen sind. */

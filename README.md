@@ -50,7 +50,12 @@ Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantwort
 - Drehzahl, Tempo, Kühlmittel, Last, Drosselklappe, Luftmasse, Saugrohrdruck, Ansaugluft, STFT/LTFT beider Bänke,
   Steuergerätespannung, Soll-Lambda, Umgebungsdruck; Dashboard mit Rundinstrumenten und Verlaufskurven.
 - Werte des Motorsteuergeräts (7E8), auch wenn das Getriebe dieselben PIDs beantwortet.
+- **Gang und Getriebeöl live (Dashboard):** Gang groß im Drehzahlmesser („P“, „R“, „N“, „D 3“, beim Schalten
+  „D 3→2“), ATF-Temperatur als Kachel; alle 2 s über dieselben drei Befehle wie „ATF lesen“ (ADR-008). Antwortet das
+  Getriebe nicht (anderes Fahrzeug, Adapter ohne `ATSH`), schaltet sich das für die Verbindung ab und die Kachel
+  nennt den Grund.
 - **Warnungen (Dashboard):** Leiste über allen Seiten bei hoher Kühlmitteltemperatur (gelb ab 108 °C, rot ab 115 °C),
+  heißem Getriebeöl (gelb ab 120 °C, rot ab 130 °C – Richtwerte über dem Arbeitsbereich bis 110 °C laut WIS),
   schwacher Batterie bei Zündung an (unter 11,8 V), zu wenig Ladung (unter 12,6 V; bei voller Batterie senkt das Steuergerät die Ladespannung absichtlich) oder Überspannung (über 15,0 V) bei
   laufendem Motor. Rot mit Ton (auch wenn eine andere App vorn ist), „Ton aus“ je Meldung. Orientierungswerte, keine
   Herstellerangabe; nur aus den ohnehin gelesenen Werten.
@@ -96,6 +101,7 @@ Jede Ausnahme ist eine eigene Entscheidung mit exakt festgelegten Befehlen und R
 | [ADR-005](docs/adr-005-bluetooth.md) | Transport über Bluetooth (SPP) – keine neuen Befehle |
 | [ADR-006](docs/adr-006-autostart.md) | Automatisch verbinden (App-Start, Radiostart) – keine neuen Befehle |
 | [ADR-007](docs/adr-007-kennungssuche-motor.md) | verworfen (21.11.2026): das Motorsteuergerät antwortet unter 7E0 nicht – keine Freigabe |
+| [ADR-008](docs/adr-008-getriebe-live.md) | Gang und ATF live im Dashboard: ADR-001-Sequenz alle 2 s, Selbstabschaltung – keine neuen Befehle |
 
 Gesperrt bleiben Fehlerlöschen, Sitzungswechsel, Security Access, Stellglieder, Routinen, Schreiben und Flashen.
 

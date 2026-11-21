@@ -26,11 +26,13 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import de.roman.mercedesobdmonitor.AnalysisController;
+import de.roman.mercedesobdmonitor.LiveWarnings;
 import de.roman.mercedesobdmonitor.ObdPid;
 import de.roman.mercedesobdmonitor.ObdService;
 import de.roman.mercedesobdmonitor.AdapterChoice;
 import de.roman.mercedesobdmonitor.ObdSession;
 import de.roman.mercedesobdmonitor.PlanUi;
+import de.roman.mercedesobdmonitor.TransmissionLive;
 import de.roman.mercedesobdmonitor.VehicleProfile;
 
 import java.util.ArrayList;
@@ -118,6 +120,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private final Map<Page, Button> tabs = new EnumMap<>(Page.class);
     private final Map<Integer, GaugeView> gauges = new HashMap<>();
     private final Map<Integer, TextView> tiles = new HashMap<>();
+    private static final String ATF_TILE = "ATF Getriebe";
+    /** Grund, wenn Getriebe live für die Verbindung aus ist (ADR-008); die ATF-Kachel zeigt dann „aus“. */
+    private String transmissionNote;
     private final Map<Integer, TextView> valueRows = new LinkedHashMap<>();
     private final Map<Integer, Button> trendButtons = new HashMap<>();
     private final Map<ObdSession.Op, List<Button>> opButtons = new EnumMap<>(ObdSession.Op.class);
@@ -144,7 +149,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         }
         session.attachTestPlan(this);
         session.attachStores(this);
-        session.setWarningsEnabled(true);   // Kühlmittel-/Bordnetzwarnungen mit Ton (auch im Hintergrund)
+        session.setWarningsEnabled(true);   // Kühlmittel-/Bordnetz-/Getriebeölwarnungen mit Ton (auch im Hintergrund)
+        session.setTransmissionLiveEnabled(true);   // ADR-008: Gang und ATF im Live-Takt
         // ADR-004: Testfreigabe aus den Einstellungen, ausgeliefert aus
         session.setAdr004Enabled(getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_ADR004, false));
         buildUi();
@@ -278,10 +284,12 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         GaugeView coolant = new GaugeView(this, "Kühlmittel", "°C", 0, GaugeScale.COOLANT);
         GaugeView speed = new GaugeView(this, "Tempo", "km/h", 0, GaugeScale.SPEED);
         gauges.put(0x0C, rpm); gauges.put(0x05, coolant); gauges.put(0x0D, speed);
+        // ADR-008: Gang am Drehzahlmesser wie im Kombiinstrument („–“ bis zur ersten gültigen Antwort)
+        rpm.setBadge(ObdSession.INVALID_TEXT);
 
-        // Kraftstoffkorrektur und Spannung als Kacheln (M272: Bank 1 = Zyl. 1–3, Bank 2 = Zyl. 4–6)
-        int[] tilePids = {0x06, 0x08, 0x07, 0x09, 0x42};
-        String[] tileNames = {"STFT B1", "STFT B2", "LTFT B1", "LTFT B2", "ECU-Spannung"};
+        // Kraftstoffkorrektur, Spannung und Getriebeöl als Kacheln (M272: Bank 1 = Zyl. 1–3, Bank 2 = Zyl. 4–6)
+        int[] tilePids = {0x06, 0x08, 0x07, 0x09, 0x42, TransmissionLive.KEY_ATF};
+        String[] tileNames = {"STFT B1", "STFT B2", "LTFT B1", "LTFT B2", "ECU-Spannung", ATF_TILE};
         View[] tileViews = new View[tilePids.length];
         for (int i = 0; i < tilePids.length; i++) {
             LinearLayout card = card();
@@ -305,16 +313,16 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             mid.addView(coolant, new LinearLayout.LayoutParams(-1, 0, 1f));
             mid.addView(speed, new LinearLayout.LayoutParams(-1, 0, 1f));
             body.addView(mid, new LinearLayout.LayoutParams(0, -1, 0.75f));
-            // 2 Zeilen × 3 Spalten: bei 3 Zeilen wurde die Wertzeile unten abgeschnitten (Komma sah aus wie ein Punkt)
-            int[] order = {0, 1, 4, 2, 3, -1};   // STFT B1, STFT B2, Spannung / LTFT B1, LTFT B2, ALLE WERTE
+            // 2 Zeilen × 3 Spalten: bei 3 Zeilen wurde die Wertzeile unten abgeschnitten (Komma sah aus wie ein Punkt).
+            // ATF (ADR-008) nimmt den Platz von ALLE WERTE ein; der Knopf steht wie im Hochformat in der Fußzeile.
+            int[] order = {0, 1, 4, 2, 3, 5};   // STFT B1, STFT B2, Spannung / LTFT B1, LTFT B2, ATF
             LinearLayout grid = column();
             for (int r = 0; r < 2; r++) {
                 LinearLayout gridRow = row();
                 gridRow.setBaselineAligned(false);
                 for (int c = 0; c < 3; c++) {
-                    int i = order[r * 3 + c];
-                    View cell = i >= 0 ? tileViews[i] : all;
-                    if (cell instanceof LinearLayout) ((LinearLayout) cell).setGravity(Gravity.CENTER_VERTICAL);
+                    LinearLayout cell = (LinearLayout) tileViews[order[r * 3 + c]];
+                    cell.setGravity(Gravity.CENTER_VERTICAL);
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -1, 1f);
                     lp.setMargins(dp(3), dp(3), dp(3), dp(3));
                     gridRow.addView(cell, lp);
@@ -332,6 +340,9 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             TextView note = text("Keine Codierung · kein Löschen · keine Stellglieder", 12, Palette.TEAL);
             note.setGravity(Gravity.END);
             foot.addView(note, new LinearLayout.LayoutParams(-2, -2));
+            LinearLayout.LayoutParams allLp = new LinearLayout.LayoutParams(dp(150), dp(48));
+            allLp.setMargins(dp(10), 0, 0, 0);
+            foot.addView(all, allLp);
             page.addView(foot);
             return page;
         }
@@ -918,6 +929,11 @@ public final class DashboardActivity extends Activity implements ObdSession.List
             if (text == null || ObdSession.INVALID_TEXT.equals(text)) onPidInvalid(pid.pid);
             else restoreGauge(pid.pid);
         }
+        for (int key : new int[] {TransmissionLive.KEY_GEAR, TransmissionLive.KEY_ATF}) {
+            String text = s.pidTexts.get(key);
+            onPidValue(key, text == null ? ObdSession.INVALID_TEXT : text);
+        }
+        colorAtf(session.latestValue(TransmissionLive.KEY_ATF));
         onPassive(s);
         onFuelTest(s.fuelButton, s.fuelStatus);
         warmupButton.setText(s.warmupButton);
@@ -955,7 +971,29 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         TextView row = valueRows.get(pid);
         if (row != null) row.setText(text);
         TextView tile = tiles.get(pid);
-        if (tile != null) tile.setText(text);
+        if (tile != null) {
+            // „–“ hieße „kommt gleich“; ist Getriebe live aus, zeigt die Kachel „aus“ (Grund im Vorlesetext,
+            // ein langer Titel bräche in der schmalen Kachel um und schöbe den Wert hinaus)
+            boolean off = pid == TransmissionLive.KEY_ATF && transmissionNote != null
+                    && ObdSession.INVALID_TEXT.equals(text);
+            tile.setText(off ? "aus" : text);
+            if (pid == TransmissionLive.KEY_ATF) {
+                tile.setContentDescription(ATF_TILE + ": " + (off ? transmissionNote : text));
+            }
+        }
+        if (pid == TransmissionLive.KEY_GEAR) {
+            GaugeView rpm = gauges.get(0x0C);
+            if (rpm != null) rpm.setBadge(text);
+        }
+    }
+
+    /** ATF-Kachel in Warn-/Alarmfarbe ab den Schwellen der Warnleiste (Farbe nur zusätzlich, die Leiste nennt es). */
+    private void colorAtf(Double celsius) {
+        TextView tile = tiles.get(TransmissionLive.KEY_ATF);
+        if (tile == null) return;
+        int color = celsius == null ? Palette.LIGHT : celsius >= LiveWarnings.ATF_ALARM ? Palette.ALARM
+                : celsius >= LiveWarnings.ATF_WARN ? Palette.WARN : Palette.LIGHT;
+        tile.setTextColor(color);
     }
 
     /** After a rebuild: show the last valid sample of this UI on the new gauge (not a new trend point). */
@@ -968,6 +1006,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     public void onPidSample(int pid, double value) {
         controller.onSample(pid, value);
+        if (pid == TransmissionLive.KEY_ATF) colorAtf(value);
         if (pid == 0x0C) lastRpm = value;
         if (pid == 0x0D) lastSpeed = value;
         if (pid == 0x0C || pid == 0x0D) updateIdle();
@@ -983,6 +1022,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     @Override
     public void onPidInvalid(int pid) {
         controller.onInvalid(pid);
+        if (pid == TransmissionLive.KEY_ATF) colorAtf(null);
         if (pid == 0x0C) lastRpm = Double.NaN;
         if (pid == 0x0D) lastSpeed = Double.NaN;
         if (pid == 0x0C || pid == 0x0D) updateIdle();
@@ -1022,6 +1062,11 @@ public final class DashboardActivity extends Activity implements ObdSession.List
         operating.setTextColor(s.operatingText.endsWith("–") ? Palette.MUTED : s.operatingColor);
         voltage.setText(s.voltageText);
         driveCycle.setText(s.driveCycleText == null ? "" : s.driveCycleText);
+        if (!java.util.Objects.equals(transmissionNote, s.transmissionNote)) {
+            transmissionNote = s.transmissionNote;
+            String text = s.pidTexts.get(TransmissionLive.KEY_ATF);
+            onPidValue(TransmissionLive.KEY_ATF, text == null ? ObdSession.INVALID_TEXT : text);
+        }
     }
 
     @Override
