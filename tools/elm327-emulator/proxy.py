@@ -10,6 +10,8 @@ complete answers (everything up to the ELM327 prompt '>') before they reach the 
     slow   every answer 0.7 s late (or slow=<seconds>; loading states, poll timing)
 
 Modes can be combined: hot,slow. The app connects to the proxy port instead of 35000.
+With --log FILE every request of the app is appended to FILE, one per line (the UI tests check with it that blocked
+commands never reached the adapter).
 
     python3 tools/elm327-emulator/proxy.py hot                       # listens on 192.168.178.50:35010
     python3 tools/elm327-emulator/proxy.py weak,slow=1.5 --listen 0.0.0.0:35010 --upstream 127.0.0.1:35000
@@ -119,14 +121,37 @@ def address(text):
     return host, int(port)
 
 
-def pipe(src, dst, rewrites=(), delay=0.0):
+class RequestLog:
+    """Appends each request line (up to CR) to a file; thread-safe, flushed per line."""
+
+    def __init__(self, path):
+        self.lock = threading.Lock()
+        self.file = open(path, "a", encoding="latin1") if path else None
+
+    def feed(self, state, data):
+        if not self.file:
+            return
+        state["buf"] += data
+        *lines, state["buf"] = state["buf"].split(b"\r")
+        with self.lock:
+            for line in lines:
+                text = line.decode("latin1").strip()
+                if text:
+                    self.file.write(text + "\n")
+            self.file.flush()
+
+
+def pipe(src, dst, rewrites=(), delay=0.0, log=None):
     """Copies src → dst; with rewrites or delay it forwards whole answers (up to and including the prompt)."""
     buf = b""
+    log_state = {"buf": b""}
     try:
         while True:
             data = src.recv(4096)
             if not data:
                 break
+            if log:
+                log.feed(log_state, data)
             if not rewrites and not delay:
                 dst.sendall(data)
                 continue
@@ -158,8 +183,10 @@ def main():
     p.add_argument("modes", type=parse_modes, help="hot, weak, dtc, slow[=seconds]; comma-separated")
     p.add_argument("--listen", type=address, default=("192.168.178.50", 35010), help="host:port for the app")
     p.add_argument("--upstream", type=address, default=("192.168.178.50", 35000), help="ELM327 emulator host:port")
+    p.add_argument("--log", help="append every request of the app to this file")
     a = p.parse_args()
     rewrites, delay = a.modes
+    log = RequestLog(a.log)
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(a.listen)
@@ -175,7 +202,7 @@ def main():
             client.close()
             continue
         print(f"client {peer[0]}:{peer[1]}", file=sys.stderr, flush=True)
-        threading.Thread(target=pipe, args=(client, upstream), daemon=True).start()
+        threading.Thread(target=pipe, args=(client, upstream), kwargs={"log": log}, daemon=True).start()
         threading.Thread(target=pipe, args=(upstream, client, rewrites, delay), daemon=True).start()
 
 

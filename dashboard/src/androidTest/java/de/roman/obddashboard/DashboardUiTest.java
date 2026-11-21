@@ -15,9 +15,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 
 import android.content.Context;
-import android.os.Bundle;
 import android.os.SystemClock;
-import android.util.Log;
 import android.view.View;
 
 import androidx.test.core.app.ActivityScenario;
@@ -26,16 +24,10 @@ import androidx.test.platform.app.InstrumentationRegistry;
 
 import de.roman.mercedesobdmonitor.AdapterChoice;
 import de.roman.mercedesobdmonitor.ObdSession;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.nio.charset.StandardCharsets;
+import de.roman.testsupport.ElmTest;
 
 import org.hamcrest.Matcher;
 import org.junit.After;
-import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -44,15 +36,13 @@ import org.junit.runner.RunWith;
  * no value without a fresh answer, values gone right after disconnecting, warnings from live values, DTCs read only
  * on request. Runs on the emulator via tools/android-emulator/uitest.sh, which also starts the fault proxy.
  *
- * Instrumentation arguments: elmHost (default 192.168.178.50), elmPort (35000), deadPort (35009, nothing listens),
- * proxyPort (proxy.py hot,dtc; proxy tests are skipped without it).
+ * Arguments and simulator helpers: {@link ElmTest}.
  */
 @RunWith(AndroidJUnit4.class)
 public class DashboardUiTest {
     private static final String NONE = ObdSession.INVALID_TEXT;
     private static final String[] TILES = {"STFT B1", "STFT B2", "LTFT B1", "LTFT B2", "ECU-Spannung"};
 
-    private final Bundle args = InstrumentationRegistry.getArguments();
     private ActivityScenario<DashboardActivity> scenario;
 
     @After
@@ -61,45 +51,12 @@ public class DashboardUiTest {
         // Always disconnect, also after a failed attempt: the next test then starts from the same state ("Getrennt").
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> ObdSession.get().disconnect());
         if (scenario != null) scenario.close();
-        // The simulator serves one client at a time, like a Wi-Fi ELM327: wait until it answers again before the
-        // next test connects (otherwise that connection waits behind the old one and times out).
-        long start = SystemClock.uptimeMillis();
-        boolean free = simulatorAnswers(15_000);
-        long ms = SystemClock.uptimeMillis() - start;
-        Log.i("DashboardUiTest", "simulator " + (free ? "free" : "still busy") + " after " + ms + " ms");
-        if (!free) throw new AssertionError("ELM327-Simulator nach " + ms + " ms noch belegt – eine Verbindung "
-                + "(App oder proxy.py) wurde nach dem Trennen nicht freigegeben");
-    }
-
-    /** ATZ against the simulator until it answers with the prompt; plain socket, from the test thread. */
-    private boolean simulatorAnswers(long timeoutMs) {
-        String host = args.getString("elmHost", "192.168.178.50");
-        int port = port("elmPort", 35000);
-        long end = SystemClock.uptimeMillis() + timeoutMs;
-        while (SystemClock.uptimeMillis() < end) {
-            try (Socket s = new Socket()) {
-                s.connect(new InetSocketAddress(host, port), 2_000);
-                s.setSoTimeout(2_000);
-                s.getOutputStream().write("ATZ\r".getBytes(StandardCharsets.US_ASCII));
-                InputStream in = s.getInputStream();
-                StringBuilder b = new StringBuilder();
-                int c;
-                while ((c = in.read()) >= 0) {
-                    b.append((char) c);
-                    if (c == '>') return true;   // full answer read: closing now does not hit the emulator's echo
-                }
-                Log.i("DashboardUiTest", "simulator probe: closed before the prompt");
-            } catch (IOException e) {
-                Log.i("DashboardUiTest", "simulator probe: " + e);
-            }
-            SystemClock.sleep(300);   // also after an early close: no tight reconnect loop
-        }
-        return false;
+        ElmTest.awaitSimulatorFree();
     }
 
     @Test
     public void startsDisconnectedWithoutValues() {
-        launch(port("elmPort", 35000));
+        launch(ElmTest.simulatorPort());
         on(withText(containsString("READ-ONLY"))).check(matches(isDisplayed()));
         // fresh process "Nicht verbunden", after an earlier session in the same process "Getrennt"
         on(anyOf(withText("Nicht verbunden"), withText("Getrennt"))).check(matches(isDisplayed()));
@@ -109,20 +66,22 @@ public class DashboardUiTest {
 
     @Test
     public void connectShowsValuesAndDisconnectClearsThemAtOnce() {
-        launch(port("elmPort", 35000));
+        launch(ElmTest.simulatorPort());
         on(withText("Verbinden")).perform(click());
         waitFor(allOf(tileValue("ECU-Spannung"), not(withText(NONE))), 25_000);
         on(withText("Trennen")).check(matches(isDisplayed()));
 
         on(withText("Trennen")).perform(click());
         waitFor(withText("Verbinden"), 5_000);
-        // no stale value: every tile shows "–" right after disconnecting
-        for (String tile : TILES) waitFor(allOf(tileValue(tile), withText(NONE)), 2_000);
+        // no stale value: within one short deadline every tile shows "–" (not 2 s per tile one after another)
+        ElmTest.poll(() -> {
+            for (String tile : TILES) on(tileValue(tile)).check(matches(withText(NONE)));
+        }, 1_500);
     }
 
     @Test
     public void unreachableAdapterNeverShowsValues() {
-        launch(port("deadPort", 35009));
+        launch(ElmTest.deadPort());
         on(withText("Verbinden")).perform(click());
         long end = SystemClock.uptimeMillis() + 8_000;
         while (SystemClock.uptimeMillis() < end) {
@@ -133,7 +92,7 @@ public class DashboardUiTest {
 
     @Test
     public void overheatingFromLiveValueRaisesAlarmAndDisconnectClearsIt() {
-        launch(proxyPort());
+        launch(ElmTest.proxyPort());
         on(withText("Verbinden")).perform(click());
         // proxy: coolant 120 °C → alarm after the hold time of the warning rule
         waitFor(withText(containsString("Motor überhitzt")), 30_000);
@@ -144,7 +103,7 @@ public class DashboardUiTest {
 
     @Test
     public void storedCodesAreReadOnlyOnRequest() {
-        launch(proxyPort());
+        launch(ElmTest.proxyPort());
         on(withText("DTC")).perform(click());
         on(withText(containsString("Noch kein Scan"))).check(matches(isDisplayed()));
         on(withText("Verbinden")).perform(click());
@@ -165,23 +124,12 @@ public class DashboardUiTest {
         Context c = InstrumentationRegistry.getInstrumentation().getTargetContext();
         c.getSharedPreferences(DashboardActivity.PREFS, Context.MODE_PRIVATE).edit()
                 .clear()   // WLAN adapter, no auto-connect, no ADR-004 test switch
-                .putString(AdapterChoice.KEY_HOST, args.getString("elmHost", "192.168.178.50"))
+                .putString(AdapterChoice.KEY_HOST, ElmTest.host())
                 .putString(AdapterChoice.KEY_PORT, String.valueOf(port))
-                .putBoolean("notifications_asked", true)
+                .putBoolean(DashboardActivity.PREF_NOTIFICATIONS_ASKED, true)
                 .commit();
         scenario = ActivityScenario.launch(DashboardActivity.class);
         on(withText("LIVE")).perform(click());
-    }
-
-    private int port(String key, int fallback) {
-        String v = args.getString(key);
-        return v == null ? fallback : Integer.parseInt(v);
-    }
-
-    private int proxyPort() {
-        String v = args.getString("proxyPort");
-        Assume.assumeTrue("proxyPort not given (proxy.py hot,dtc)", v != null);
-        return Integer.parseInt(v);
     }
 
     /** Hidden pages hold the same texts (status, buttons): match only what is on screen. */
@@ -195,24 +143,10 @@ public class DashboardUiTest {
     }
 
     private static void waitFor(Matcher<View> m, long timeoutMs) {
-        poll(() -> on(m).check(matches(isDisplayed())), timeoutMs);
+        ElmTest.poll(() -> on(m).check(matches(isDisplayed())), timeoutMs);
     }
 
     private static void waitGone(Matcher<View> m, long timeoutMs) {
-        poll(() -> on(m).check(doesNotExist()), timeoutMs);
-    }
-
-    /** Repeats an Espresso check until it passes; after the timeout its last failure is thrown. */
-    private static void poll(Runnable check, long timeoutMs) {
-        long end = SystemClock.uptimeMillis() + timeoutMs;
-        while (true) {
-            try {
-                check.run();
-                return;
-            } catch (AssertionError | RuntimeException e) {
-                if (SystemClock.uptimeMillis() > end) throw e;
-                SystemClock.sleep(250);
-            }
-        }
+        ElmTest.poll(() -> on(m).check(doesNotExist()), timeoutMs);
     }
 }

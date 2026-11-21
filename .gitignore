@@ -9,3 +9,6 @@ local.properties
 # Build-Ausgaben aller Module
 build/
 
+
+# Python (Werkzeuge unter tools/)
+__pycache__/

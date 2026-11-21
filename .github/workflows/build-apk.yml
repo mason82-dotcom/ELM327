@@ -52,7 +52,7 @@ jobs:
 
       - name: Build debug APKs
         # assembleDebugAndroidTest: UI-Tests mitkompilieren (ausgeführt werden sie im Emulator, tools/android-emulator)
-        run: ./gradlew :app:assembleDebug :dashboard:assembleDebug :dashboard:assembleDebugAndroidTest --stacktrace
+        run: ./gradlew :app:assembleDebug :dashboard:assembleDebug :app:assembleDebugAndroidTest :dashboard:assembleDebugAndroidTest --stacktrace
 
       - name: Rename APKs
         id: apk

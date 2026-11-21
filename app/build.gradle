@@ -18,6 +18,8 @@ android {
         targetSdk = 37
         versionCode = 43
         versionName = '1.14.1'
+        // UI tests against the emulator and the ELM327 simulator: tools/android-emulator/uitest.sh
+        testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
     }
 
     buildTypes {
@@ -45,4 +47,5 @@ tasks.withType(JavaCompile).configureEach {
 dependencies {
     implementation project(':obdcore')
     testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation project(':testsupport')
 }

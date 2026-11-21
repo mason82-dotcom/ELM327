@@ -112,8 +112,8 @@ Gesperrt bleiben Fehlerlöschen, Sitzungswechsel, Security Access, Stellglieder,
 - Android: minSdk 26 (Android 8.0), compileSdk 37.2, targetSdk 37; AGP 9.5.1, Gradle 9.9.0, Java 17.
   Zielgerät OnePlus 13R / Android 16.
 - Ohne Fahrzeug testen: ELM327-Simulator als Docker-Dienst, siehe [tools/elm327-emulator](tools/elm327-emulator/README.md).
-- Oberfläche ohne Handy prüfen: Android-Emulator (Telefon und Radio 1024×600) mit UI-Tests des Dashboards
-  (`uitest.sh`), siehe [tools/android-emulator](tools/android-emulator/README.md).
+- Oberfläche ohne Handy prüfen: Android-Emulator (Telefon und Radio 1024×600) mit UI-Tests beider Apps
+  (`uitest.sh`, prüft auch, dass gesperrte Befehle den Adapter nie erreichen), siehe [tools/android-emulator](tools/android-emulator/README.md).
 - Bauen ohne Android Studio: `tools/android-sdk/gradle.sh`. Mit installiertem SDK:
 
 ```
