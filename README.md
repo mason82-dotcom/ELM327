@@ -71,7 +71,8 @@ Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantwort
 - **Fahrzeugprofil:** welche Werte Motor (7E8) und Getriebe (7E9) melden.
 - **ATF-Temperatur** der 7G-Tronic, dazu die übrigen Felder derselben Antwort als ungeprüfte Hypothese.
 - **Starttest:** Ruhespannung, Einbruch und Dauer beim Anlassen, Ladespannung (nur `ATRV`); bewertet mit Herstellerwerten
-  (Startgrenze ~7 V, Batterietest ab 12,4 V, Ladung bis 15 V).
+  (Startgrenze ~7 V, Batterietest ab 12,4 V, Ladung bis 15 V); gleicht die Adapter-Spannung mit dem Motorsteuergerät
+  ab und bewertet bei ungenauem Adapter nach dem Steuergerät.
 - **Bus mitlesen:** 5 s passiv, ob die Diagnosedose Bus-Botschaften durchreicht.
 - **Kennung + Getriebe-Fehler** (Testfreigabe, ausgeliefert aus): Teilenummer/Softwarestand von Motor und Getriebe,
   herstellereigener Getriebe-Fehlerspeicher.
