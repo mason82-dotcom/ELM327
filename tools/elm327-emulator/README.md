@@ -1,7 +1,8 @@
 # ELM327-Emulator (ohne Fahrzeug, ohne Adapter)
 
 [Ircama/ELM327-emulator](https://github.com/Ircama/ELM327-emulator) 4.0.0 als kleiner Docker-Dienst. Das Handy
-verbindet sich im Heimnetz-WLAN darauf wie auf einen WLAN-ELM327-Adapter – kein Android-Emulator, kein VNC.
+verbindet sich im Heimnetz-WLAN darauf wie auf einen WLAN-ELM327-Adapter – kein Android-Emulator, kein VNC. Für
+Screenshots ohne Handy gibt es den Android-Emulator in [tools/android-emulator](../android-emulator/README.md).
 Lizenz des Emulators: CC BY-NC-SA 4.0 (private, nicht-kommerzielle Nutzung); er ist nicht Teil der Apps.
 
 ## Starten (brix-node)
@@ -70,6 +71,13 @@ Dauern lassen sich mit `FAULT_NORMAL`, `FAULT_NO_DATA`, `FAULT_TIMEOUT`, `FAULT_
 `FAULT_SILENT` (Sekunden) im `environment` des Dienstes ändern. Gesteuert wird über die Standardeingabe des
 Batch-Modus (`faults.sh`), ohne Änderung am Emulator.
 
+Eine Phase dauerhaft halten, etwa für einen Screenshot:
+
+```bash
+FAULT_ONLY=RPM_TIMEOUT docker compose up -d elm327-faults     # Phasenname aus der Tabelle
+docker compose up -d elm327-faults                            # zurück zum Zyklus
+```
+
 Automatische Gegenprobe, ob das Szenario selbst stimmt (fragt wie die App ab, Python-Standardbibliothek):
 
 ```bash
@@ -78,6 +86,25 @@ python3 tools/elm327-emulator/check_faults.py            # 192.168.178.50 35001,
 
 Erwartet: sechsmal `OK`, Exit-Code 0. Die Zeile `OTHER` sind verspätete Antworten, die nach einer
 Zeitüberschreitung als Antwort auf die nächste Frage eintreffen – genau so verhält sich ein echter Adapter.
+
+## Proxy für Warnungen und Fehlercodes (Port 35010)
+
+Das Szenario `car` liefert nur normale Werte. `proxy.py` sitzt zwischen App und Emulator und ändert ganze Antworten,
+bevor sie die App erreicht (Python-Standardbibliothek, läuft auf dem Host):
+
+```bash
+python3 tools/elm327-emulator/proxy.py hot          # in der App Port 35010 statt 35000 eintragen
+python3 tools/elm327-emulator/proxy.py weak,slow    # Modi lassen sich kombinieren; Ende mit Strg+C
+```
+
+| Modus | Änderung | Prüft |
+|---|---|---|
+| `hot` | Kühlmittel 01 05 → 120 °C | Temperaturwarnung |
+| `weak` | Steuergerätespannung 01 42 → 11,5 V, Drehzahl 01 0C → 0 | Batteriewarnung, Motor aus |
+| `dtc` | Fehlerspeicher 03: statt „keine“ P0171 und P0302 | Erklärungen, M272-Hinweise |
+| `slow` / `slow=1.5` | jede Antwort 0,7 s (bzw. 1,5 s) später | Ladezustände, Abfragetakt |
+
+Andere Adressen mit `--listen host:port` und `--upstream host:port`. Anfragen der App gehen unverändert durch.
 
 ## Bekannte Schwäche des Emulators
 
