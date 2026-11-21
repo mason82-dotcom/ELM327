@@ -2,6 +2,12 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.13.1 (Monitor) / 0.20.1 (Dashboard): Schalten nur bei laufendem Motor
+
+- **Prüfplan „ATF warm in P, R, N, D“:** Der Wählhebel lässt sich nur bei laufendem Motor aus P bewegen. Der Schritt
+  sagt das jetzt ausdrücklich (Motor im Leerlauf, Feststellbremse an, Fuß fest auf der Bremse), und Lesungen mit
+  stehendem Motor zählen nicht mehr als P/R/N/D-Lesung. Gleicher Hinweis im ATF-Bericht, im README und in ADR-003.
+
 ## Version 1.13.0 (Monitor) / 0.20.0 (Dashboard): Fehlercodes mit ME9.7-Bedeutung
 
 Vorschlag B aus der Handbuch-Auswertung.

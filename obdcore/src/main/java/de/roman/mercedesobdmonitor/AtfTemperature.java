@@ -110,7 +110,8 @@ public final class AtfTemperature {
         }
         if (sb.length() == 0) return "";
         return ("Weitere Felder nach EGS52-Layout (722.6) – Hypothese, Rohwerte ohne Einheit, Index ab 0x61:\n" + sb
-                + "Prüfen: im Stand in P, R, N und D lesen – passen Wählhebel und Gang, gilt das Layout (ADR-003).").trim();
+                + "Prüfen: im Stand bei laufendem Motor (Schalten nur so möglich), Fuß auf der Bremse, in P, R, N und D "
+                + "lesen – passen Wählhebel und Gang, gilt das Layout (ADR-003).").trim();
     }
 
     private static void word(StringBuilder sb, byte[] r, int i, String name) {

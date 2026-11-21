@@ -75,5 +75,6 @@ In B enthalten, weil Index 11 als Gangfeld sichtbar bleibt.
 2. [x] `AtfTemperature`: Index 13 ab 0x61, Mindestlänge 14 Bytes; Tests mit 20-Byte-Antworten (ISO-TP).
 3. [x] `AtfTemperature.layoutFields`: Rohfelder nach EGS52-Layout mit Hypothese-Kennzeichnung; Tests.
 4. [x] ADR-001 auf diese Entscheidung verweisen.
-5. [ ] Am C350: warm im Stand in P, R, N, D lesen, dazu eine Lesung kalt; Rohantworten hier eintragen und Felder
+5. [ ] Am C350: warm im Stand bei laufendem Motor (Schalten nur so möglich) in P, R, N, D lesen, dazu eine Lesung kalt
+       in P (Zündung an, Motor aus); Rohantworten hier eintragen und Felder
        bestätigen oder verwerfen.

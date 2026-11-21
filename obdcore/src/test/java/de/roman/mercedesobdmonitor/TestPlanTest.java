@@ -91,4 +91,14 @@ public class TestPlanTest {
         assertEquals(TestPlan.MAX_RECORDS, p.records().size());
         assertEquals("n5", p.records().get(0).report);
     }
+
+    /** Schalten geht nur bei laufendem Motor: warme ATF-Lesungen mit stehendem Motor zählen nicht für P/R/N/D. */
+    @Test public void warmShiftReadingsNeedRunningEngine() {
+        TestPlan p = new TestPlan();
+        p.record(rec(ObdSession.Op.ATF, 90, 0, "Motor aus"));
+        p.record(rec(ObdSession.Op.ATF, 90, NA, "Drehzahl unbekannt"));   // zählt (alte Einträge)
+        p.record(rec(ObdSession.Op.ATF, 90, 720, "Leerlauf"));
+        assertEquals(2, p.steps().get(1).done);
+        assertTrue(p.checklist(), p.checklist().contains("Motor läuft im Leerlauf"));
+    }
 }
