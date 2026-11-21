@@ -8,6 +8,8 @@ import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.view.View;
 
+import de.roman.mercedesobdmonitor.ObdSession;
+
 /**
  * Rundinstrument (270°-Bogen) mit großer Ziffernanzeige. Ohne gültigen Wert: „–“, kein Zeiger,
  * gedimmter Bogen – ein alter Wert wird nie stehen gelassen. Farbe zeigt Warn-/Alarmbereich,
@@ -25,6 +27,8 @@ final class GaugeView extends View {
     private final String unit;
     private final int decimals;
     private double value = Double.NaN;
+    /** Kurztext oben im Bogen (Gang am Drehzahlmesser, ADR-008); null = nicht angezeigt. */
+    private String badge;
 
     private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint arc = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -67,6 +71,14 @@ final class GaugeView extends View {
         setValue(Double.NaN);
     }
 
+    /** Gang wie im Kombiinstrument neben der Drehzahl: „D 3“, „P“ … oder „–“ ohne frischen Wert (nicht gezeichnet). */
+    void setBadge(String text) {
+        if (java.util.Objects.equals(badge, text)) return;
+        badge = text;
+        updateDescription();
+        invalidate();
+    }
+
     private String valueText() {
         if (Double.isNaN(value)) return "–";
         return String.format(java.util.Locale.GERMANY, "%." + decimals + "f", value);
@@ -84,7 +96,8 @@ final class GaugeView extends View {
     private void updateDescription() {
         String state = stateText();
         setContentDescription(title + ": " + (Double.isNaN(value) ? "kein Messwert" : valueText() + " " + unit
-                + (state.isEmpty() ? "" : ", " + state)));
+                + (state.isEmpty() ? "" : ", " + state))
+                + (badge == null ? "" : ", Gang " + (ObdSession.INVALID_TEXT.equals(badge) ? "unbekannt" : badge)));
     }
 
     @Override
@@ -133,6 +146,13 @@ final class GaugeView extends View {
         float room = r * 1.1f, width = small.measureText(caps);
         if (width > room) small.setTextSize(small.getTextSize() * room / width);
         canvas.drawText(caps, cx, Math.min(cy + r * 0.78f, h - small.descent()), small);
+        if (badge != null && !ObdSession.INVALID_TEXT.equals(badge)) {
+            // Oben im Bogen, über dem Zustandstext, groß genug für einen kurzen Blick. Ohne frischen Gang nichts
+            // zeichnen: ein zweites „–“ über dem Drehzahl-„–“ wirkte unruhig; der Vorlesetext nennt „Gang unbekannt“.
+            big.setTextSize(size * 0.12f);
+            big.setColor(Palette.CYAN);
+            canvas.drawText(badge, cx, cy - size * 0.24f, big);
+        }
         // Zustand nur bei Warn-/Alarmbereich; ohne Messwert genügt „–“ (Vorlesetext nennt „kein Messwert“).
         if (!Double.isNaN(value) && scale.zone(value) != GaugeScale.Zone.NORMAL) {
             small.setColor(Palette.zoneColor(scale.zone(value)));

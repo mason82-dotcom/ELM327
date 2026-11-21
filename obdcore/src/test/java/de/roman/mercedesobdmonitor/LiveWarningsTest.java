@@ -129,4 +129,54 @@ public class LiveWarningsTest {
         assertEquals(LiveWarnings.Level.WARN, x.level);
         assertTrue(x.text, x.text.contains("109 °C"));
     }
+
+    /** ATF (ADR-008) alle 2 s wie Getriebe live, dazu normale Motorwerte. */
+    private LiveWarnings.Warning runAtf(long fromMs, long toMs, double atf, double coolant) {
+        LiveWarnings.Warning last = null;
+        for (long t = fromMs; t <= toMs; t += 1000) {
+            w.onSample(0x0C, 2000, t);
+            w.onSample(0x05, coolant, t);
+            w.onSample(0x42, 14.2, t);
+            if (t % 2000 == 0) w.onSample(TransmissionLive.KEY_ATF, atf, t);
+            last = w.evaluate(t);
+        }
+        return last;
+    }
+
+    @Test
+    public void atfNormalAndWarmDriveGivesNothing() {
+        // 62 °C nach 30 min am 21.11.; auch 110 °C (Grenze vieler Getriebefunktionen laut WIS) noch ohne Meldung
+        assertNull(runAtf(0, 60_000, 62, 92));
+        assertNull(runAtf(61_000, 120_000, 110, 92));
+    }
+
+    @Test
+    public void atfWarningNeedsHoldTimeAndHysteresis() {
+        assertNull(runAtf(0, 3_000, 122, 92));                       // noch nicht 5 s
+        LiveWarnings.Warning x = runAtf(4_000, 8_000, 122, 92);
+        assertEquals("atf", x.key);
+        assertEquals(LiveWarnings.Level.WARN, x.level);
+        assertTrue(x.text, x.text.startsWith("Getriebeöl 122 °C"));
+        assertEquals("atf", runAtf(9_000, 30_000, 118, 92).key);       // unter 120, über 116: bleibt
+        assertNull(runAtf(31_000, 40_000, 114, 92));
+    }
+
+    @Test
+    public void atfAlarmAndPriorityBelowCoolantAlarm() {
+        LiveWarnings.Warning x = runAtf(0, 10_000, 132, 92);
+        assertEquals(LiveWarnings.Level.ALARM, x.level);
+        assertTrue(x.text, x.text.contains("überhitzt"));
+        // Motor überhitzt zugleich: Kühlmittel-Alarm hat Vorrang
+        assertEquals("coolant", runAtf(11_000, 20_000, 132, 117).key);
+    }
+
+    @Test
+    public void invalidOrStaleAtfEndsTheWarningAtOnce() {
+        assertEquals("atf", runAtf(0, 8_000, 125, 92).key);
+        w.onInvalid(TransmissionLive.KEY_ATF);
+        assertNull(w.evaluate(8_000));
+        // ohne neue ATF-Werte veraltet der letzte nach dem Alterslimit
+        assertEquals("atf", runAtf(9_000, 20_000, 125, 92).key);
+        assertNull(w.evaluate(20_000 + LiveValues.MAX_AGE_MS + 1));
+    }
 }

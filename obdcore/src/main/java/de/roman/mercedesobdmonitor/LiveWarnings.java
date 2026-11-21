@@ -2,7 +2,7 @@ package de.roman.mercedesobdmonitor;
 
 /**
  * Warnungen aus Livewerten, die ohnehin gelesen werden (01 05 Kühlmittel, 01 42 Steuergerät-Spannung, 01 0C
- * Drehzahl) – keine zusätzlichen Befehle, nur lesen. Android-frei und mit eingespeister Uhr testbar.
+ * Drehzahl, ATF aus Getriebe-live nach ADR-008) – keine zusätzlichen Befehle, nur lesen. Android-frei und mit eingespeister Uhr testbar.
  *
  * <p>Jede Regel ist eine kleine Zustandsmaschine: Eine Bedingung muss eine Mindestdauer anstehen (Entprellung),
  * bevor sie gilt, und endet erst jenseits einer Rückschaltschwelle (Hysterese) nach derselben Dauer. Ungültige
@@ -51,6 +51,13 @@ public final class LiveWarnings {
     static final double BATTERY_LOW_WARN = 11.8;
     static final double BATTERY_LOW_CLEAR = 12.0;
 
+    // Getriebeöl (ADR-008, Richtwerte – das WIS nennt keine feste Grenze): Betrieb ~80 °C, Thermostat ab 90 °C,
+    // mehrere Getriebefunktionen nur bis 110 °C, bei Übertemperatur nimmt das Getriebe Motormoment zurück.
+    public static final double ATF_WARN = 120;
+    public static final double ATF_ALARM = 130;
+    static final double ATF_ALARM_CLEAR = 126;
+    static final double ATF_CLEAR = 116;
+
     static final double RUNNING_RPM = 400;
     static final double STOPPED_RPM = 100;
     /** Nach dem Start erst laden lassen; Anlasser und Regler-Anlauf sind keine Bordnetzstörung. */
@@ -68,9 +75,11 @@ public final class LiveWarnings {
     private final Rule chargeLowAlarm = new Rule(ALARM_HOLD_MS);
     private final Rule chargeHigh = new Rule(ALARM_HOLD_MS);
     private final Rule batteryLow = new Rule(BATTERY_HOLD_MS);
+    private final Rule atfWarn = new Rule(COOLANT_HOLD_MS);
+    private final Rule atfAlarm = new Rule(ALARM_HOLD_MS);
 
-    private double coolant = Double.NaN, voltage = Double.NaN, rpm = Double.NaN;
-    private long coolantAt, voltageAt, rpmAt;
+    private double coolant = Double.NaN, voltage = Double.NaN, rpm = Double.NaN, atf = Double.NaN;
+    private long coolantAt, voltageAt, rpmAt, atfAt;
     private long runningSince = -1;
 
     /** Neuer gültiger Messwert. Andere PIDs werden ignoriert. */
@@ -78,6 +87,7 @@ public final class LiveWarnings {
         switch (pid) {
             case 0x05 -> { coolant = value; coolantAt = nowMs; }
             case 0x42 -> { voltage = value; voltageAt = nowMs; }
+            case TransmissionLive.KEY_ATF -> { atf = value; atfAt = nowMs; }
             case 0x0C -> {
                 rpm = value;
                 rpmAt = nowMs;
@@ -96,6 +106,7 @@ public final class LiveWarnings {
         switch (pid) {
             case 0x05 -> coolant = Double.NaN;
             case 0x42 -> voltage = Double.NaN;
+            case TransmissionLive.KEY_ATF -> atf = Double.NaN;
             case 0x0C -> { rpm = Double.NaN; runningSince = -1; }
             default -> { }
         }
@@ -103,21 +114,23 @@ public final class LiveWarnings {
 
     /** Verbindung neu oder getrennt: alles vergessen. */
     public void reset() {
-        coolant = voltage = rpm = Double.NaN;
+        coolant = voltage = rpm = atf = Double.NaN;
         runningSince = -1;
-        for (Rule r : new Rule[] {coolantWarn, coolantAlarm, chargeLow, chargeLowAlarm, chargeHigh, batteryLow}) {
+        for (Rule r : new Rule[] {coolantWarn, coolantAlarm, chargeLow, chargeLowAlarm, chargeHigh, batteryLow,
+                atfWarn, atfAlarm}) {
             r.reset();
         }
     }
 
     /**
-     * Wichtigste aktive Meldung (Alarm vor Warnung, Kühlmittel vor Bordnetz) oder {@code null}.
+     * Wichtigste aktive Meldung (Alarm vor Warnung; Kühlmittel vor Getriebeöl vor Bordnetz) oder {@code null}.
      * Regelmäßig aufrufen, auch ohne neue Werte – sonst laufen Haltezeiten nicht ab.
      */
     public Warning evaluate(long nowMs) {
         double t = fresh(coolant, coolantAt, nowMs);
         double u = fresh(voltage, voltageAt, nowMs);
         double n = fresh(rpm, rpmAt, nowMs);
+        double g = fresh(atf, atfAt, nowMs);
         // runningSince ist nur gesetzt, solange die letzte Drehzahl >= RUNNING_RPM war
         boolean running = !Double.isNaN(n) && runningSince >= 0 && nowMs - runningSince >= AFTER_START_MS;
         boolean stopped = !Double.isNaN(n) && n < STOPPED_RPM;
@@ -130,10 +143,16 @@ public final class LiveWarnings {
         chargeLow.update(known(u) && running, u < CHARGE_LOW_WARN, u >= CHARGE_LOW_CLEAR, voltageAt);
         chargeHigh.update(known(u) && running, u > CHARGE_HIGH_ALARM, u <= CHARGE_HIGH_CLEAR, voltageAt);
         batteryLow.update(known(u) && stopped, u < BATTERY_LOW_WARN, u >= BATTERY_LOW_CLEAR, voltageAt);
+        atfAlarm.update(known(g), g >= ATF_ALARM, g < ATF_ALARM_CLEAR, atfAt);
+        atfWarn.update(known(g), g >= ATF_WARN, g < ATF_CLEAR, atfAt);
 
         if (coolantAlarm.active) {
             return new Warning("coolant", Level.ALARM, String.format(java.util.Locale.GERMANY,
                     "Kühlmittel %.0f °C – Motor überhitzt. Anhalten, Motor im Leerlauf abkühlen lassen.", t));
+        }
+        if (atfAlarm.active) {
+            return new Warning("atf", Level.ALARM, String.format(java.util.Locale.GERMANY,
+                    "Getriebeöl %.0f °C – überhitzt. Last sofort verringern, bald anhalten und in P abkühlen lassen.", g));
         }
         if (chargeHigh.active) {
             return new Warning("charge_high", Level.ALARM, String.format(java.util.Locale.GERMANY,
@@ -146,6 +165,10 @@ public final class LiveWarnings {
         if (coolantWarn.active) {
             return new Warning("coolant", Level.WARN, String.format(java.util.Locale.GERMANY,
                     "Kühlmittel %.0f °C – höher als üblich. Last reduzieren, Anzeige beobachten.", t));
+        }
+        if (atfWarn.active) {
+            return new Warning("atf", Level.WARN, String.format(java.util.Locale.GERMANY,
+                    "Getriebeöl %.0f °C – höher als üblich. Last verringern (Steigung, Anhänger), Anzeige beobachten.", g));
         }
         if (chargeLow.active) {
             return new Warning("charge_low", Level.WARN, String.format(java.util.Locale.GERMANY,

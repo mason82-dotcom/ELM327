@@ -56,7 +56,8 @@ tools/android-emulator/uitest.sh --no-build app terminalRefusesWritingCommandsAn
 
 Espresso-Tests in `app/src/androidTest/…/MonitorUiTest.java` und `dashboard/src/androidTest/…/DashboardUiTest.java`,
 gemeinsame Hilfen (Warten, Simulator-Probe, Argumente) im Modul `:testsupport`. Gegen den Simulator `:35000` und
-`proxy.py hot,dtc` auf `:35010`, der jede Anfrage der Apps protokolliert:
+`proxy.py hot,dtc` auf `:35010` sowie `proxy.py atf` auf `:35011` (Getriebeantwort `21 30`), die jede Anfrage der
+Apps protokollieren:
 
 | Test | Monitor | Dashboard | Prüft |
 |---|---|---|---|
@@ -65,15 +66,19 @@ gemeinsame Hilfen (Warten, Simulator-Probe, Argumente) im Modul `:testsupport`. 
 | `unreachableAdapterNeverShowsValues` | ✓ | ✓ | Adapter nicht erreichbar: 8 s lang nie ein Wert |
 | `storedCodesAreReadOnlyOnRequest` | ✓ | ✓ | Verbinden liest keinen Fehlerspeicher; erst auf Knopfdruck P0171 und P0302 |
 | `overheatingFromLiveValueRaisesAlarmAndDisconnectClearsIt` | – | ✓ | 120 °C → Alarm „Motor überhitzt“, Trennen nimmt ihn weg |
-| `terminalRefusesWritingCommandsAndSendsReadOnlyOnes` | ✓ | – | Terminal sperrt `04`, `14 FF 00`, `2E F1 90 00`, `ATSH7E1`; `ATIGN` geht hinaus |
+| `gearAndTransmissionOilAreLiveWithWarning` | – | ✓ | Gang „D 3→2“ am Drehzahlmesser, ATF 125 °C, Warnung „Getriebeöl“; Trennen nimmt alles weg (ADR-008) |
+| `transmissionLiveSwitchesOffWhenTheGearboxNeverAnswers` | – | ✓ | Simulator ohne Getriebe: nach 3 Versuchen „ATF Getriebe · aus“, übrige Werte laufen weiter |
+| `terminalRefusesWritingCommandsAndSendsReadOnlyOnes` | ✓ | – | Terminal sperrt `04`, `14 FF 00`, `2E F1 90 00`, `31 01 FF 00`, `27 01`, `ATSH7E1`; `ATIGN` geht hinaus |
 
 Danach prüft `uitest.sh` im Protokoll des Proxys (Ende-zu-Ende-Prüfung der Read-only-Grenze):
 
 - **Kein gesperrter Befehl hat den Adapter erreicht**, auch nicht mit Anhang (z. B. `04 1`). Die Liste steht nur
-  in `uitest.sh` (`BLOCKED`) und geht als Argument an den Terminal-Test. Gegenprobe: `ATIGN` aus dem Terminal-Test
+  in `uitest.sh` (`BLOCKED`) und geht als Argument an den Terminal-Test. `ATSH7E1` ist von dieser Prüfung
+  ausgenommen (`LOG_EXEMPT`), weil das Dashboard es für Gang/ATF legitim sendet; im Terminal bleibt es gesperrt. Gegenprobe: `ATIGN` aus dem Terminal-Test
   muss im Protokoll stehen (die App sendet es sonst nie); fehlt der Test, meldet das Skript SKIP statt OK.
-- **Verbinden sendet kein Mode 03:** Der DTC-Test der Monitor-App setzt vor dem Klick auf „DTC“ die Marke `ATDPN`
-  (ebenfalls nie von der App gesendet); zwischen dem `ATZ` dieser Verbindung und der Marke darf kein `03` stehen.
+- **Verbinden sendet kein Mode 03:** Der DTC-Test der Monitor-App setzt vor dem Klick auf „DTC“ die Marke `AT@1`
+  (nie von den Apps gesendet – `ATDPN` gehört zum Verbindungsaufbau und taugt nicht); zwischen dem `ATZ` dieser
+  Verbindung und der Marke darf kein `03` stehen, Live-Abfragen (`01…`) müssen dort stehen.
 
 Der Simulator bedient wie ein WLAN-ELM327 nur eine Verbindung zur Zeit; nach jedem Test wartet der Test, bis er
 wieder antwortet (im Protokoll `simulator free after … ms`, bisher etwa 0,5 s). `uitest.sh` schaltet im Emulator

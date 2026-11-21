@@ -18,8 +18,8 @@ import java.nio.charset.StandardCharsets;
  * Helpers for UI tests against the ELM327 simulator (tools/elm327-emulator), run by tools/android-emulator/uitest.sh.
  *
  * Instrumentation arguments: elmHost (default 192.168.178.50), elmPort (35000), deadPort (35009, nothing listens),
- * proxyPort (proxy.py hot,dtc), blocked (terminal commands to refuse); tests that need the last two are skipped
- * without them.
+ * proxyPort (proxy.py hot,dtc), atfProxyPort (proxy.py atf), blocked (terminal commands to refuse); tests that need
+ * the last three are skipped without them.
  */
 public final class ElmTest {
     private static final String TAG = "ElmTest";
@@ -52,6 +52,13 @@ public final class ElmTest {
     public static int proxyPort() {
         String v = args().getString("proxyPort");
         Assume.assumeTrue("proxyPort not given (proxy.py hot,dtc)", v != null);
+        return Integer.parseInt(v);
+    }
+
+    /** Port of proxy.py atf (transmission answers 21 30, ADR-008); skips the calling test without it. */
+    public static int atfProxyPort() {
+        String v = args().getString("atfProxyPort");
+        Assume.assumeTrue("atfProxyPort not given (proxy.py atf)", v != null);
         return Integer.parseInt(v);
     }
 

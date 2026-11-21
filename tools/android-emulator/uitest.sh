@@ -11,11 +11,15 @@ repo="$(cd "$here/../.." && pwd)"
 ADB="${ANDROID_EMU_SDK:-$HOME/android-emu}/platform-tools/adb -s emulator-5560"
 HOST="${ELM_HOST:-192.168.178.50}"
 PROXY_PORT=35010
+ATF_PROXY_PORT=35011   # proxy.py atf: Getriebeantwort 21 30 (ADR-008), der Simulator kennt kein Getriebe
 # Im Terminal-Test eingegebene, gesperrte Befehle: einzige Liste, geht als Argument "blocked" an MonitorUiTest
 # (',' trennt, '_' steht für ein Leerzeichen – adb gibt keine Leerzeichen oder '|' unverändert an die Geräte-Shell)
 # und dient danach der Prüfung des Proxy-Protokolls.
-# Mode 04 und 14 (Fehler löschen), 2E (Daten schreiben), ATSH7E1 (Header nur im ATF-Ablauf, der hier nicht läuft).
-BLOCKED="04,14_FF_00,2E_F1_90_00,ATSH7E1"
+# Mode 04 und 14 (Fehler löschen), 2E (Daten schreiben), 31 (Routine starten), 27 (Sicherheitszugang), ATSH7E1
+# (Header nur in der ATF-Sequenz). ATSH7E1 sendet das Dashboard für Gang/ATF legitim (ADR-001/008): im Terminal
+# muss es gesperrt bleiben, die Protokollprüfung nimmt es aus (LOG_EXEMPT).
+BLOCKED="04,14_FF_00,2E_F1_90_00,31_01_FF_00,27_01,ATSH7E1"
+LOG_EXEMPT="ATSH7E1"
 build=1 modules="app dashboard" only=""
 for a in "$@"; do
   case "$a" in
@@ -51,12 +55,17 @@ proxy_err=$(mktemp) requests=$(mktemp)
 python3 "$repo/tools/elm327-emulator/proxy.py" hot,dtc --listen "$HOST:$PROXY_PORT" --upstream "$HOST:35000" \
   --log "$requests" 2>"$proxy_err" &
 proxy=$!
-trap 'kill $proxy 2>/dev/null || true; rm -f "$proxy_err" "$requests"' EXIT
-# bereit erst, wenn der Proxy über den Port antwortet (nicht nur, wenn der Prozess noch lebt)
-for _ in $(seq 1 20); do answers "$HOST" "$PROXY_PORT" 2>/dev/null && break; sleep 0.25; done
-if ! kill -0 $proxy 2>/dev/null || ! answers "$HOST" "$PROXY_PORT" 2>/dev/null; then
-  echo "Proxy auf $HOST:$PROXY_PORT startet nicht:"; cat "$proxy_err"; exit 1
-fi
+python3 "$repo/tools/elm327-emulator/proxy.py" atf --listen "$HOST:$ATF_PROXY_PORT" --upstream "$HOST:35000" \
+  --log "$requests" 2>>"$proxy_err" &
+atf_proxy=$!
+trap 'kill $proxy $atf_proxy 2>/dev/null || true; rm -f "$proxy_err" "$requests"' EXIT
+# bereit erst, wenn die Proxys über den Port antworten (nicht nur, wenn der Prozess noch lebt)
+for port in $PROXY_PORT $ATF_PROXY_PORT; do
+  for _ in $(seq 1 20); do answers "$HOST" "$port" 2>/dev/null && break; sleep 0.25; done
+  if ! answers "$HOST" "$port" 2>/dev/null; then
+    echo "Proxy auf $HOST:$port startet nicht:"; cat "$proxy_err"; exit 1
+  fi
+done
 
 install() {   # $1 APK, $2 Paket
   local r; r=$($ADB install -r -g "$1" 2>&1) && return 0
@@ -86,7 +95,7 @@ restore_anim() {
     else $ADB shell settings put global "$k" "$v" >/dev/null 2>&1 || true; fi
   done
 }
-trap 'kill $proxy 2>/dev/null || true; rm -f "$proxy_err" "$requests"; restore_anim' EXIT
+trap 'kill $proxy $atf_proxy 2>/dev/null || true; rm -f "$proxy_err" "$requests"; restore_anim' EXIT
 # Ein schon offener ANR-Dialog (z. B. aus einem alten Snapshot) nimmt der App den Fokus: mit „Wait“ schließen.
 # erst lesen, dann suchen: grep -q in der Pipe beendet adb vorzeitig (SIGPIPE, mit pipefail „nicht gefunden“)
 focus=$($ADB shell dumpsys window | grep 'mCurrentFocus=' || true)
@@ -108,16 +117,17 @@ for m in $modules; do
   filter=(); [ -n "$only" ] && filter=(-e class "$class#$only")
   # -r: maschinenlesbar, ausgewertet je Test
   $ADB shell am instrument -w -r -e elmHost "$HOST" -e elmPort 35000 -e deadPort 35009 \
-    -e proxyPort "$PROXY_PORT" -e blocked "$BLOCKED" "${filter[@]}" "$pkg.test/androidx.test.runner.AndroidJUnitRunner" \
+    -e proxyPort "$PROXY_PORT" -e atfProxyPort "$ATF_PROXY_PORT" -e blocked "$BLOCKED" "${filter[@]}" "$pkg.test/androidx.test.runner.AndroidJUnitRunner" \
     | python3 "$here/instrument_result.py" || result=1
 done
 
 # Ende-zu-Ende über das Protokoll des Proxys (jede Anfrage der Apps, ohne Leerzeichen, Großbuchstaben)
 echo "== Anfragen über den Proxy: $(wc -l <"$requests")"
-python3 - "$requests" "$BLOCKED" <<'EOF' || result=1
+python3 - "$requests" "$BLOCKED" "$LOG_EXEMPT" <<'EOF' || result=1
 import sys
 lines = [l.replace(" ", "").strip().upper() for l in open(sys.argv[1], encoding="latin1")]
-blocked = [c.replace("_", "").upper() for c in sys.argv[2].split(",")]
+exempt = set(sys.argv[3].split(",")) if len(sys.argv) > 3 and sys.argv[3] else set()
+blocked = [c.replace("_", "").upper() for c in sys.argv[2].split(",") if c not in exempt]
 bad = 0
 # 1) kein gesperrter Befehl erreichte den Adapter – auch nicht mit Anhang (z. B. "04 1" mit Antwortzahl)
 for cmd in blocked:
@@ -129,15 +139,19 @@ terminal_ran = "ATIGN" in lines
 if not bad:
     print("  OK       kein gesperrter Befehl gesendet (" + ", ".join(blocked) + "), ATIGN protokolliert"
           if terminal_ran else "  SKIP     Terminal-Test lief nicht – Prüfung der gesperrten Befehle ohne Aussage")
-# 3) Verbinden liest keinen Fehlerspeicher: zwischen dem ATZ der Verbindung und der Marke ATDPN (MonitorUiTest
-#    storedCodesAreReadOnlyOnRequest, vor dem Klick auf DTC) steht kein Mode 03
-if "ATDPN" in lines:
-    mark = lines.index("ATDPN")
+# 3) Verbinden liest keinen Fehlerspeicher: zwischen dem ATZ der Verbindung und der Marke AT@1 (MonitorUiTest
+#    storedCodesAreReadOnlyOnRequest, vor dem Klick auf DTC; die Apps senden AT@1 nie selbst) steht kein Mode 03.
+#    Gegenprobe: dazwischen liegen Live-Abfragen (01…), sonst stünde die Marke nicht hinter einer Verbindung.
+if "AT@1" in lines:
+    mark = lines.index("AT@1")
     start = max((i for i in range(mark) if lines[i] == "ATZ"), default=0)
-    if "03" in lines[start:mark]:
+    span = lines[start:mark]
+    if "03" in span:
         print("  FEHLER   Mode 03 schon beim Verbinden gesendet (vor dem Klick auf DTC)"); bad = 1
+    elif not any(l.startswith("01") for l in span):
+        print("  FEHLER   keine Live-Abfrage vor der Marke AT@1 – Prüfung „kein 03“ ohne Aussage"); bad = 1
     else:
-        print("  OK       kein Mode 03 beim Verbinden (bis zur Marke ATDPN)")
+        print(f"  OK       kein Mode 03 beim Verbinden ({len(span)} Anfragen bis zur Marke AT@1)")
 else:
     print("  SKIP     DTC-Test der Monitor-App lief nicht – Prüfung „kein 03 beim Verbinden“ entfällt")
 sys.exit(bad)
