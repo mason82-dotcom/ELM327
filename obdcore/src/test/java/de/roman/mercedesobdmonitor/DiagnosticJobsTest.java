@@ -143,9 +143,10 @@ public class DiagnosticJobsTest {
             default -> "OK";
         };
         String r = new DiagnosticJobs(host).readKwpIdentDtc(client);
-        assertEquals(List.of("ATSH7E0", "1A86", "ATSH7DF", "ATSH7E1", "1A86", "1802FF00", "ATSH7DF"), received);
+        assertEquals(List.of("ATSH7E1", "1A86", "1802FF00", "ATSH7DF"), received);
         assertEquals(CommandSafety.DEFAULT_HEADER, client.header());
         assertTrue(r, r.contains("Code 11: Dienst nicht unterstützt"));
+        assertTrue(r, r.contains("keine verwertbare Kennung"));
         assertTrue(r, r.contains("0715 (ISO-Lesart P0715) · Status E0"));
         assertTrue(host.dropped.isEmpty());
     }
@@ -243,84 +244,6 @@ public class DiagnosticJobsTest {
         assertFalse(r, r.contains("Kommunikationsfehler"));
     }
 
-    /** ADR-007: genau 0105, ATSH7E0, 21 01…21 FE, ATSH7DF; Header am Ende 7DF; Kandidat aus 21 2A; Lauf gespeichert. */
-    @Test
-    public void engineLocalIdScanSendsExactRangeAndRestoresHeader() throws Exception {
-        java.util.concurrent.atomic.AtomicReference<String> saved = new java.util.concurrent.atomic.AtomicReference<>();
-        FakeHost h = new FakeHost() {
-            @Override public void saveLocalIdScan(String text) { saved.set(text); }
-        };
-        answers = c -> {
-            if (c.equals("0105")) return "41 05 7A";                    // 82 °C
-            if (c.startsWith("ATSH")) return "OK";
-            if (c.equals("212A")) return "61 2A 00 7B 10";              // Byte 1 = 83 °C (A−40)
-            if (c.equals("2101")) return "61 01 FF FF";
-            return "7F 21 12";
-        };
-        String r = new DiagnosticJobs(h).readEngineLocalIds(client);
-        assertEquals(1 + 1 + 254 + 1, received.size());
-        assertEquals("0105", received.get(0));
-        assertEquals("ATSH7E0", received.get(1));
-        assertEquals("2101", received.get(2));
-        assertEquals("21FE", received.get(255));
-        assertEquals("ATSH7DF", received.get(256));
-        assertEquals(CommandSafety.DEFAULT_HEADER, client.header());
-        assertTrue(h.dropped.isEmpty());
-        assertTrue(r, r.contains("Antworten 2 · abgelehnt 252"));
-        assertTrue(r, r.contains("21 2A Byte 1: A − 40 = 83,0 °C"));
-        assertTrue(saved.get(), saved.get().startsWith("82.0\n"));
-        // außerhalb der Suche bleibt 21 xx auch an 7E0 gesperrt (Client nicht mehr im Suchmodus)
-        client.sendCommand("ATSH7E0", 1500);
-        try {
-            client.sendCommand("212A", 1000);
-            fail("21 xx außerhalb der Kennungssuche muss gesperrt sein");
-        } catch (IOException expected) {
-            assertTrue(expected.getMessage(), expected.getMessage().contains("Read-Only-Schutz"));
-        }
-        client.sendCommand("ATSH7DF", 1500);
-    }
-
-    /** Review: NO DATA zählt als Schweigen – nach acht in Folge endet die Suche, Header trotzdem zurück. */
-    @Test
-    public void engineLocalIdScanStopsWhenEcuIsSilent() throws Exception {
-        answers = c -> c.equals("0105") ? "41 05 3C" : c.startsWith("ATSH") ? "OK" : "NO DATA";
-        String r = new DiagnosticJobs(host).readEngineLocalIds(client);
-        assertEquals(1 + 1 + 8 + 1, received.size());
-        assertTrue(r, r.contains("VORZEITIG BEENDET: 8 Anfragen in Folge ohne Antwort"));
-        assertEquals(CommandSafety.DEFAULT_HEADER, client.header());
-    }
-
-    /** Review: „Dienst nicht unterstützt“ gilt für alle Kennungen – eine Anfrage genügt. */
-    @Test
-    public void engineLocalIdScanStopsOnServiceNotSupported() throws Exception {
-        answers = c -> c.equals("0105") ? "41 05 3C" : c.startsWith("ATSH") ? "OK" : "7F 21 11";
-        String r = new DiagnosticJobs(host).readEngineLocalIds(client);
-        assertEquals(List.of("0105", "ATSH7E0", "2101", "ATSH7DF"), received);
-        assertTrue(r, r.contains("lehnt den Dienst 21 grundsätzlich ab"));
-    }
-
-    /** Review: STOP behält die bis dahin gelesenen Antworten. */
-    @Test
-    public void engineLocalIdScanStopKeepsPartialResults() throws Exception {
-        java.util.concurrent.atomic.AtomicInteger asked = new java.util.concurrent.atomic.AtomicInteger();
-        FakeHost h = new FakeHost() {
-            @Override public boolean localIdScanCancelled() { return asked.incrementAndGet() > 3; }
-        };
-        answers = c -> c.equals("0105") ? "41 05 3C" : c.startsWith("ATSH") ? "OK" : "61" + c.substring(2) + " 3C";
-        String r = new DiagnosticJobs(h).readEngineLocalIds(client);
-        assertEquals(List.of("0105", "ATSH7E0", "2101", "2102", "2103", "ATSH7DF"), received);
-        assertTrue(r, r.contains("Antworten 3"));
-        assertTrue(r, r.contains("VORZEITIG BEENDET: abgebrochen"));
-    }
-
-    @Test
-    public void engineLocalIdScanNeedsCan11Bit() throws Exception {
-        host.protocolNumber = "3";
-        answers = c -> "OK";
-        String r = new DiagnosticJobs(host).readEngineLocalIds(client);
-        assertTrue(r, r.contains("nur über CAN"));
-        assertTrue(received.isEmpty());
-    }
 
     /** A: Gemischadaption je Bank steht im Monitortest-Bericht unter der Überschrift und wird gespeichert. */
     @Test

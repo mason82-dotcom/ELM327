@@ -37,26 +37,14 @@ public final class CommandSafety {
     private static final Set<String> ADR001_EXACT = Set.of(ATF_HEADER, ATF_REQUEST, OBD_HEADER);
 
     /**
-     * ADR-004 (docs/adr-004-kwp-kennung-fehlerspeicher.md, Testfreigabe): Daimler-Kennung {@code 1A 86} an Motor
-     * (7E0) oder Getriebe (7E1) und Getriebe-Fehlerspeicher {@code 18 02 FF 00} (nur 7E1). Exakte Zeichenketten,
-     * nicht im Terminal; der Ablauf stellt den Header im finally wieder her (ObdSession#readKwpIdentDtc).
+     * ADR-004 (docs/adr-004-kwp-kennung-fehlerspeicher.md, Testfreigabe): Daimler-Kennung {@code 1A 86} und
+     * Fehlerspeicher {@code 18 02 FF 00}, beide nur am Getriebe (7E1). Exakte Zeichenketten, nicht im Terminal; der
+     * Ablauf stellt den Header im finally wieder her. Der Motor-Teil (7E0) ist seit dem Fahrzeugtest 21.11.2026
+     * verworfen – das ME9.7 antwortet dort nicht; ADR-007 (21 xx an 7E0) ebenso.
      */
-    public static final String ENGINE_HEADER = "ATSH7E0";
     public static final String IDENT_REQUEST = "1A86";
     public static final String TCU_DTC_REQUEST = "1802FF00";
-    private static final Set<String> ADR004_EXACT = Set.of(ENGINE_HEADER, IDENT_REQUEST, TCU_DTC_REQUEST);
-
-    /**
-     * ADR-007 (docs/adr-007-kennungssuche-motor.md, Testfreigabe): KWP2000 ReadDataByLocalIdentifier {@code 21 01}
-     * bis {@code 21 FE} – nur bei Header 7E0 (Motorsteuergerät), nur in der Kennungssuche, nicht im Terminal.
-     * Ein Lesedienst; {@code 21 00}/{@code 21 FF} und alle anderen Dienste bleiben gesperrt.
-     */
-    private static final Pattern ENGINE_LOCAL_ID = Pattern.compile("^21(0[1-9A-F]|[1-9A-E][0-9A-F]|F[0-9A-E])$");
-
-    public static String engineLocalId(int id) {
-        if (id < 0x01 || id > 0xFE) throw new IllegalArgumentException("Kennung außerhalb 01–FE: " + id);
-        return String.format(Locale.US, "21%02X", id);
-    }
+    private static final Set<String> ADR004_EXACT = Set.of(IDENT_REQUEST, TCU_DTC_REQUEST);
 
     /**
      * ADR-002 (docs/adr-002-can-mitlesen.md): passives Mitlesen der Bus-Botschaften am OBD-Port.
@@ -119,22 +107,10 @@ public final class CommandSafety {
      * keine normale OBD-Abfrage versehentlich an das Getriebe gehen und die Herstelleranfrage nie an alle.
      */
     public static boolean isAllowed(String command, String currentHeader) {
-        return isAllowed(command, currentHeader, false);
-    }
-
-    /**
-     * Wie {@link #isAllowed(String, String)}; {@code localIdScan} öffnet zusätzlich ADR-007: {@code 21 01}–{@code 21 FE}
-     * nur bei Header 7E0 und nur, solange der Client ausdrücklich in der Kennungssuche ist
-     * ({@code Elm327Client#setLocalIdScan}). Kein anderer Ablauf auf 7E0 kann so eine lokale Kennung senden.
-     */
-    public static boolean isAllowed(String command, String currentHeader, boolean localIdScan) {
         String cmd = normalize(command);
         boolean transmission = "7E1".equals(currentHeader);
-        boolean engine = "7E0".equals(currentHeader);
-        if (localIdScan && engine && ENGINE_LOCAL_ID.matcher(cmd).matches()) return true;
         if (!isAllowed(command)) return false;
-        if (ATF_REQUEST.equals(cmd) || TCU_DTC_REQUEST.equals(cmd)) return transmission;
-        if (IDENT_REQUEST.equals(cmd)) return transmission || engine;
+        if (ATF_REQUEST.equals(cmd) || TCU_DTC_REQUEST.equals(cmd) || IDENT_REQUEST.equals(cmd)) return transmission;
         // On the transmission header, or when the adapter state is unknown (header command without a
         // confirmed answer), only the way back to the standard header is open.
         if (!DEFAULT_HEADER.equals(currentHeader)) return OBD_HEADER.equals(cmd) || "ATZ".equals(cmd);
@@ -147,7 +123,7 @@ public final class CommandSafety {
     /** Ob dieser Befehl den Header ändern kann. */
     public static boolean changesHeader(String command) {
         String cmd = normalize(command);
-        return ATF_HEADER.equals(cmd) || ENGINE_HEADER.equals(cmd) || OBD_HEADER.equals(cmd) || "ATZ".equals(cmd);
+        return ATF_HEADER.equals(cmd) || OBD_HEADER.equals(cmd) || "ATZ".equals(cmd);
     }
 
     /**
@@ -158,7 +134,7 @@ public final class CommandSafety {
     public static boolean isAllowedInTerminal(String command) {
         String cmd = normalize(command);
         return isAllowed(cmd) && !ADR001_EXACT.contains(cmd) && !ADR002_EXACT.contains(cmd)
-                && !ADR004_EXACT.contains(cmd) && !ENGINE_LOCAL_ID.matcher(cmd).matches();
+                && !ADR004_EXACT.contains(cmd);
     }
 
     /** Grund, warum {@code command} im Terminal nicht läuft (nur sinnvoll, wenn {@link #isAllowedInTerminal} false ist). */
@@ -166,7 +142,6 @@ public final class CommandSafety {
         String cmd = normalize(command);
         if (ADR001_EXACT.contains(cmd)) return "nur über „ATF-Temperatur“ (ADR-001, mit Header-Wiederherstellung)";
         if (ADR004_EXACT.contains(cmd)) return "nur über „Kennung + Getriebe-Fehler“ (ADR-004, Testfreigabe)";
-        if (ENGINE_LOCAL_ID.matcher(cmd).matches()) return "nur über „Kennungssuche“ (ADR-007, Testfreigabe)";
         return blockedReason(cmd);
     }
 
@@ -174,7 +149,6 @@ public final class CommandSafety {
     public static String headerAfter(String command, String currentHeader) {
         String cmd = normalize(command);
         if (ATF_HEADER.equals(cmd)) return "7E1";
-        if (ENGINE_HEADER.equals(cmd)) return "7E0";
         if (OBD_HEADER.equals(cmd) || "ATZ".equals(cmd)) return DEFAULT_HEADER;
         return currentHeader;
     }
@@ -184,11 +158,8 @@ public final class CommandSafety {
         if (ATF_REQUEST.equals(cmd)) {
             return "21 30 (ATF-Temperatur) ist nur an das Getriebesteuergerät (Header 7E1) erlaubt.";
         }
-        if (ENGINE_LOCAL_ID.matcher(cmd).matches()) {
-            return "21 xx ist nur an das Motorsteuergerät (Header 7E0) in der Kennungssuche erlaubt (ADR-007).";
-        }
         if (TCU_DTC_REQUEST.equals(cmd)) return "18 02 FF 00 ist nur an das Getriebesteuergerät (Header 7E1) erlaubt (ADR-004).";
-        if (IDENT_REQUEST.equals(cmd)) return "1A 86 ist nur an Motor (7E0) oder Getriebe (7E1) erlaubt (ADR-004).";
+        if (IDENT_REQUEST.equals(cmd)) return "1A 86 ist nur an das Getriebesteuergerät (Header 7E1) erlaubt (ADR-004).";
         if (cmd.startsWith("ATMA") || cmd.startsWith("ATMR") || cmd.startsWith("ATMT")) {
             return "Mitlesen (ATMA) läuft nur zeitbegrenzt über „Bus mitlesen“ (ADR-002); Filter-Varianten sind gesperrt.";
         }
@@ -201,8 +172,7 @@ public final class CommandSafety {
         if (cmd.startsWith("ATSH") || cmd.startsWith("ATCRA") || cmd.startsWith("ATCEA")
                 || cmd.startsWith("ATTA") || cmd.startsWith("ATCP")) {
             return "Änderungen an CAN-Headern/Adressierung sind im Read-Only-Modus gesperrt "
-                    + "(Ausnahmen: ATF-Temperatur nach ADR-001, Kennung/Getriebe-Fehler nach ADR-004, "
-                    + "Kennungssuche Motor nach ADR-007).";
+                    + "(Ausnahmen: ATF-Temperatur nach ADR-001, Kennung/Getriebe-Fehler nach ADR-004).";
         }
         return "Befehl ist nicht in der Read-Only-Whitelist freigegeben.";
     }

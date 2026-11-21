@@ -63,12 +63,6 @@ public final class Elm327Client implements Closeable {
         return now() - start;
     }
 
-    /** ADR-007: nur während der Kennungssuche gesetzt (DiagnosticJobs, im finally zurück). */
-    private boolean localIdScan;
-
-    public synchronized void setLocalIdScan(boolean on) {
-        localIdScan = on;
-    }
 
     /** Aktueller CAN-Header des Adapters (ADR-001); nach ATZ und jeder neuen Verbindung „7DF“. */
     private volatile String header = CommandSafety.DEFAULT_HEADER;
@@ -81,9 +75,9 @@ public final class Elm327Client implements Closeable {
         ensureConnected();
         String cmd = CommandSafety.normalize(command);
         if (cmd.isEmpty()) throw new IllegalArgumentException("Leerer ELM327-Befehl");
-        if (!CommandSafety.isAllowed(cmd, header, localIdScan)) {
+        if (!CommandSafety.isAllowed(cmd, header)) {
             throw new IOException("Read-Only-Schutz: " + (CommandSafety.isAllowed(cmd)
-                    ? "Befehl passt nicht zum aktuellen Header " + header + " (ADR-001/004/007)"
+                    ? "Befehl passt nicht zum aktuellen Header " + header + " (ADR-001/004)"
                     : CommandSafety.blockedReason(cmd)));
         }
         drainAvailable();

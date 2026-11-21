@@ -37,7 +37,7 @@ public class CommandSafetyTest {
     }
 
     @Test public void blocksRawAddressingAndCommandStacking() {
-        assertFalse(CommandSafety.isAllowed("ATSH7E2"));   // ATSH7E0 ist seit ADR-004 als exaktes Tupel frei
+        assertFalse(CommandSafety.isAllowed("ATSH7E2"));
         assertFalse(CommandSafety.isAllowed("ATCRA7E8"));
         assertFalse(CommandSafety.isAllowed("ATCEA18"));
         assertFalse(CommandSafety.isAllowed("010C\r04"));
@@ -76,25 +76,19 @@ public class CommandSafetyTest {
         assertTrue(CommandSafety.terminalBlockedReason("ATMA").contains("ADR-002"));
     }
 
-    /** ADR-004: exakte Tupel, headerabhängig, nie im Terminal; Rückweg nur über 7DF. */
-    @Test public void adr004OnlyExactReadsOnTheRightHeader() {
+    /** ADR-004: nur Getriebe (7E1), exakte Tupel, nie im Terminal; Motor-Teil (7E0) seit 21.11.2026 verworfen. */
+    @Test public void adr004OnlyExactReadsOnTheTransmission() {
         String obd = CommandSafety.DEFAULT_HEADER;
-        assertTrue(CommandSafety.isAllowed("ATSH7E0", obd));
+        assertFalse("7E0 nicht mehr freigegeben", CommandSafety.isAllowed("ATSH7E0", obd));
+        assertFalse(CommandSafety.isAllowed("ATSH7E0"));
+        assertFalse(CommandSafety.changesHeader("ATSH7E0"));
         assertFalse(CommandSafety.isAllowed("1A86", obd));                 // nie funktional an alle
         assertFalse(CommandSafety.isAllowed("1802FF00", obd));
-        String engine = CommandSafety.headerAfter("ATSH7E0", obd);
-        assertEquals("7E0", engine);
-        assertTrue(CommandSafety.isAllowed("1A86", engine));
-        assertFalse(CommandSafety.isAllowed("1802FF00", engine));          // Fehlerspeicher nur Getriebe
-        assertFalse(CommandSafety.isAllowed("2130", engine));            // ADR-007 nur in der Kennungssuche
-        assertFalse(CommandSafety.isAllowed("ATSH7E1", engine));           // erst zurück auf 7DF
-        assertFalse(CommandSafety.isAllowed("010C", engine));
-        assertTrue(CommandSafety.isAllowed("ATSH7DF", engine));
+        assertFalse(CommandSafety.isAllowed("1A86", "7E0"));
         String tcu = CommandSafety.headerAfter("ATSH7E1", obd);
         assertTrue(CommandSafety.isAllowed("1A86", tcu));
         assertTrue(CommandSafety.isAllowed("1802FF00", tcu));
-        assertTrue(CommandSafety.changesHeader("ATSH7E0"));
-        for (String cmd : new String[] {"ATSH7E0", "1A86", "1802FF00"}) {
+        for (String cmd : new String[] {"1A86", "1802FF00"}) {
             assertFalse(cmd, CommandSafety.isAllowedInTerminal(cmd));
             assertTrue(cmd, CommandSafety.terminalBlockedReason(cmd).contains("ADR-004"));
         }
@@ -115,26 +109,14 @@ public class CommandSafetyTest {
         }
     }
 
-    /** ADR-007: 21 01–21 FE nur an 7E0, an 7E1 nur 21 30, an 7DF keine; andere Dienste bleiben zu; nie im Terminal. */
-    @Test public void adr007LocalIdsOnlyOnEngineHeader() {
-        String obd = CommandSafety.DEFAULT_HEADER;
-        String engine = CommandSafety.headerAfter("ATSH7E0", obd);
-        String tcu = CommandSafety.headerAfter("ATSH7E1", obd);
+    /** ADR-007 verworfen (21.11.2026): keine lokale Kennung an 7E0/7DF, an 7E1 nur 21 30 (ADR-001). */
+    @Test public void adr007LocalIdsAreGone() {
         for (int id = 0x01; id <= 0xFE; id++) {
-            String cmd = CommandSafety.engineLocalId(id);
-            assertTrue(cmd, CommandSafety.isAllowed(cmd, engine, true));
-            assertFalse(cmd + " ohne Suchmodus", CommandSafety.isAllowed(cmd, engine));
-            assertFalse(cmd, CommandSafety.isAllowed(cmd, obd, true));
-            assertEquals(cmd, id == 0x30, CommandSafety.isAllowed(cmd, tcu, true));
-            assertFalse(cmd, CommandSafety.isAllowed(cmd, CommandSafety.UNKNOWN_HEADER, true));
+            String cmd = String.format(java.util.Locale.US, "21%02X", id);
+            assertFalse(cmd, CommandSafety.isAllowed(cmd, "7E0"));
+            assertFalse(cmd, CommandSafety.isAllowed(cmd, CommandSafety.DEFAULT_HEADER));
+            assertEquals(cmd, id == 0x30, CommandSafety.isAllowed(cmd, "7E1"));
             assertFalse(cmd, CommandSafety.isAllowedInTerminal(cmd));
         }
-        for (String cmd : new String[] {"2100", "21FF", "210101", "21", "2201", "2E0101", "3B01", "1003", "2701",
-                "3101", "3001", "1400", "14FF00", "3E00", "1101"}) {
-            assertFalse(cmd, CommandSafety.isAllowed(cmd, engine, true));
-        }
-        assertTrue(CommandSafety.isAllowed("1A86", engine, true));        // ADR-004 bleibt
-        assertFalse(CommandSafety.isAllowed("010C", engine, true));
-        assertTrue(CommandSafety.terminalBlockedReason("2105").contains("ADR-007"));
     }
 }

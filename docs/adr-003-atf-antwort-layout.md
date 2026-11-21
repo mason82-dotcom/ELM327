@@ -1,6 +1,6 @@
 # ADR-003: ATF-Byte korrigieren und die Antwort `61 30` nach EGS52-Layout auswerten
 
-**Status:** Vorgeschlagen (20.11.2026)
+**Status:** Angenommen (21.11.2026, Fahrzeugtest am C350)
 **Datum:** 20.11.2026
 **Entscheidet:** Betreiber (mason)
 **Bezug:** [ADR-001](adr-001-atf-temperatur.md) (Freigabe `ATSH7E1` → `2130` → `ATSH7DF`), Recherche
@@ -75,7 +75,28 @@ In B enthalten, weil Index 11 als Gangfeld sichtbar bleibt.
 2. [x] `AtfTemperature`: Index 13 ab 0x61, Mindestlänge 14 Bytes; Tests mit 20-Byte-Antworten (ISO-TP).
 3. [x] `AtfTemperature.layoutFields`: Rohfelder nach EGS52-Layout mit Hypothese-Kennzeichnung; Tests.
 4. [x] ADR-001 auf diese Entscheidung verweisen.
-5. [ ] Am C350: im Stand bei laufendem Motor (Schalten nur so möglich) in P, R, N, D lesen – geprüft wird, ob [9]
+5. [x] Am C350: im Stand bei laufendem Motor (Schalten nur so möglich) in P, R, N, D lesen – geprüft wird, ob [9]
        und [11] der Stellung folgen; die Temperatur hängt nicht von der Stellung ab. Am besten warm, dazu eine Lesung kalt
        in P (Zündung an, Motor aus); Rohantworten hier eintragen und Felder
        bestätigen oder verwerfen.
+
+## Ergebnis Fahrzeugtest 21.11.2026 (C350 S204, 722.9, Kaltstart bei 5 °C außen)
+
+| Lage | U/min | [9] Wählhebel | [11] Gang | [12] Ist/Ziel | [13] → ATF |
+|---|---|---|---|---|---|
+| P, Motor aus | 0 | 10 | 0 | DD | 3A → 8 °C |
+| P | 1058 | 10 | 0 | DD | 3A → 8 °C |
+| R | 777 | 9 | 0 | BB | 3B → 9 °C |
+| N | 734 | 8 | 0 | 00 | 3B → 9 °C |
+| D (Stand) | 675 | 7 | 0 | 11 | 3B → 9 °C |
+| D, Fahrt | 1683 | 7 | 2 | 32 | 70 → 62 °C |
+
+- **[9] Wählhebel** folgt der Stellung: P = 10, R = 9, N = 8, D = 7 (722.9-Kodierung, nicht die des EGS52).
+- **[12] Ist/Zielgang** je Halbbyte: P = 13 (D), R = 11 (B), N = 0, Gänge 1–7; in der Fahrt 3 → 2 (Schaltung).
+- **[11] erkannter Gang** ist im Stand 0, in der Fahrt 2 – passt zum Zielgang.
+- **[13] ATF** kalt 8 °C bei 5 °C außen und 6 °C Kühlmittel, warm 62 °C nach 30 min Fahrt: plausibel. Die Formel
+  „Datenbyte 11 − 50“ (Index 13 ab `61`) gilt damit als bestätigt.
+- **[14]/[16]** sind vorzeichenbehaftet (`FF B3` = −77 bei stehendem Motor).
+
+**Entscheidung:** angenommen. Die App zeigt Wählhebel und Gang im Klartext; die übrigen Felder bleiben Rohwerte.
+

@@ -152,4 +152,35 @@ public class Mode06OverviewTest {
         assertEquals("Aussetzer aktueller Zyklus", Mode06Overview.testName(0xA2, 0x0C));      // SAE-Name bleibt
         assertEquals("Test 0x90 (herstellerspezifisch)", Mode06Overview.testName(0x81, 0x90));
     }
+
+    /** Fahrzeugtest 21.11.2026: Sondenschwellen sind Kennwerte bzw. Schwellenprüfungen, kein „knapp“. */
+    @Test public void sensorThresholdsAreNotFlaggedClose() {
+        // TID 01: 0,7427 V bei Grenze 0,7427 … 0,7427 V (UASID 0x0B, 1 mV) → Kennwert ohne Bewertung
+        Mode06Overview.Test same = Mode06Overview.evaluate(new Mode06.TestResult(0x02, 0x01, 0x0B, 743, 743, 743));
+        assertEquals(Mode06Overview.Status.OK, same.status);
+        assertTrue("Grenze bleibt sichtbar", same.hasMin && same.hasMax);
+        assertEquals(null, same.reservePercent);
+        // eine Stelle daneben ist Rundung, kein Fehler
+        assertEquals(Mode06Overview.Status.OK,
+                Mode06Overview.evaluate(new Mode06.TestResult(0x02, 0x01, 0x0B, 742, 743, 743)).status);
+        // ME9.7 TID 81: 0,733 V bei ≤ 0,7427 V → bestanden, nicht knapp
+        Mode06Overview.Test low = Mode06Overview.evaluate(new Mode06.TestResult(0x06, 0x81, 0x0B, 733, 0, 743));
+        assertEquals(Mode06Overview.Status.OK, low.status);
+        // dieselbe Reserve an einem anderen Test bleibt „knapp“
+        Mode06Overview.Test other = Mode06Overview.evaluate(new Mode06.TestResult(0x02, 0x07, 0x0B, 733, 0, 743));
+        assertEquals(Mode06Overview.Status.CLOSE, other.status);
+        // Schwelle überschritten bleibt ein Fehler
+        Mode06Overview.Test bad = Mode06Overview.evaluate(new Mode06.TestResult(0x06, 0x81, 0x0B, 760, 0, 743));
+        assertEquals(Mode06Overview.Status.FAIL, bad.status);
+    }
+
+    /** Review: Schwellenprüfungen fließen nicht in den Bankvergleich ein. */
+    @Test public void bankComparisonSkipsThresholdTests() {
+        java.util.List<Mode06Overview.Test> tests = java.util.List.of(
+                Mode06Overview.evaluate(new Mode06.TestResult(0x02, 0x81, 0x0B, 733, 0, 743)),
+                Mode06Overview.evaluate(new Mode06.TestResult(0x06, 0x81, 0x0B, 300, 0, 743)));
+        for (String line : Mode06Overview.bankComparison(tests)) {
+            assertFalse(line, line.contains("näher an der Grenze"));
+        }
+    }
 }

@@ -141,12 +141,13 @@ public class C350FeaturesTest {
         String t = r.text();
         assertTrue(t, t.contains("80 °C"));
         assertTrue(t, t.contains("Rohantwort: 61 30"));
-        assertTrue(t, t.contains("Hypothese"));
+        assertTrue(t, t.contains("am C350 bestätigt"));
         assertTrue(t, t.contains("[2] Wandler-Schlupfdrehzahl: 10"));
         assertTrue(t, t.contains("[4] Wandler-Drehzahl: 1000"));            // 16 Bit big-endian
         assertTrue(t, t.contains("[8] Wandlerzustand: 6 (EGS52: geschlossen)"));
-        assertTrue(t, t.contains("[11] erkannter Gang: 1 (EGS52: D1)"));
-        assertTrue(t, t.contains("oberes Halbbyte 1 (Ist), unteres 2 (Ziel)"));
+        assertTrue(t, t.contains("[11] erkannter Gang: 1 (Gang 1)"));
+        assertTrue(t, t.contains("Ist-/Zielgang: 12 → Ist 1, Ziel 2"));
+        assertTrue(t, t.contains("Wählhebel N · Gang 1 → 2"));
         assertTrue(t, t.contains("[14] Motormoment: 200"));
         assertTrue(t, t.contains("[18] Abtriebsdrehzahl: 0"));
         assertFalse(t, t.contains("Schaltbits"));                            // Antwort endet vor Index 20
@@ -160,7 +161,7 @@ public class C350FeaturesTest {
         assertTrue(r.problem, r.problem.contains("zu kurz"));
         assertTrue(r.text(), r.text().contains("[11] erkannter Gang: 130"));
         assertEquals("", AtfTemperature.layoutFields(new byte[0]));
-        assertEquals("D3", AtfTemperature.gear(3));
+        assertEquals("Gang 3", AtfTemperature.gear(3));
         assertNull(AtfTemperature.gear(42));
     }
 
@@ -270,5 +271,34 @@ public class C350FeaturesTest {
         // a rejection from another responder does not hide the valid answer
         assertEquals(70.0, AtfTemperature.parse(raw).celsius, 1e-9);
         assertEquals(70.0, AtfTemperature.parse("61 30 00 00 00 00 00 00 00 00 00 00 00 78").celsius, 1e-9);
+    }
+
+    /** ADR-003 am C350 bestätigt (21.11.2026): echte Antworten in P, R, N, D und in der Fahrt. */
+    @Test
+    public void atfLayoutConfirmedOnC350() {
+        String[][] cases = {
+            {"61 30 00 52 00 00 00 00 00 0A 01 00 DD 3A 00 09 00 08 00 00 04 01 00 06", "Wählhebel P · Gang P", "8 °C"},
+            {"61 30 02 AA 00 00 00 00 00 09 01 00 BB 3B 00 1F 00 3B 00 00 00 01 00 00", "Wählhebel R · Gang R", "9 °C"},
+            {"61 30 00 74 00 00 00 00 00 08 01 00 00 3B 00 0E 00 0D 00 00 04 01 00 06", "Wählhebel N · Gang N", "9 °C"},
+            {"61 30 02 9E 02 DF 00 00 00 07 01 00 11 3B 00 1F 00 3B 00 00 00 01 00 00", "Wählhebel D · Gang 1", "9 °C"},
+            {"61 30 01 56 00 2D 03 C8 01 07 01 02 32 70 00 A3 00 A2 02 7B 03 81 00 90", "Wählhebel D · Gang 3 → 2", "62 °C"},
+        };
+        for (String[] c : cases) {
+            String t = AtfTemperature.parse(c[0]).text();
+            assertTrue(t, t.contains(c[1]));
+            assertTrue(t, t.startsWith("ATF-Temperatur: " + c[2]));
+        }
+        // Motormoment vorzeichenbehaftet: FF B3 = −77 bei stehendem Motor
+        String off = AtfTemperature.parse("61 30 00 00 00 00 00 00 00 0A 01 00 DD 3A FF B3 FF 6D 00 00 04 01 00 06").text();
+        assertTrue(off, off.contains("[14] Motormoment: -77"));
+        assertTrue(off, off.contains("[9] Wählhebelstellung: 10 (P)"));
+    }
+
+    /** Review: zu einer ungültigen Antwort keine Klartextzeile Wählhebel/Gang. */
+    @Test
+    public void invalidAtfHasNoShiftSummary() {
+        String t = AtfTemperature.parse("61 30 00 00 00 00 00 00 00 0A 01 00 DD 01 00 00 00 00 00 00").text();
+        assertTrue(t, t.startsWith("ATF-Temperatur: kein gültiger Wert"));
+        assertFalse(t, t.contains("Wählhebel P · Gang"));
     }
 }

@@ -40,10 +40,12 @@ public final class AtfTemperature {
 
         public String text() {
             String v = celsius != null ? String.format(Locale.GERMANY, "%.0f °C", celsius) : "kein gültiger Wert (" + problem + ")";
-            StringBuilder sb = new StringBuilder("ATF-Temperatur: ").append(v)
-                    .append("\nRohantwort: ").append(rawHex.isEmpty() ? "–" : rawHex)
-                    .append("\nFormel: Datenbyte 11 nach 61 30 − 50 (Torque „L-50“, EGS52-Layout; am C350 noch nicht ")
-                    .append("bestätigt – bitte kalt und warm vergleichen).");
+            StringBuilder sb = new StringBuilder("ATF-Temperatur: ").append(v);
+            String shift = celsius == null ? null : shiftSummary(response);   // nur zu einer gültigen Antwort
+            if (shift != null) sb.append("\n").append(shift);
+            sb.append("\nRohantwort: ").append(rawHex.isEmpty() ? "–" : rawHex)
+                    .append("\nFormel: Datenbyte 11 nach 61 30 − 50 – am C350 bestätigt (ADR-003, 21.11.2026: 8 °C kalt ")
+                    .append("bei 5 °C außen, 62 °C warm).");
             String fields = layoutFields(response);
             if (!fields.isEmpty()) sb.append("\n\n").append(fields);
             return sb.toString();
@@ -80,10 +82,9 @@ public final class AtfTemperature {
     }
 
     /**
-     * Übrige Felder der Antwort nach dem EGS52-Layout von RLI 0x30 (ultimate-nag52-fw, egs_emulation.h), Index ab
-     * 0x61, 16-Bit-Werte big-endian. ADR-003: nur die Lage ist belegt, keine Skalierung, und ob das VGS (722.9) das
-     * Layout des EGS52 (722.6) übernommen hat, ist ungeprüft – deshalb nur Rohwerte und nur Felder, die die Antwort
-     * enthält. Leer, wenn die Antwort keine Felder trägt.
+     * Felder der Antwort nach dem EGS52-Layout von RLI 0x30 (ultimate-nag52-fw, egs_emulation.h), Index ab 0x61,
+     * 16-Bit-Werte big-endian. ADR-003: Wählhebel [9], Gang [11]/[12] und ATF [13] sind am C350 bestätigt (21.11.2026);
+     * die übrigen bleiben Rohwerte ohne Skalierung. Leer, wenn die Antwort keine Felder trägt.
      */
     static String layoutFields(byte[] r) {
         if (r == null || r.length < 3) return "";
@@ -91,17 +92,17 @@ public final class AtfTemperature {
         word(sb, r, 2, "Wandler-Schlupfdrehzahl");
         word(sb, r, 4, "Wandler-Drehzahl");
         word(sb, r, 6, "Wandlerdruck");
-        if (r.length > 8) sb.append(field(8, "Wandlerzustand", r[8] & 0xFF, tccState(r[8] & 0xFF)));
-        if (r.length > 9) sb.append(field(9, "Wählhebelstellung", r[9] & 0xFF, null));
+        if (r.length > 8) sb.append(field(8, "Wandlerzustand", r[8] & 0xFF, egs52(tccState(r[8] & 0xFF))));
+        if (r.length > 9) sb.append(field(9, "Wählhebelstellung", r[9] & 0xFF, selector(r[9] & 0xFF)));
         if (r.length > 10) sb.append(field(10, "Fahrprogramm", r[10] & 0xFF, null));
         if (r.length > 11) sb.append(field(11, "erkannter Gang", r[11] & 0xFF, gear(r[11] & 0xFF)));
         if (r.length > 12) {
             int v = r[12] & 0xFF;
-            sb.append(String.format(Locale.GERMANY, "• [12] Ist-/Zielgang: %02X → oberes Halbbyte %d (Ist), unteres %d (Ziel)%n",
-                    v, v >> 4, v & 0x0F));
+            sb.append(String.format(Locale.GERMANY, "• [12] Ist-/Zielgang: %02X → Ist %s, Ziel %s%n",
+                    v, gearNibble(v >> 4), gearNibble(v & 0x0F)));
         }
-        word(sb, r, 14, "Motormoment");
-        word(sb, r, 16, "Wandlermoment");
+        signedWord(sb, r, 14, "Motormoment");
+        signedWord(sb, r, 16, "Wandlermoment");
         word(sb, r, 18, "Abtriebsdrehzahl");
         if (r.length > 20) {
             StringBuilder hex = new StringBuilder();
@@ -109,29 +110,66 @@ public final class AtfTemperature {
             sb.append("• [20…] Schaltbits (Kickdown, Wandlerkupplung, Notlauf …): ").append(hex).append('\n');
         }
         if (sb.length() == 0) return "";
-        return ("Weitere Felder nach EGS52-Layout (722.6) – Hypothese, Rohwerte ohne Einheit, Index ab 0x61:\n" + sb
-                + "Prüfen: im Stand bei laufendem Motor (Schalten nur so möglich), Fuß auf der Bremse, in P, R, N und D "
-                + "lesen – passen Wählhebel und Gang, gilt das Layout (ADR-003).").trim();
+        return ("Felder der Antwort (Index ab 0x61): Wählhebel [9], Gang [11]/[12] und ATF [13] am C350 bestätigt "
+                + "(ADR-003); die übrigen nach EGS52-Layout (722.6), Rohwerte ohne Einheit:\n" + sb).trim();
+    }
+
+    /** Klartextzeile „Wählhebel D · Gang 3 → 2“; null ohne die Felder. */
+    static String shiftSummary(byte[] r) {
+        if (r == null || r.length <= 12) return null;
+        String sel = selector(r[9] & 0xFF);
+        int g = r[12] & 0xFF;
+        String ist = gearNibble(g >> 4), ziel = gearNibble(g & 0x0F);
+        return "Wählhebel " + (sel == null ? "? (" + (r[9] & 0xFF) + ")" : sel)
+                + " · Gang " + (ist.equals(ziel) ? ist : ist + " → " + ziel);
+    }
+
+    /** Wählhebelstellung [9] des 722.9 (Fahrzeugtest 21.11.2026): P = 10, R = 9, N = 8, D = 7; sonst null. */
+    static String selector(int v) {
+        return switch (v) {
+            case 10 -> "P";
+            case 9 -> "R";
+            case 8 -> "N";
+            case 7 -> "D";
+            default -> null;
+        };
+    }
+
+    /** Halbbyte von [12]: 0 = N, 1–7 = Gang, 11 = R, 13 = P (Fahrzeugtest 21.11.2026); sonst Rohwert. */
+    static String gearNibble(int v) {
+        if (v >= 1 && v <= 7) return String.valueOf(v);
+        return switch (v) {
+            case 0 -> "N";
+            case 11 -> "R";
+            case 13 -> "P";
+            default -> "? (" + v + ")";
+        };
+    }
+
+
+    private static void signedWord(StringBuilder sb, byte[] r, int i, String name) {
+        if (r.length > i + 1) sb.append(field(i, name, (short) (((r[i] & 0xFF) << 8) | (r[i + 1] & 0xFF)), null));
     }
 
     private static void word(StringBuilder sb, byte[] r, int i, String name) {
         if (r.length > i + 1) sb.append(field(i, name, ((r[i] & 0xFF) << 8) | (r[i + 1] & 0xFF), null));
     }
 
-    private static String field(int i, String name, int raw, String egs52) {
-        return String.format(Locale.GERMANY, "• [%d] %s: %d%s%n", i, name, raw, egs52 == null ? "" : " (EGS52: " + egs52 + ")");
+    /** Feldzeile „• [i] Name: Rohwert (Zusatz)“; Zusatz null = ohne Klammer. */
+    private static String field(int i, String name, int raw, String extra) {
+        return String.format(Locale.GERMANY, "• [%d] %s: %d%s%n", i, name, raw, extra == null ? "" : " (" + extra + ")");
     }
 
-    /** Aufzählung RecognisedGear des EGS52 (5 Gänge); das 722.9 hat 7 Gänge, die Werte können abweichen. */
+    /** Bezeichnung nach EGS52-Layout (am C350 unbestätigt) kennzeichnen. */
+    private static String egs52(String text) {
+        return text == null ? null : "EGS52: " + text;
+    }
+
+    /** Erkannter Gang [11] des 722.9: im Stand 0, in der Fahrt der eingelegte Gang (21.11.2026: 2 bei Ziel 2). */
     static String gear(int v) {
-        if (v >= 1 && v <= 5) return "D" + v;
+        if (v >= 1 && v <= 7) return "Gang " + v;
         return switch (v) {
-            case 0 -> "inaktiv";
-            case 6 -> "R";
-            case 7 -> "R2";
-            case 23 -> "falscher Gang";
-            case 88 -> "wird ermittelt";
-            case 255 -> "kein Wert";
+            case 0 -> "kein Gang (Stand)";
             default -> null;
         };
     }

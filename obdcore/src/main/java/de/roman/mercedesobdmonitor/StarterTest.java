@@ -41,8 +41,13 @@ public final class StarterTest {
     static final long RECOVER_MS = 1500;
     /** Längeres Anlassen wird nicht weiter verfolgt. */
     static final long MAX_CRANK_MS = 20_000;
-    /** Messdauer nach dem Anlassen; die Ladespannung ist der Median der zweiten Hälfte. */
-    static final long CHARGE_MS = 10_000;
+    /**
+     * Messdauer nach dem Anlassen; die Ladespannung ist der Median der letzten {@link #CHARGE_TAIL_MS}. Das ME fährt die
+     * Lichtmaschine nach dem Start verzögert hoch (WIS GF07.61-P-3003CY); am 21.11.2026 lag der Median der zweiten
+     * Hälfte von 10 s bei 11,1 V, der Höchstwert bei 13,5 V.
+     */
+    static final long CHARGE_MS = 20_000;
+    static final long CHARGE_TAIL_MS = 5_000;
     /** Ohne gültige Probe so lange: Test abbrechen. */
     static final long MAX_SILENCE_MS = 3000;
     /** Über dieser Ruhespannung läuft der Motor schon oder ein Ladegerät hängt dran. */
@@ -280,14 +285,33 @@ public final class StarterTest {
         return crankStart >= 0 && crankEnd >= 0 ? crankEnd - crankStart : -1;
     }
 
-    /** Ladespannung: Median der zweiten Hälfte der Messung nach dem Start; NaN ohne Messung. */
+    /** Ladespannung: Median der letzten {@link #CHARGE_TAIL_MS} der Messung (Lichtmaschine fährt verzögert hoch). */
     public double charge() {
         if (chargeSamples.isEmpty()) return Double.NaN;
-        long from = chargeStart + CHARGE_MS / 2;
+        long from = chargeStart + CHARGE_MS - CHARGE_TAIL_MS;
         List<Double> vs = new ArrayList<>();
         for (double[] s : chargeSamples) if ((long) s[0] >= from) vs.add(s[1]);
         if (vs.isEmpty()) for (double[] s : chargeSamples) vs.add(s[1]);
         return median(vs);
+    }
+
+    /**
+     * Gehaltener Höchstwert der Ladespannung: höchster Median über ein Fenster von einer Sekunde – eine einzelne
+     * Spitze direkt nach dem Anlassen zählt nicht, eine mehrere Sekunden anliegende Ladespannung schon (Review).
+     */
+    double sustainedChargeMax() {
+        double best = Double.NaN;
+        for (int i = 0; i < chargeSamples.size(); i++) {
+            double start = chargeSamples.get(i)[0];
+            if (start + 1000 > chargeSamples.get(chargeSamples.size() - 1)[0]) break;
+            List<Double> window = new ArrayList<>();
+            for (int j = i; j < chargeSamples.size() && chargeSamples.get(j)[0] < start + 1000; j++) {
+                window.add(chargeSamples.get(j)[1]);
+            }
+            double m = median(window);
+            if (Double.isNaN(best) || m > best) best = m;
+        }
+        return best;
     }
 
     /** Mittlerer Abstand zweier Proben in ms oder -1. */
@@ -468,6 +492,12 @@ public final class StarterTest {
             issues.add(c > 15.2 ? "Ladespannung zu hoch: Regler der Lichtmaschine prüfen lassen."
                     : !Double.isNaN(rpmAfter) && rpmAfter < 300
                     ? "Motor läuft nicht – keine Aussage zur Ladespannung."
+                    // Eine tief entladene Batterie zieht die Spannung im Leerlauf herunter; steigt sie zwischendurch auf
+                    // Ladeniveau, lädt die Lichtmaschine – dann erst nach einigen Minuten bei 2000 U/min urteilen.
+                    : rest == Rating.WEAK && sustainedChargeMax() >= 13.2
+                    ? "Ladespannung im Leerlauf niedrig, zwischendurch aber " + fmtV(sustainedChargeMax()) + " V – bei tief "
+                    + "entladener Batterie üblich (sie nimmt viel Strom auf). Nach einigen Minuten bei etwa 2000 U/min "
+                    + "die Steuergerät-Spannung lesen: 13,5–15 V heißt, die Lichtmaschine lädt."
                     : "Lichtmaschine lädt nicht ausreichend: Riemen, Regler, Ladekabel prüfen.");
         }
         if (issues.isEmpty()) {
