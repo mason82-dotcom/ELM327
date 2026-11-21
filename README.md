@@ -33,8 +33,10 @@ Für einen Termin am Fahrzeug gibt es eine Checkliste (Dashboard: **INFO → PR�
 „kalt“, „warm“ und „Motor läuft“ stimmen:
 
 1. **ATF-Temperatur kalt** – vor dem ersten Start, Kühlmittel unter 40 °C.
-2. **ATF-Temperatur warm in P, R, N, D** – Motor läuft im Leerlauf (schalten geht nur bei laufendem Motor),
-   Feststellbremse an, Fuß fest auf der Bremse; vier Lesungen in genau dieser Reihenfolge.
+2. **Wählhebel/Gang prüfen in P, R, N, D** – Motor läuft im Leerlauf (schalten geht nur bei laufendem Motor),
+   Feststellbremse an, Fuß fest auf der Bremse; je Stellung einmal „ATF lesen“. Geprüft wird, ob Wählhebel- und
+   Gangfeld der Antwort der Stellung folgen – dann stimmt das Layout und damit die Temperaturstelle (ADR-003).
+   Am besten warm, damit der Vergleich mit Schritt 1 auch die Temperatur prüft.
 3. **Kennung + Getriebe-Fehler** – vorher den Schalter „Herstellerabfragen nach ADR-004“ einschalten.
 4. **Starttest** – nach mehreren Stunden Standzeit, bei „Jetzt starten“ den Motor starten.
 5. **Bus mitlesen** – bei laufendem Motor.
@@ -42,7 +44,7 @@ Für einen Termin am Fahrzeug gibt es eine Checkliste (Dashboard: **INFO → PR�
 8. **Fehlercodes**.
 9. **Kennungssuche Motor kalt und warm** (Test, Schalter ADR-004/007) – einmal vor dem Start, einmal nach der Fahrt.
 
-Die P/R/N/D-Lesungen zählen nur mit gültiger Temperatur, laufendem Motor und je Wählhebelstellung einmal.
+Die P/R/N/D-Lesungen zählen nur mit laufendem Motor, mit Wählhebelfeld in der Antwort und je Stellung einmal.
 
 Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantworten. Jede App führt ihren eigenen Plan.
 

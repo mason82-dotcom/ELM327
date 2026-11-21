@@ -110,9 +110,12 @@ public final class TestPlan {
         out.add(new Step("ATF-Temperatur kalt", "vor dem ersten Start des Tages, Kühlmittel unter 40\u00A0°C: Zündung an, "
                 + "verbinden, ATF lesen", count(ObdSession.Op.ATF, r -> r.cold() && r.validAtf()), 1));
         // Schalten geht nur bei laufendem Motor: Lesungen mit stehendem Motor (bekannte Drehzahl) zählen hier nicht.
-        out.add(new Step("ATF-Temperatur warm in P, R, N, D", "warm, Motor läuft im Leerlauf (Schalten geht nur bei "
-                + "laufendem Motor), Feststellbremse an, Fuß fest auf der Bremse; je Wählhebelstellung einmal ATF lesen "
-                + "– genau in dieser Reihenfolge (prüft das Feldlayout, ADR-003)",
+        // ADR-003: Geprüft wird das Layout der Antwort 61 30 – folgen Wählhebel [9] und Gang [11] der eingelegten
+        // Stellung? Die Temperatur hängt nicht von der Stellung ab. Schalten geht nur bei laufendem Motor.
+        out.add(new Step(SHIFT_STEP, "Motor läuft im Leerlauf (Schalten geht nur bei laufendem Motor), "
+                + "Feststellbremse an, Fuß fest auf der Bremse; je Stellung einmal ATF lesen. Geprüft wird, ob "
+                + "Wählhebel [9] und Gang [11] der Stellung folgen (ADR-003). Am besten warm: dann zeigt der Vergleich "
+                + "mit der Kaltlesung auch, ob die Temperaturstelle mitwandert",
                 shiftReadings(), ATF_WARM_READINGS));
         out.add(new Step("Kennung + Getriebe-Fehler", "Schalter ADR-004 einschalten, dann einmal lesen (Motor aus oder "
                 + "Leerlauf)", count(ObdSession.Op.KWP, r -> true), 1));
@@ -132,20 +135,21 @@ public final class TestPlan {
         return out;
     }
 
+    /** Name des Schritts Wählhebel/Gang (für Bericht und Tests). */
+    public static final String SHIFT_STEP = "Wählhebel/Gang prüfen in P, R, N, D (ATF-Antwort)";
+
     /**
-     * Lesungen für P, R, N, D: warm, Motor läuft (Schalten geht nur so), gültige Temperatur. Je Wählhebelstellung
-     * zählt nur eine Lesung (Rohwert [9]); Lesungen ohne dieses Feld zählen einzeln.
+     * Lesungen für P, R, N, D: Motor läuft (Schalten geht nur so) und die Antwort enthält die Wählhebelstellung [9];
+     * je Rohwert zählt eine Lesung. Auf eine gültige Temperatur kommt es dabei nicht an – geprüft wird das Layout.
      */
     private int shiftReadings() {
         java.util.Set<Integer> positions = new java.util.HashSet<>();
-        int withoutField = 0;
         for (Record r : records) {
-            if (r.op != ObdSession.Op.ATF || !r.warm() || !r.running() || !r.validAtf()) continue;
+            if (r.op != ObdSession.Op.ATF || !r.running()) continue;
             Integer sel = r.selector();
-            if (sel == null) withoutField++;
-            else positions.add(sel);
+            if (sel != null) positions.add(sel);
         }
-        return positions.size() + withoutField;
+        return positions.size();
     }
 
     private int count(ObdSession.Op op, java.util.function.Predicate<Record> ok) {
@@ -154,7 +158,7 @@ public final class TestPlan {
         return n;
     }
 
-    /** Checkliste, z. B. „✓ Starttest“ / „○ ATF-Temperatur warm in P, R, N, D (2/4) – …“. */
+    /** Checkliste, z. B. „✓ Starttest“ / „○ Wählhebel/Gang prüfen in P, R, N, D (ATF-Antwort) (2/4) – …“. */
     public String checklist() {
         StringBuilder sb = new StringBuilder();
         int complete = 0;
