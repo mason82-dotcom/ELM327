@@ -66,6 +66,23 @@ public final class StarterTest {
     private final List<Double> restSamples = new ArrayList<>();
     private double rest = Double.NaN;
 
+    /**
+     * Abgleich mit dem Motorsteuergerät (01 42): Am C350 maß der WLAN-Adapter mit ATRV in Ruhe 10,6 V statt 11,5 V und
+     * nach dem Start 11,1 V statt 14,4 V (21.11.2026). Weicht ATRV um mehr als {@link #ADAPTER_TOLERANCE} ab, werden
+     * Ruhe- und Ladespannung nach dem Steuergerät bewertet; den Einbruch beim Anlassen kann nur ATRV schnell genug
+     * messen, er bleibt dann ein grober Wert.
+     */
+    static final double ADAPTER_TOLERANCE = 0.5;
+    /**
+     * Bei der Ladung messen Adapter (Median der letzten Sekunden) und Steuergerät (eine Lesung danach) nicht gleichzeitig,
+     * und die Lichtmaschine fährt noch hoch – dort erst ab dieser Abweichung von einem ungenauen Adapter ausgehen.
+     */
+    static final double ADAPTER_TOLERANCE_CHARGE = 1.0;
+    /** Das Steuergerät misst an seiner Versorgung, angenommen so viel unter der Batterie (Richtwert). */
+    static final double ECU_SUPPLY_DROP = 0.2;
+    private double ecuRest = Double.NaN;
+    private double ecuCharge = Double.NaN;
+
     private long waitStart;
     /** Proben der letzten {@link #REF_WINDOW_MS} vor dem Anlassen: {Zeit, Spannung}. */
     private final ArrayDeque<double[]> window = new ArrayDeque<>();
@@ -272,6 +289,46 @@ public final class StarterTest {
 
     // ---------------------------------------------------------------- Kennwerte
 
+    /** Steuergerät-Spannung 01 42 am Ende der Ruhemessung (NaN = nicht gelesen). */
+    public void setEcuRest(double volts) {
+        ecuRest = volts;
+    }
+
+    /** Steuergerät-Spannung 01 42 nach der Ladungsmessung (NaN = nicht gelesen). */
+    public void setEcuCharge(double volts) {
+        ecuCharge = volts;
+    }
+
+    /**
+     * ATRV weicht in Ruhe um mehr als {@link #ADAPTER_TOLERANCE} oder bei Ladung um mehr als
+     * {@link #ADAPTER_TOLERANCE_CHARGE} vom Steuergerät ab (Batterie = Steuergerät + {@link #ECU_SUPPLY_DROP}).
+     */
+    boolean adapterInaccurate() {
+        return adapterInaccurate(charge());
+    }
+
+    private boolean adapterInaccurate(double chargeAtrv) {
+        return off(rest, ecuRest, ADAPTER_TOLERANCE) || off(chargeAtrv, ecuCharge, ADAPTER_TOLERANCE_CHARGE);
+    }
+
+    private static boolean off(double adapter, double ecu, double tolerance) {
+        return !Double.isNaN(adapter) && !Double.isNaN(ecu) && Math.abs(adapter - (ecu + ECU_SUPPLY_DROP)) > tolerance;
+    }
+
+    /** Ruhespannung an der Batterie aus dem Steuergerät (NaN ohne Lesung). */
+    private double ecuRestBattery() {
+        return Double.isNaN(ecuRest) ? Double.NaN : ecuRest + ECU_SUPPLY_DROP;
+    }
+
+    private double ecuChargeBattery() {
+        return Double.isNaN(ecuCharge) ? Double.NaN : ecuCharge + ECU_SUPPLY_DROP;
+    }
+
+    /** Abweichung Adapter − Batterie in Ruhe (für die Schätzung des Anlass-Einbruchs); NaN ohne Abgleich. */
+    private double restOffset() {
+        return Double.isNaN(rest) || Double.isNaN(ecuRest) ? Double.NaN : rest - ecuRestBattery();
+    }
+
     public double rest() {
         return rest;
     }
@@ -417,23 +474,39 @@ public final class StarterTest {
             b.append('\n');
         }
         double temp = ambientC;
-        Rating rRest = rateRest(rest);
-        Rating rCrank = crankMissed ? Rating.UNKNOWN : rateCrank(crankMin, temp);
-        double charge = charge();
+        double chargeAtrv = charge();
+        boolean inaccurate = adapterInaccurate(chargeAtrv);
+        double restV = inaccurate && !Double.isNaN(ecuRest) ? ecuRestBattery() : rest;
+        double charge = inaccurate && !Double.isNaN(ecuCharge) ? ecuChargeBattery() : chargeAtrv;
+        // Einbruch beim Anlassen misst nur der Adapter; bei ungenauem Adapter um die Ruhe-Abweichung verschoben schätzen
+        double offset = inaccurate ? restOffset() : 0;
+        double crankEst = Double.isNaN(offset) ? Double.NaN : crankMin - offset;
+        Rating rRest = rateRest(restV);
+        Rating rCrank = crankMissed || Double.isNaN(crankEst) ? Rating.UNKNOWN : rateCrank(crankEst, temp);
         Rating rCharge = rateCharge(charge);
+        String source = inaccurate ? " (aus Motorsteuergerät 01 42 + " + fmt1(ECU_SUPPLY_DROP) + " V)" : "";
 
-        if (!Double.isNaN(rest)) {
-            b.append("Ruhespannung (Zündung an, Motor aus): ").append(fmtV(rest)).append(" V – ")
-                    .append(restText(rRest)).append('\n');
+        if (!Double.isNaN(restV)) {
+            b.append("Ruhespannung (Zündung an, Motor aus): ").append(fmtV(restV)).append(" V").append(source)
+                    .append(" – ").append(restText(rRest)).append('\n');
         }
         if (crankMissed) {
             b.append("Anlassen: Einbruch nicht erfasst (kürzer als ein Abtastschritt von ~")
                     .append(sampleIntervalMs()).append(" ms) – Motor lief danach.\n");
         } else if (crankStart >= 0) {
             double limit = crankLimit(temp);
-            b.append("Beim Anlassen: tiefster Wert ").append(fmtV(crankMin)).append(" V (Einbruch ")
-                    .append(fmtV(preCrank - crankMin)).append(" V) – ").append(crankText(rCrank)).append('\n');
-            if (!Double.isNaN(crankMin) && crankMin < ME_START_MIN + 1.0) {
+            if (inaccurate) {
+                b.append("Beim Anlassen: Adapter tiefster Wert ").append(fmtV(crankMin)).append(" V");
+                if (Double.isNaN(crankEst)) b.append(" – nicht bewertbar (Adapter ungenau, kein Ruhe-Abgleich)\n");
+                else b.append(", geschätzt ").append(fmtV(crankEst)).append(" V an der Batterie (um die Ruhe-Abweichung ")
+                        .append(String.format(Locale.GERMANY, "%+.1f", -offset)).append(" V verschoben, grob) – ")
+                        .append(crankText(rCrank)).append('\n');
+            } else {
+                b.append("Beim Anlassen: tiefster Wert ").append(fmtV(crankMin)).append(" V (Einbruch ")
+                        .append(fmtV(preCrank - crankMin)).append(" V) – ").append(crankText(rCrank)).append('\n');
+            }
+            double crankForLimit = inaccurate ? crankEst : crankMin;
+            if (!Double.isNaN(crankForLimit) && crankForLimit < ME_START_MIN + 1.0) {
                 b.append("  Nahe der Startgrenze: unter etwa ").append(fmt1(ME_START_MIN))
                         .append(" V startet das Motorsteuergerät den Motor nicht mehr (WIS).\n");
             }
@@ -448,16 +521,20 @@ public final class StarterTest {
             }
         }
         if (!Double.isNaN(charge)) {
-            b.append("Ladespannung nach dem Start: ").append(fmtV(charge)).append(" V (höchster Wert ")
-                    .append(fmtV(chargeMax)).append(" V) – ").append(chargeText(charge, rCharge)).append('\n');
+            b.append("Ladespannung nach dem Start: ").append(fmtV(charge)).append(" V");
+            if (inaccurate) b.append(source);
+            else b.append(" (höchster Wert ").append(fmtV(chargeMax)).append(" V)");
+            b.append(" – ").append(chargeText(charge, rCharge)).append('\n');
         }
+        String check = adapterCheck(chargeAtrv, inaccurate);
+        if (check != null) b.append(check).append('\n');
         if (!Double.isNaN(rpmAfter)) {
             b.append("Motor danach: ").append(Math.round(rpmAfter)).append(" U/min (01 0C)").append('\n');
         } else if (phase == Phase.DONE) {
             b.append("Motor danach: Drehzahl nicht gelesen").append('\n');
         }
 
-        String verdict = verdict(rRest, rCrank, rCharge, rpmAfter);
+        String verdict = verdict(rRest, rCrank, rCharge, rpmAfter, charge, inaccurate);
         if (verdict != null) b.append('\n').append(verdict).append('\n');
 
         long iv = sampleIntervalMs();
@@ -473,7 +550,34 @@ public final class StarterTest {
         return b.toString().trim();
     }
 
-    private String verdict(Rating rest, Rating crank, Rating charge, double rpmAfter) {
+    /** Abgleichzeile Adapter ↔ Motorsteuergerät; null, wenn 01 42 nicht gelesen wurde. */
+    String adapterCheck() {
+        double c = charge();
+        return adapterCheck(c, adapterInaccurate(c));
+    }
+
+    private String adapterCheck(double c, boolean inaccurate) {
+        if (Double.isNaN(ecuRest) && Double.isNaN(ecuCharge)) return null;
+        StringBuilder sb = new StringBuilder("Abgleich Adapter (ATRV) ↔ Motorsteuergerät (01 42): ");
+        java.util.List<String> parts = new ArrayList<>();
+        if (!Double.isNaN(ecuRest) && !Double.isNaN(rest)) {
+            parts.add(String.format(Locale.GERMANY, "Ruhe %.1f / %.1f V (%+.1f V)", rest, ecuRest, rest - ecuRest));
+        }
+        if (!Double.isNaN(ecuCharge) && !Double.isNaN(c)) {
+            parts.add(String.format(Locale.GERMANY, "Ladung %.1f / %.1f V (%+.1f V)", c, ecuCharge, c - ecuCharge));
+        }
+        if (parts.isEmpty()) return null;
+        sb.append(String.join(" · ", parts));
+        sb.append(inaccurate
+                ? "\n  Adapter misst ungenau: Ruhe- und Ladespannung nach dem Steuergerät bewertet (es misst an seiner "
+                + "Versorgung, angenommen " + fmt1(ECU_SUPPLY_DROP) + " V unter der Batterie). Den Einbruch beim Anlassen "
+                + "misst nur der Adapter schnell genug – grob geschätzt; zur Kontrolle einmal mit einem Multimeter direkt "
+                + "an der Batterie messen."
+                : " – stimmt überein.");
+        return sb.toString();
+    }
+
+    private String verdict(Rating rest, Rating crank, Rating charge, double rpmAfter, double chargeV, boolean inaccurate) {
         if (phase != Phase.DONE) return null;
         List<String> issues = new ArrayList<>();
         if (rest == Rating.WEAK && crank == Rating.WEAK) {
@@ -488,17 +592,21 @@ public final class StarterTest {
         }
 
         if (charge == Rating.WEAK) {
-            double c = charge();
+            double c = chargeV;
             issues.add(c > 15.2 ? "Ladespannung zu hoch: Regler der Lichtmaschine prüfen lassen."
                     : !Double.isNaN(rpmAfter) && rpmAfter < 300
                     ? "Motor läuft nicht – keine Aussage zur Ladespannung."
                     // Eine tief entladene Batterie zieht die Spannung im Leerlauf herunter; steigt sie zwischendurch auf
                     // Ladeniveau, lädt die Lichtmaschine – dann erst nach einigen Minuten bei 2000 U/min urteilen.
-                    : rest == Rating.WEAK && sustainedChargeMax() >= 13.2
+                    // nur mit verlässlichem Adapter: dessen Spitzen sind sonst verschoben
+                    : !inaccurate && rest == Rating.WEAK && sustainedChargeMax() >= 13.2
                     ? "Ladespannung im Leerlauf niedrig, zwischendurch aber " + fmtV(sustainedChargeMax()) + " V – bei tief "
                     + "entladener Batterie üblich (sie nimmt viel Strom auf). Nach einigen Minuten bei etwa 2000 U/min "
                     + "die Steuergerät-Spannung lesen: 13,5–15 V heißt, die Lichtmaschine lädt."
                     : "Lichtmaschine lädt nicht ausreichend: Riemen, Regler, Ladekabel prüfen.");
+        }
+        if (crank == Rating.UNKNOWN && crankStart >= 0 && !crankMissed) {
+            issues.add("Einbruch beim Anlassen nicht bewertbar (Adapter misst ungenau).");
         }
         if (issues.isEmpty()) {
             boolean allGood = rest != Rating.FAIR && crank != Rating.FAIR && charge != Rating.FAIR;

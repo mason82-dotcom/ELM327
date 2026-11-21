@@ -375,6 +375,8 @@ final class DiagnosticJobs {
         boolean linkLost = false;
         long lastStatus = -1;
         int probes = 0;
+        // Abgleich vor der Messung (Zündung an, Motor aus): Steuergerät-Spannung, damit die Startaufforderung nicht wartet
+        t.setEcuRest(ecuVolts(c));
         host.log("Starttest: ATRV-Abtastung läuft (Konsole schweigt bis zum Ende)");
         while (!t.finished()) {
             if (host.starterCancelled()) {
@@ -417,9 +419,32 @@ final class DiagnosticJobs {
                 linkLost = true;
             }
         }
+        // Abgleich nach der Ladungsmessung – eigener Schritt, damit ein Fehler bei 01 0C ihn nicht überspringt
+        if (!linkLost && t.phase() == StarterTest.Phase.DONE) {
+            try {
+                t.setEcuCharge(ecuVolts(c));
+            } catch (IOException e) {
+                linkLost = true;
+            }
+        }
         // Nach einem Abriss wertet runExclusiveDiagnosis nichts mehr aus: Bericht liefern, Verbindung neu aufbauen.
         if (linkLost) host.drop(c);
         return t.report(rpm);
+    }
+
+    /**
+     * Steuergerät-Spannung 01 42 in V (Formel aus {@link ObdPid}); NaN ohne Antwort. Direkt gesendet, damit die
+     * Konsole während des Starttests still bleibt; eine Zeitüberschreitung zählt wie überall.
+     */
+    private double ecuVolts(Elm327Client c) throws IOException {
+        try {
+            Double v = ObdPid.of(0x42).parse(c.sendCommand("0142", 1000).raw);
+            return v == null ? Double.NaN : v;
+        } catch (SocketTimeoutException e) {
+            host.countTimeouts(1);
+            if (!c.resync(1500)) throw e;
+            return Double.NaN;
+        }
     }
 
     private void scanBitmaps(Elm327Client c, VehicleScan.Result r, String mode, int responseService,

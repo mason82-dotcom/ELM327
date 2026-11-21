@@ -292,4 +292,60 @@ public class StarterTestTest {
         String r = t.report(720);
         assertTrue(r, r.contains("Lichtmaschine lädt nicht ausreichend"));
     }
+
+    /** Abgleich 21.11.2026: Adapter 10,6/11,1 V, Steuergerät 11,5/14,4 V → nach dem Steuergerät bewerten. */
+    @Test
+    public void inaccurateAdapterIsCorrectedByEcuVoltage() {
+        StarterTest t = new StarterTest(5);
+        play(t, 1000, new double[][] {{3500, 10.6}, {2000, 10.6}, {1200, 6.9}, {400, 10.8}, {21_000, 11.1}});
+        t.setEcuRest(11.497);
+        t.setEcuCharge(14.41);
+        assertTrue(t.adapterInaccurate());
+        String r = t.report(1140);
+        assertTrue(r, r.contains("Ruhespannung (Zündung an, Motor aus): 11,7 V (aus Motorsteuergerät 01 42 + 0,2 V) – niedrig"));
+        assertTrue(r, r.contains("Ladespannung nach dem Start: 14,6 V (aus Motorsteuergerät 01 42 + 0,2 V) – Lichtmaschine lädt"));
+        assertTrue(r, r.contains("Ruhe 10,6 / 11,5 V (-0,9 V) · Ladung 11,1 / 14,4 V (-3,3 V)"));
+        assertTrue(r, r.contains("Adapter misst ungenau"));
+        assertTrue(r, r.contains("Adapter tiefster Wert 6,9 V, geschätzt 8,0 V an der Batterie"));
+        assertFalse(r, r.contains("Lichtmaschine lädt nicht"));
+        assertTrue(r, r.contains("Batterie entladen oder verschlissen"));   // Ruhe und geschätzter Einbruch schwach
+    }
+
+    /** Review: Ladung misst nicht gleichzeitig – 0,9 V Unterschied beim Hochfahren ist noch kein ungenauer Adapter. */
+    @Test
+    public void rampingAlternatorIsNotAnInaccurateAdapter() {
+        StarterTest t = healthyStart(8, 10.4, 900, 13.6);
+        t.setEcuRest(12.3);
+        t.setEcuCharge(14.3);
+        assertFalse(t.adapterInaccurate());
+    }
+
+    /** Review: ohne Ruhe-Abgleich ist der Einbruch nicht schätzbar – das Gesamturteil sagt das. */
+    @Test
+    public void crankNotRatedWithoutRestReferenceIsReported() {
+        StarterTest t = healthyStart(8, 10.4, 900, 11.0);
+        t.setEcuCharge(14.3);
+        assertTrue(t.adapterInaccurate());
+        String r = t.report(720);
+        assertTrue(r, r.contains("nicht bewertbar"));
+        assertTrue(r, r.contains("Einbruch beim Anlassen nicht bewertbar"));
+        assertFalse(r, r.contains("unauffällig."));
+    }
+
+    @Test
+    public void matchingAdapterKeepsAdapterValues() {
+        StarterTest t = healthyStart(8, 10.4, 900, 14.1);
+        t.setEcuRest(12.3);
+        t.setEcuCharge(14.0);
+        assertFalse(t.adapterInaccurate());
+        String r = t.report(720);
+        assertTrue(r, r.contains("Ruhespannung (Zündung an, Motor aus): 12,5 V – gut geladen"));
+        assertTrue(r, r.contains("stimmt überein"));
+    }
+
+    @Test
+    public void withoutEcuVoltageNoCheckLine() {
+        String r = healthyStart(8, 10.4, 900, 14.1).report(720);
+        assertFalse(r, r.contains("Abgleich"));
+    }
 }

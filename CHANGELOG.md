@@ -2,6 +2,15 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.14.1 (Monitor) / 0.21.1 (Dashboard): Starttest mit Spannungsabgleich
+
+- **Abgleich Adapter ↔ Motorsteuergerät:** Am 21.11. maß der WLAN-Adapter (`ATRV`) in Ruhe 10,6 V, das Steuergerät
+  (01 42) 11,5 V; nach dem Start 11,1 V gegen 14,4 V. Der Starttest liest jetzt 01 42 vor der Messung und nach der
+  Ladungsmessung und zeigt beide Werte. Weicht der Adapter ab (Ruhe > 0,5 V, Ladung > 1,0 V; Steuergerät + 0,2 V als
+  Batteriewert angenommen), werden Ruhe- und Ladespannung nach dem Steuergerät bewertet und der Einbruch beim
+  Anlassen um die Ruhe-Abweichung verschoben geschätzt (grob). Ohne Ruhe-Abgleich sagt das Ergebnis ausdrücklich,
+  dass der Einbruch nicht bewertbar ist.
+
 ## Version 1.14.0 (Monitor) / 0.21.0 (Dashboard): Ergebnisse des Fahrzeugtests vom 21.11.2026
 
 - **ADR-003 angenommen:** Die Antwort `61 30` folgt der eingelegten Stellung – Wählhebel [9] P = 10, R = 9, N = 8,
