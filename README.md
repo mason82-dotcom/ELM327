@@ -33,7 +33,8 @@ Für einen Termin am Fahrzeug gibt es eine Checkliste (Dashboard: **INFO → PR�
 „kalt“, „warm“ und „Motor läuft“ stimmen:
 
 1. **ATF-Temperatur kalt** – vor dem ersten Start, Kühlmittel unter 40 °C.
-2. **ATF-Temperatur warm in P, R, N, D** – vier Lesungen in genau dieser Reihenfolge, Fuß auf der Bremse.
+2. **ATF-Temperatur warm in P, R, N, D** – Motor läuft im Leerlauf (schalten geht nur bei laufendem Motor),
+   Feststellbremse an, Fuß fest auf der Bremse; vier Lesungen in genau dieser Reihenfolge.
 3. **Kennung + Getriebe-Fehler** – vorher den Schalter „Herstellerabfragen nach ADR-004“ einschalten.
 4. **Starttest** – nach mehreren Stunden Standzeit, bei „Jetzt starten“ den Motor starten.
 5. **Bus mitlesen** – bei laufendem Motor.

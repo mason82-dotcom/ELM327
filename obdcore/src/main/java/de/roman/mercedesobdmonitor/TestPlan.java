@@ -43,6 +43,11 @@ public final class TestPlan {
         boolean warm() {
             return !Double.isNaN(coolantC) && coolantC >= WARM_MIN_C;
         }
+
+        /** Drehzahl bekannt und Motor steht (unbekannt zählt nicht als „aus“). */
+        boolean engineOff() {
+            return !Double.isNaN(rpm) && rpm < 300;
+        }
     }
 
     private final List<Record> records = new ArrayList<>();
@@ -90,9 +95,11 @@ public final class TestPlan {
         List<Step> out = new ArrayList<>();
         out.add(new Step("ATF-Temperatur kalt", "vor dem ersten Start des Tages, Kühlmittel unter 40\u00A0°C: Zündung an, "
                 + "verbinden, ATF lesen", count(ObdSession.Op.ATF, Record::cold), 1));
-        out.add(new Step("ATF-Temperatur warm in P, R, N, D", "warm, Fuß auf der Bremse, je Wählhebelstellung einmal "
-                + "ATF lesen – genau in dieser Reihenfolge (prüft das Feldlayout, ADR-003)",
-                count(ObdSession.Op.ATF, Record::warm), ATF_WARM_READINGS));
+        // Schalten geht nur bei laufendem Motor: Lesungen mit stehendem Motor (bekannte Drehzahl) zählen hier nicht.
+        out.add(new Step("ATF-Temperatur warm in P, R, N, D", "warm, Motor läuft im Leerlauf (Schalten geht nur bei "
+                + "laufendem Motor), Feststellbremse an, Fuß fest auf der Bremse; je Wählhebelstellung einmal ATF lesen "
+                + "– genau in dieser Reihenfolge (prüft das Feldlayout, ADR-003)",
+                count(ObdSession.Op.ATF, r -> r.warm() && !r.engineOff()), ATF_WARM_READINGS));
         out.add(new Step("Kennung + Getriebe-Fehler", "Schalter ADR-004 einschalten, dann einmal lesen (Motor aus oder "
                 + "Leerlauf)", count(ObdSession.Op.KWP, r -> true), 1));
         out.add(new Step("Starttest", "nach mehreren Stunden Standzeit: Zündung an, Starttest, bei „Jetzt starten“ "
