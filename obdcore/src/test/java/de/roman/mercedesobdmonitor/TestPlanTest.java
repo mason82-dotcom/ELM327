@@ -16,6 +16,11 @@ public class TestPlanTest {
         return new TestPlan.Record(op, 1_795_000_000_000L, coolant, rpm, text);
     }
 
+    /** ATF-Bericht wie AtfTemperature ihn schreibt, mit Wählhebel-Rohwert [9]. */
+    private static String atf(int selector) {
+        return "ATF-Temperatur: 70 °C\nRohantwort: 61 30 …\n• [9] Wählhebelstellung: " + selector + "\n";
+    }
+
     @Test public void emptyPlanListsAllSteps() {
         String c = new TestPlan().checklist();
         assertTrue(c, c.startsWith("0 von 9 Schritten erledigt · 0 Ergebnisse gespeichert"));
@@ -25,8 +30,8 @@ public class TestPlanTest {
 
     @Test public void stepsUseTemperatureAndEngineState() {
         TestPlan p = new TestPlan();
-        p.record(rec(ObdSession.Op.ATF, 85, 700, "ATF 70 °C"));          // warm zählt nicht als kalt
-        p.record(rec(ObdSession.Op.ATF, NA, NA, "ohne Kühlmittel"));       // Temperatur unbekannt: weder noch
+        p.record(rec(ObdSession.Op.ATF, 85, 700, atf(0)));               // warm zählt nicht als kalt
+        p.record(rec(ObdSession.Op.ATF, NA, NA, atf(1)));                // Temperatur unbekannt: weder noch
         p.record(rec(ObdSession.Op.MONITOR_TESTS, 50, 700, "kalt"));       // Mode 06 braucht warm
         p.record(rec(ObdSession.Op.CAN_MONITOR, 80, 0, "Motor aus"));      // Bus mitlesen braucht Motor an
         List<TestPlan.Step> s = p.steps();
@@ -34,9 +39,9 @@ public class TestPlanTest {
         assertEquals(1, s.get(1).done);   // warm 1/4
         assertFalse(s.get(4).complete());
         assertFalse(s.get(5).complete());
-        p.record(rec(ObdSession.Op.ATF, 20, 0, "kalt"));
+        p.record(rec(ObdSession.Op.ATF, 20, 0, atf(0)));
         p.record(rec(ObdSession.Op.CAN_MONITOR, 80, 650, "läuft"));
-        for (int i = 0; i < 3; i++) p.record(rec(ObdSession.Op.ATF, 90, 700, "warm " + i));
+        for (int i = 1; i <= 3; i++) p.record(rec(ObdSession.Op.ATF, 90, 700, atf(i)));
         s = p.steps();
         assertTrue(s.get(0).complete());
         assertTrue(s.get(1).complete());
@@ -47,8 +52,8 @@ public class TestPlanTest {
 
     @Test public void allDoneSaysShare() {
         TestPlan p = new TestPlan();
-        p.record(rec(ObdSession.Op.ATF, 10, 0, ""));
-        for (int i = 0; i < 4; i++) p.record(rec(ObdSession.Op.ATF, 90, 700, ""));
+        p.record(rec(ObdSession.Op.ATF, 10, 0, atf(0)));
+        for (int i = 0; i < 4; i++) p.record(rec(ObdSession.Op.ATF, 90, 700, atf(i)));
         for (ObdSession.Op op : new ObdSession.Op[] {ObdSession.Op.KWP, ObdSession.Op.STARTER, ObdSession.Op.CAN_MONITOR,
                 ObdSession.Op.MONITOR_TESTS, ObdSession.Op.MISFIRE, ObdSession.Op.DTC}) {
             p.record(rec(op, 90, 700, ""));
@@ -92,13 +97,35 @@ public class TestPlanTest {
         assertEquals("n5", p.records().get(0).report);
     }
 
-    /** Schalten geht nur bei laufendem Motor: warme ATF-Lesungen mit stehendem Motor zählen nicht für P/R/N/D. */
-    @Test public void warmShiftReadingsNeedRunningEngine() {
+    /** Schalten geht nur bei laufendem Motor; je Stellung eine Lesung; nur gültige Temperaturen (Review #51). */
+    @Test public void warmShiftReadingsNeedRunningEngineValidValueAndDistinctPositions() {
         TestPlan p = new TestPlan();
-        p.record(rec(ObdSession.Op.ATF, 90, 0, "Motor aus"));
-        p.record(rec(ObdSession.Op.ATF, 90, NA, "Drehzahl unbekannt"));   // zählt (alte Einträge)
-        p.record(rec(ObdSession.Op.ATF, 90, 720, "Leerlauf"));
+        p.record(rec(ObdSession.Op.ATF, 90, 0, atf(1)));                  // Motor aus
+        p.record(rec(ObdSession.Op.ATF, 90, NA, atf(2)));                 // Drehzahl unbekannt: zählt nicht
+        p.record(rec(ObdSession.Op.ATF, 90, 399, atf(3)));                // unter 400 U/min (wie Warnungen)
+        p.record(rec(ObdSession.Op.ATF, 90, 720,
+                "ATF-Temperatur: kein gültiger Wert (lehnt ab)\nRohantwort: 7F 21 12"));   // Absage
+        assertEquals(0, p.steps().get(1).done);
+        p.record(rec(ObdSession.Op.ATF, 90, 400, atf(0)));
+        p.record(rec(ObdSession.Op.ATF, 90, 720, atf(0)));                // gleiche Stellung nochmal
+        assertEquals(1, p.steps().get(1).done);
+        p.record(rec(ObdSession.Op.ATF, 90, 720, "ATF-Temperatur: 71 °C\nRohantwort: 61 30 00"));   // ohne Feld [9]
         assertEquals(2, p.steps().get(1).done);
         assertTrue(p.checklist(), p.checklist().contains("Motor läuft im Leerlauf"));
+        // Bus mitlesen: gleiche Grenze
+        p.record(rec(ObdSession.Op.CAN_MONITOR, 80, 399, "zu langsam"));
+        assertFalse(p.steps().get(4).complete());
+        p.record(rec(ObdSession.Op.CAN_MONITOR, 80, 400, "läuft"));
+        assertTrue(p.steps().get(4).complete());
+    }
+
+    @Test public void freshValueIgnoresOldSamples() {
+        java.util.Map<Integer, Double> v = new java.util.HashMap<>();
+        java.util.Map<Integer, Long> at = new java.util.HashMap<>();
+        v.put(0x0C, 720.0);
+        at.put(0x0C, 1_000L);
+        assertEquals(720.0, LiveValues.fresh(v, at, 0x0C, 1_000L + LiveValues.MAX_AGE_MS), 0);
+        assertEquals(null, LiveValues.fresh(v, at, 0x0C, 1_001L + LiveValues.MAX_AGE_MS));
+        assertEquals(null, LiveValues.fresh(v, at, 0x05, 2_000L));
     }
 }

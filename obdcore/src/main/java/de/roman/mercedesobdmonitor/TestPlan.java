@@ -44,11 +44,25 @@ public final class TestPlan {
             return !Double.isNaN(coolantC) && coolantC >= WARM_MIN_C;
         }
 
-        /** Drehzahl bekannt und Motor steht (unbekannt zählt nicht als „aus“). */
-        boolean engineOff() {
-            return !Double.isNaN(rpm) && rpm < 300;
+        /** Motor läuft – nur mit bekannter Drehzahl, gleiche Grenze wie die Warnungen ({@link LiveWarnings#RUNNING_RPM}). */
+        boolean running() {
+            return !Double.isNaN(rpm) && rpm >= LiveWarnings.RUNNING_RPM;
+        }
+
+        /** ATF-Ergebnis mit gültiger Temperatur (keine Absage, kein NO DATA). */
+        boolean validAtf() {
+            return ATF_VALUE.matcher(report).find();
+        }
+
+        /** Rohwert der Wählhebelstellung [9] aus dem ATF-Bericht oder null. */
+        Integer selector() {
+            java.util.regex.Matcher m = SELECTOR.matcher(report);
+            return m.find() ? Integer.valueOf(m.group(1)) : null;
         }
     }
+
+    private static final java.util.regex.Pattern ATF_VALUE = java.util.regex.Pattern.compile("ATF-Temperatur: -?\\d");
+    private static final java.util.regex.Pattern SELECTOR = java.util.regex.Pattern.compile("\\[9\\] Wählhebelstellung: (\\d+)");
 
     private final List<Record> records = new ArrayList<>();
 
@@ -94,18 +108,18 @@ public final class TestPlan {
     public List<Step> steps() {
         List<Step> out = new ArrayList<>();
         out.add(new Step("ATF-Temperatur kalt", "vor dem ersten Start des Tages, Kühlmittel unter 40\u00A0°C: Zündung an, "
-                + "verbinden, ATF lesen", count(ObdSession.Op.ATF, Record::cold), 1));
+                + "verbinden, ATF lesen", count(ObdSession.Op.ATF, r -> r.cold() && r.validAtf()), 1));
         // Schalten geht nur bei laufendem Motor: Lesungen mit stehendem Motor (bekannte Drehzahl) zählen hier nicht.
         out.add(new Step("ATF-Temperatur warm in P, R, N, D", "warm, Motor läuft im Leerlauf (Schalten geht nur bei "
                 + "laufendem Motor), Feststellbremse an, Fuß fest auf der Bremse; je Wählhebelstellung einmal ATF lesen "
                 + "– genau in dieser Reihenfolge (prüft das Feldlayout, ADR-003)",
-                count(ObdSession.Op.ATF, r -> r.warm() && !r.engineOff()), ATF_WARM_READINGS));
+                shiftReadings(), ATF_WARM_READINGS));
         out.add(new Step("Kennung + Getriebe-Fehler", "Schalter ADR-004 einschalten, dann einmal lesen (Motor aus oder "
                 + "Leerlauf)", count(ObdSession.Op.KWP, r -> true), 1));
         out.add(new Step("Starttest", "nach mehreren Stunden Standzeit: Zündung an, Starttest, bei „Jetzt starten“ "
                 + "den Motor starten", count(ObdSession.Op.STARTER, r -> true), 1));
         out.add(new Step("Bus mitlesen", "bei laufendem Motor einmal ausführen",
-                count(ObdSession.Op.CAN_MONITOR, r -> Double.isNaN(r.rpm) || r.rpm > 300), 1));
+                count(ObdSession.Op.CAN_MONITOR, Record::running), 1));
         out.add(new Step("Monitortests (Mode 06)", "warm nach einer Fahrt von mindestens 15\u00A0min",
                 count(ObdSession.Op.MONITOR_TESTS, Record::warm), 1));
         out.add(new Step("Aussetzer je Zylinder (Mode 06)", "warm nach einigen Minuten Leerlauf (Zylinder 2/3 "
@@ -116,6 +130,22 @@ public final class TestPlan {
                 count(ObdSession.Op.LID_SCAN, Record::cold) > 0 && count(ObdSession.Op.LID_SCAN, Record::warm) > 0 ? 2
                         : Math.min(1, count(ObdSession.Op.LID_SCAN, r -> true)), 2));
         return out;
+    }
+
+    /**
+     * Lesungen für P, R, N, D: warm, Motor läuft (Schalten geht nur so), gültige Temperatur. Je Wählhebelstellung
+     * zählt nur eine Lesung (Rohwert [9]); Lesungen ohne dieses Feld zählen einzeln.
+     */
+    private int shiftReadings() {
+        java.util.Set<Integer> positions = new java.util.HashSet<>();
+        int withoutField = 0;
+        for (Record r : records) {
+            if (r.op != ObdSession.Op.ATF || !r.warm() || !r.running() || !r.validAtf()) continue;
+            Integer sel = r.selector();
+            if (sel == null) withoutField++;
+            else positions.add(sel);
+        }
+        return positions.size() + withoutField;
     }
 
     private int count(ObdSession.Op op, java.util.function.Predicate<Record> ok) {

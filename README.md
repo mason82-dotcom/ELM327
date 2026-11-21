@@ -40,6 +40,9 @@ Für einen Termin am Fahrzeug gibt es eine Checkliste (Dashboard: **INFO → PR�
 5. **Bus mitlesen** – bei laufendem Motor.
 6. **Monitortests** und 7. **Aussetzer** (Mode 06) – warm nach einer Fahrt bzw. nach einigen Minuten Leerlauf.
 8. **Fehlercodes**.
+9. **Kennungssuche Motor kalt und warm** (Test, Schalter ADR-004/007) – einmal vor dem Start, einmal nach der Fahrt.
+
+Die P/R/N/D-Lesungen zählen nur mit gültiger Temperatur, laufendem Motor und je Wählhebelstellung einmal.
 
 Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantworten. Jede App führt ihren eigenen Plan.
 

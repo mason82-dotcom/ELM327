@@ -2,6 +2,19 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.13.2 (Monitor) / 0.20.2 (Dashboard): Prüfplan-Zählung nachgeschärft
+
+Code-Review von 1.13.1 (7 Befunde) und Abgleich App/README/PDF.
+
+- **P/R/N/D-Lesungen** zählen nur mit gültiger ATF-Temperatur (keine Absage, kein NO DATA), mit laufendem Motor bei
+  bekannter Drehzahl ab 400 U/min (gleiche Grenze wie die Warnungen) und **je Wählhebelstellung einmal** (Rohwert [9]);
+  viermal in P lesen erledigt den Schritt nicht mehr. Die Kaltlesung zählt ebenfalls nur mit gültigem Wert.
+- **Frische Werte:** Der Prüfplan übernimmt Drehzahl und Kühlmittel nur, wenn sie höchstens 15 s alt sind – eine
+  Drehzahl von kurz vor dem Abstellen meldet kein „Motor läuft“ mehr.
+- „Bus mitlesen“ nutzt dieselbe Laufend-Grenze.
+- README und Prüfplan-PDF enthalten jetzt auch „Kennungssuche Motor kalt und warm“ (PDF: 12 Schritte, Hinweis auf die
+  Gemischadaption bei den Monitortests).
+
 ## Version 1.13.1 (Monitor) / 0.20.1 (Dashboard): Schalten nur bei laufendem Motor
 
 - **Prüfplan „ATF warm in P, R, N, D“:** Der Wählhebel lässt sich nur bei laufendem Motor aus P bewegen. Der Schritt
