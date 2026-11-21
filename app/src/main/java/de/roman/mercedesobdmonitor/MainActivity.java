@@ -232,7 +232,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
         root.addView(c350Controls2);
         // ADR-004: Testfreigabe für zwei Herstellerabfragen, ausgeliefert aus; erst angehakt erscheint der Knopf
         adr004Box = new android.widget.CheckBox(this);
-        adr004Box.setText("Herstellerabfragen nach ADR-004 (Test): Kennung 1A 86, Getriebe-Fehler 18 02 FF 00");
+        adr004Box.setText("Herstellerabfragen nach ADR-004 (Test): Getriebe-Kennung 1A 86, Getriebe-Fehler 18 02 FF 00");
         adr004Box.setTextColor(Color.LTGRAY);
         adr004Box.setTextSize(13);
         root.addView(adr004Box);

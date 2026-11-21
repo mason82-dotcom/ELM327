@@ -1,6 +1,6 @@
 # ADR-007: Lesende Kennungssuche am Motorsteuergerät (`21 01`–`21 FE`) für die Motoröltemperatur
 
-**Status:** Vorgeschlagen (20.11.2026) – Testfreigabe hinter dem Schalter aus ADR-004, ausgeliefert aus
+**Status:** Verworfen (21.11.2026, Fahrzeugtest) – Code und Freigabe entfernt
 **Datum:** 20.11.2026
 **Entscheidet:** Betreiber (mason)
 **Bezug:** [ADR-001](adr-001-atf-temperatur.md), [ADR-004](adr-004-kwp-kennung-fehlerspeicher.md),
@@ -91,4 +91,13 @@ liefert keine Skalierung, weil der Simulator Herstelleranfragen nicht beantworte
    zweiter Druck stoppt; Prüfplanschritt „kalt und warm“.
 5. [x] Code-Review (medium): 9 Befunde behoben (Schweigen per NO DATA, Teilergebnis bei Abriss, Kühlmittel im
    Prüfplan, Freigabe nur im Suchmodus, STOP, Dienst-Absage, Fenster, PID-Suche, Meldungstexte).
-6. [ ] Am C350 kalt und warm ausführen, Prüfplan teilen, Kandidaten hier eintragen.
+6. [x] Am C350 kalt ausführen, Prüfplan teilen, Kandidaten hier eintragen.
+
+## Ergebnis Fahrzeugtest 21.11.2026 – verworfen
+
+`ATSH7E0` → `21 01` … `21 08`: alle NO DATA; die Suche brach nach acht stillen Anfragen ab. Zusammen mit `1A 86`
+(ebenfalls NO DATA, ADR-004) antwortet das ME9.7 unter der OBD-Adresse 7E0 nicht auf KWP-Dienste; die Herstellerdiagnose
+läuft dort über andere Kennungen, die wir nicht freigeben. Außerdem hat der Motor bis MJ 08 keinen Öltemperatursensor
+(nur Rechenwert). **Entscheidung:** verworfen. Entfernt: Freigabe `21 01`–`21 FE`, Suchmodus des Clients,
+`LocalIdScan`, Knopf „KENNUNGSSUCHE“ und der Prüfplanschritt.
+

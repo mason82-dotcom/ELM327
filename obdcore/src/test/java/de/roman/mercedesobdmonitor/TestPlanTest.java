@@ -16,53 +16,40 @@ public class TestPlanTest {
         return new TestPlan.Record(op, 1_795_000_000_000L, coolant, rpm, text);
     }
 
-    /** ATF-Bericht wie AtfTemperature ihn schreibt, mit Wählhebel-Rohwert [9]. */
-    private static String atf(int selector) {
-        return "ATF-Temperatur: 70 °C\nRohantwort: 61 30 …\n• [9] Wählhebelstellung: " + selector + "\n";
-    }
-
     @Test public void emptyPlanListsAllSteps() {
         String c = new TestPlan().checklist();
-        assertTrue(c, c.startsWith("0 von 9 Schritten erledigt · 0 Ergebnisse gespeichert"));
-        assertTrue(c, c.contains("○ " + TestPlan.SHIFT_STEP + " (0/4)"));
-        assertTrue(c, c.contains("Kühlmittel unter 40\u00A0°C"));
+        assertTrue(c, c.startsWith("0 von 6 Schritten erledigt · 0 Ergebnisse gespeichert"));
+        assertFalse("ATF-Schritte seit ADR-003 erledigt", c.contains("ATF-Temperatur"));
+        assertFalse(c, c.contains("P, R, N, D"));
     }
 
     @Test public void stepsUseTemperatureAndEngineState() {
         TestPlan p = new TestPlan();
-        p.record(rec(ObdSession.Op.ATF, 85, 700, atf(0)));               // warm zählt nicht als kalt
-        p.record(rec(ObdSession.Op.ATF, NA, NA, atf(1)));                // Temperatur unbekannt: weder noch
         p.record(rec(ObdSession.Op.MONITOR_TESTS, 50, 700, "kalt"));       // Mode 06 braucht warm
         p.record(rec(ObdSession.Op.CAN_MONITOR, 80, 0, "Motor aus"));      // Bus mitlesen braucht Motor an
+        p.record(rec(ObdSession.Op.CAN_MONITOR, 80, NA, "unbekannt"));     // Drehzahl unbekannt zählt nicht
+        p.record(rec(ObdSession.Op.CAN_MONITOR, 80, 399, "zu langsam"));   // Grenze wie Warnungen: 400
         List<TestPlan.Step> s = p.steps();
-        assertEquals(0, s.get(0).done);   // kalt
-        assertEquals(1, s.get(1).done);   // warm 1/4
-        assertFalse(s.get(4).complete());
-        assertFalse(s.get(5).complete());
-        p.record(rec(ObdSession.Op.ATF, 20, 0, atf(0)));
-        p.record(rec(ObdSession.Op.CAN_MONITOR, 80, 650, "läuft"));
-        for (int i = 1; i <= 3; i++) p.record(rec(ObdSession.Op.ATF, 90, 700, atf(i)));
+        assertFalse(s.get(2).complete());
+        assertFalse(s.get(3).complete());
+        p.record(rec(ObdSession.Op.CAN_MONITOR, 80, 400, "läuft"));
+        p.record(rec(ObdSession.Op.MONITOR_TESTS, 90, 700, "warm"));
         s = p.steps();
-        assertTrue(s.get(0).complete());
-        assertTrue(s.get(1).complete());
-        assertEquals(4, s.get(1).done);
-        assertTrue(s.get(4).complete());
-        assertTrue(p.checklist(), p.checklist().contains("✓ " + TestPlan.SHIFT_STEP + " (4/4)"));
+        assertTrue(s.get(2).complete());
+        assertTrue(s.get(3).complete());
     }
 
     @Test public void allDoneSaysShare() {
         TestPlan p = new TestPlan();
-        p.record(rec(ObdSession.Op.ATF, 10, 0, atf(0)));
-        for (int i = 0; i < 4; i++) p.record(rec(ObdSession.Op.ATF, 90, 700, atf(i)));
         for (ObdSession.Op op : new ObdSession.Op[] {ObdSession.Op.KWP, ObdSession.Op.STARTER, ObdSession.Op.CAN_MONITOR,
                 ObdSession.Op.MONITOR_TESTS, ObdSession.Op.MISFIRE, ObdSession.Op.DTC}) {
             p.record(rec(op, 90, 700, ""));
         }
-        assertFalse(p.checklist(), p.checklist().startsWith("Alle"));
-        p.record(rec(ObdSession.Op.LID_SCAN, 90, 700, ""));                // nur warm: 1/2
-        assertTrue(p.checklist(), p.checklist().contains("○ Kennungssuche Motor kalt und warm (1/2)"));
+        assertTrue(p.checklist(), p.checklist().startsWith("Alle 6 Schritte erledigt"));
+        // alte Einträge (ATF, verworfene Kennungssuche) bleiben im Bericht lesbar, zählen aber für keinen Schritt
         p.record(rec(ObdSession.Op.LID_SCAN, 15, 0, ""));
-        assertTrue(p.checklist(), p.checklist().startsWith("Alle 9 Schritte erledigt"));
+        p.record(rec(ObdSession.Op.ATF, 90, 700, "ATF-Temperatur: 62 °C"));
+        assertEquals(p.serialize(), TestPlan.parse(p.serialize()).serialize());
     }
 
     @Test public void reportCarriesEveryResult() {
@@ -95,31 +82,6 @@ public class TestPlanTest {
         for (int i = 0; i < TestPlan.MAX_RECORDS + 5; i++) p.record(rec(ObdSession.Op.DTC, 80, 700, "n" + i));
         assertEquals(TestPlan.MAX_RECORDS, p.records().size());
         assertEquals("n5", p.records().get(0).report);
-    }
-
-    /** Geprüft wird das Layout: laufender Motor, Feld [9] vorhanden, je Stellung einmal – Temperatur egal. */
-    @Test public void shiftCheckCountsDistinctSelectorPositionsWithRunningEngine() {
-        TestPlan p = new TestPlan();
-        p.record(rec(ObdSession.Op.ATF, 90, 0, atf(1)));                  // Motor aus
-        p.record(rec(ObdSession.Op.ATF, 90, NA, atf(2)));                 // Drehzahl unbekannt
-        p.record(rec(ObdSession.Op.ATF, 90, 399, atf(3)));                // unter 400 U/min (wie Warnungen)
-        p.record(rec(ObdSession.Op.ATF, 90, 720,
-                "ATF-Temperatur: kein gültiger Wert (lehnt ab)\nRohantwort: 7F 21 12"));   // Absage, kein Feld [9]
-        p.record(rec(ObdSession.Op.ATF, 90, 720, "ATF-Temperatur: 71 °C\nRohantwort: 61 30 00"));   // zu kurz, kein [9]
-        assertEquals(0, p.steps().get(1).done);
-        p.record(rec(ObdSession.Op.ATF, 90, 400, atf(0)));
-        p.record(rec(ObdSession.Op.ATF, 90, 720, atf(0)));                // gleiche Stellung nochmal
-        assertEquals(1, p.steps().get(1).done);
-        // unplausible Temperatur, aber Feld [9] da: zählt (es geht um das Layout)
-        p.record(rec(ObdSession.Op.ATF, 30, 720,
-                "ATF-Temperatur: kein gültiger Wert (205 °C)\n• [9] Wählhebelstellung: 4\n"));
-        assertEquals(2, p.steps().get(1).done);
-        assertTrue(p.checklist(), p.checklist().contains("Wählhebel [9] und Gang [11] der Stellung folgen"));
-        // Bus mitlesen: gleiche Grenze
-        p.record(rec(ObdSession.Op.CAN_MONITOR, 80, 399, "zu langsam"));
-        assertFalse(p.steps().get(4).complete());
-        p.record(rec(ObdSession.Op.CAN_MONITOR, 80, 400, "läuft"));
-        assertTrue(p.steps().get(4).complete());
     }
 
     @Test public void freshValueIgnoresOldSamples() {

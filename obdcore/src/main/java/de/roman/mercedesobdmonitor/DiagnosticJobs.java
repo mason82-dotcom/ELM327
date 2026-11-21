@@ -38,11 +38,6 @@ final class DiagnosticJobs {
         boolean livePid(int pid);
         /** Monotone Uhr in ms (Starttest). */
         long now();
-        /** ADR-007: STOP gedrückt oder Testschalter aus. */
-        default boolean localIdScanCancelled() { return false; }
-        /** ADR-007: letzter gespeicherter Lauf ({@link LocalIdScan#serialize}) oder null. */
-        default String previousLocalIdScan() { return null; }
-        default void saveLocalIdScan(String text) { }
         /** Gemischadaption: gespeicherter Verlauf ({@link MixtureAdaptation#serialize}) oder null. */
         default String previousMixtureAdaptation() { return null; }
         default void saveMixtureAdaptation(String text) { }
@@ -231,12 +226,9 @@ final class DiagnosticJobs {
         StringBuilder sb = new StringBuilder();
         boolean restored = false;
         try {
-            host.diag(c, CommandSafety.ENGINE_HEADER, 1500);
-            sb.append(KwpReadout.ident("Motor (7E0)", host.diag(c, CommandSafety.IDENT_REQUEST, 3000).raw));
-            host.diag(c, CommandSafety.OBD_HEADER, 1500);
-            ElmText.sleepQuiet(100);
+            // Motor-Teil (7E0) verworfen: das ME9.7 antwortet dort nicht (Fahrzeugtest 21.11.2026)
             host.diag(c, CommandSafety.ATF_HEADER, 1500);
-            sb.append("\n\n").append(KwpReadout.ident("Getriebe (7E1)", host.diag(c, CommandSafety.IDENT_REQUEST, 3000).raw));
+            sb.append(KwpReadout.ident("Getriebe (7E1)", host.diag(c, CommandSafety.IDENT_REQUEST, 3000).raw));
             ElmText.sleepQuiet(100);
             sb.append("\n\n").append(KwpReadout.dtcs(host.diag(c, CommandSafety.TCU_DTC_REQUEST, 3000).raw));
             host.diag(c, CommandSafety.OBD_HEADER, 1500);
@@ -245,82 +237,10 @@ final class DiagnosticJobs {
             // wie ADR-001: der Header darf nie auf einem Steuergerät stehen bleiben
             if (!restored || !CommandSafety.DEFAULT_HEADER.equals(c.header())) host.drop(c);
         }
-        sb.append("\n\nTestfreigabe ADR-004: Formate nach Referenz (ecu_diagnostics), am C350 ungeprüft. ")
-                .append("Bitte Rohantworten in docs/adr-004-kwp-kennung-fehlerspeicher.md eintragen.");
+        sb.append(sb.indexOf("Teilenummer:") >= 0
+                ? "\n\nTestfreigabe ADR-004: Antwortformat am C350 bestätigt (21.11.2026)."
+                : "\n\nTestfreigabe ADR-004: keine verwertbare Kennung in dieser Antwort.");
         return sb.toString();
-    }
-
-    /** Anfragen ohne Antwort in Folge (Zeitüberschreitung oder NO DATA), nach denen die Kennungssuche aufgibt. */
-    static final int LID_SCAN_MAX_SILENT = 8;
-
-    /**
-     * ADR-007: lesende Kennungssuche {@code 21 01}–{@code 21 FE} am Motorsteuergerät. Vorher {@code 01 05} für den
-     * Abgleich. Der Client ist nur während der Suche im Suchmodus; Header im finally zurück auf 7DF, sonst Verbindung
-     * verwerfen. Ein Abbruch (STOP, Schalter aus, Steuergerät schweigt, Adapter nicht synchron) behält alle bis dahin
-     * gesammelten Antworten im Bericht.
-     */
-    String readEngineLocalIds(Elm327Client c) throws IOException {
-        if (!LinkPolicy.isCan11Bit(host.protocolNumber())) {
-            return "Die Kennungssuche geht nur über CAN mit 11-bit-Kennungen. Erkanntes Protokoll: " + host.protocol();
-        }
-        Double coolantValue = ObdPid.of(0x05).parse(host.diag(c, "0105", 1500).raw);
-        double coolant = coolantValue == null ? Double.NaN : coolantValue;
-        LocalIdScan.Saved previous = LocalIdScan.parse(host.previousLocalIdScan());
-        LocalIdScan scan = new LocalIdScan();
-        int sent = 0;
-        int silent = 0;
-        String stop = null;
-        boolean restored = false;
-        try {
-            host.diag(c, CommandSafety.ENGINE_HEADER, 1500);
-            c.setLocalIdScan(true);
-            for (int id = 0x01; id <= 0xFE; id++) {
-                if (host.localIdScanCancelled()) {
-                    stop = "abgebrochen (STOP oder Testschalter aus)";
-                    break;
-                }
-                if (id % 16 == 1) host.status(String.format(java.util.Locale.GERMANY,
-                        "Kennungssuche: 21 %02X … (%d von 254) · nochmal drücken stoppt", id, id));
-                sent++;
-                LocalIdScan.Kind kind;
-                try {
-                    kind = scan.add(id, host.diag(c, CommandSafety.engineLocalId(id), 1000).raw);
-                } catch (java.net.SocketTimeoutException e) {
-                    scan.timeout();
-                    host.countTimeouts(1);
-                    kind = LocalIdScan.Kind.SILENT;
-                    // Ein verspäteter Prompt gehört zur alten Anfrage; ohne Prompt ist der Adapter nicht synchron.
-                    if (!c.resync(1500)) {
-                        stop = "Adapter nach Zeitüberschreitung nicht wieder synchron – Verbindung wird neu aufgebaut";
-                        break;
-                    }
-                }
-                if (kind == LocalIdScan.Kind.SERVICE_UNAVAILABLE) {
-                    stop = "Steuergerät lehnt den Dienst 21 grundsätzlich ab";
-                    break;
-                }
-                silent = kind == LocalIdScan.Kind.SILENT ? silent + 1 : 0;
-                if (silent >= LID_SCAN_MAX_SILENT) {
-                    stop = LID_SCAN_MAX_SILENT + " Anfragen in Folge ohne Antwort – Steuergerät schweigt";
-                    break;
-                }
-                ElmText.sleepQuiet(30);
-            }
-            c.setLocalIdScan(false);
-            if (c.isConnected()) {
-                host.diag(c, CommandSafety.OBD_HEADER, 1500);
-                restored = true;
-            }
-        } catch (IOException e) {
-            if (stop == null) stop = "Kommunikationsfehler – " + e.getMessage();
-        } finally {
-            c.setLocalIdScan(false);
-            // wie ADR-001/004: der Header darf nie auf dem Motorsteuergerät stehen bleiben
-            if (!restored || !CommandSafety.DEFAULT_HEADER.equals(c.header())) host.drop(c);
-        }
-        if (!scan.records().isEmpty()) host.saveLocalIdScan(scan.serialize(coolant));
-        return scan.report(coolant, sent, stop, previous == null ? null : previous.scan,
-                previous == null ? Double.NaN : previous.coolantC);
     }
 
     String readAtfTemperature(Elm327Client c) throws IOException {

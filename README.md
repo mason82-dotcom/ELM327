@@ -32,19 +32,15 @@ Für einen Termin am Fahrzeug gibt es eine Checkliste (Dashboard: **INFO → PR�
 „Prüfplan“). Sie hakt jeden Schritt anhand des echten Ergebnisses ab – mit Kühlmitteltemperatur und Drehzahl, damit
 „kalt“, „warm“ und „Motor läuft“ stimmen:
 
-1. **ATF-Temperatur kalt** – vor dem ersten Start, Kühlmittel unter 40 °C.
-2. **Wählhebel/Gang prüfen in P, R, N, D** – Motor läuft im Leerlauf (schalten geht nur bei laufendem Motor),
-   Feststellbremse an, Fuß fest auf der Bremse; je Stellung einmal „ATF lesen“. Geprüft wird, ob Wählhebel- und
-   Gangfeld der Antwort der Stellung folgen – dann stimmt das Layout und damit die Temperaturstelle (ADR-003).
-   Am besten warm, damit der Vergleich mit Schritt 1 auch die Temperatur prüft.
-3. **Kennung + Getriebe-Fehler** – vorher den Schalter „Herstellerabfragen nach ADR-004“ einschalten.
-4. **Starttest** – nach mehreren Stunden Standzeit, bei „Jetzt starten“ den Motor starten.
-5. **Bus mitlesen** – bei laufendem Motor.
-6. **Monitortests** und 7. **Aussetzer** (Mode 06) – warm nach einer Fahrt bzw. nach einigen Minuten Leerlauf.
-8. **Fehlercodes**.
-9. **Kennungssuche Motor kalt und warm** (Test, Schalter ADR-004/007) – einmal vor dem Start, einmal nach der Fahrt.
+1. **Kennung + Getriebe-Fehler** – vorher den Schalter „Herstellerabfragen nach ADR-004“ einschalten.
+2. **Starttest** – nach mehreren Stunden Standzeit, bei „Jetzt starten“ den Motor starten (Batterie vorher laden,
+   wenn die Ruhespannung unter 12,4 V liegt).
+3. **Bus mitlesen** – bei laufendem Motor (ab 400 U/min).
+4. **Monitortests** und 5. **Aussetzer** (Mode 06) – warm nach einer Fahrt bzw. nach einigen Minuten Leerlauf.
+6. **Fehlercodes**.
 
-Die P/R/N/D-Lesungen zählen nur mit laufendem Motor, mit Wählhebelfeld in der Antwort und je Stellung einmal.
+Die ATF-Schritte (kalt sowie Wählhebel/Gang in P, R, N, D) sind seit dem Fahrzeugtest vom 21.11.2026 erledigt:
+ADR-003 ist bestätigt, „ATF lesen“ zeigt jetzt Temperatur, Wählhebel und Gang im Klartext.
 
 Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantworten. Jede App führt ihren eigenen Plan.
 
@@ -54,10 +50,6 @@ Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantwort
 - Drehzahl, Tempo, Kühlmittel, Last, Drosselklappe, Luftmasse, Saugrohrdruck, Ansaugluft, STFT/LTFT beider Bänke,
   Steuergerätespannung, Soll-Lambda, Umgebungsdruck; Dashboard mit Rundinstrumenten und Verlaufskurven.
 - Werte des Motorsteuergeräts (7E8), auch wenn das Getriebe dieselben PIDs beantwortet.
-- **Kennungssuche Motor (Test, ADR-007):** liest einmal alle lokalen Kennungen `21 01`–`21 FE` des Motorsteuergeräts
-  und nennt Kandidaten für den Öltemperatur-Rechenwert (der C350 bis MJ 08 hat keinen Öltemperatursensor); ein zweiter
-  Lauf bei anderer Temperatur bestätigt sie. Nur mit
-  Testschalter, nur lesend, etwa 1 min, zweiter Druck stoppt.
 - **Warnungen (Dashboard):** Leiste über allen Seiten bei hoher Kühlmitteltemperatur (gelb ab 108 °C, rot ab 115 °C),
   schwacher Batterie bei Zündung an (unter 11,8 V), zu wenig Ladung (unter 12,6 V; bei voller Batterie senkt das Steuergerät die Ladespannung absichtlich) oder Überspannung (über 15,0 V) bei
   laufendem Motor. Rot mit Ton (auch wenn eine andere App vorn ist), „Ton aus“ je Meldung. Orientierungswerte, keine
@@ -98,11 +90,11 @@ Jede Ausnahme ist eine eigene Entscheidung mit exakt festgelegten Befehlen und R
 |---|---|
 | [ADR-001](docs/adr-001-atf-temperatur.md) | ATF-Temperatur: `ATSH7E1` → `21 30` → `ATSH7DF` |
 | [ADR-002](docs/adr-002-can-mitlesen.md) | Bus mitlesen: `ATMA` zeitbegrenzt, `ATCAF0/1` |
-| [ADR-003](docs/adr-003-atf-antwort-layout.md) | Auswertung der ATF-Antwort (kein neuer Befehl) |
-| [ADR-004](docs/adr-004-kwp-kennung-fehlerspeicher.md) | Kennung `1A 86` (7E0/7E1), Getriebe-Fehler `18 02 FF 00` (7E1) – Testfreigabe |
+| [ADR-003](docs/adr-003-atf-antwort-layout.md) | Auswertung der ATF-Antwort: Wählhebel, Gang, ATF – am C350 bestätigt (kein neuer Befehl) |
+| [ADR-004](docs/adr-004-kwp-kennung-fehlerspeicher.md) | Getriebe-Kennung `1A 86` und -Fehler `18 02 FF 00` (nur 7E1) – am C350 bestätigt, Testschalter |
 | [ADR-005](docs/adr-005-bluetooth.md) | Transport über Bluetooth (SPP) – keine neuen Befehle |
 | [ADR-006](docs/adr-006-autostart.md) | Automatisch verbinden (App-Start, Radiostart) – keine neuen Befehle |
-| [ADR-007](docs/adr-007-kennungssuche-motor.md) | Kennungssuche `21 01`–`21 FE` nur an 7E0 und nur im Suchmodus (Test, Schalter aus) |
+| [ADR-007](docs/adr-007-kennungssuche-motor.md) | verworfen (21.11.2026): das Motorsteuergerät antwortet unter 7E0 nicht – keine Freigabe |
 
 Gesperrt bleiben Fehlerlöschen, Sitzungswechsel, Security Access, Stellglieder, Routinen, Schreiben und Flashen.
 

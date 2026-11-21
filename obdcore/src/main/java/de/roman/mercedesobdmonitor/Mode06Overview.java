@@ -107,6 +107,12 @@ public final class Mode06Overview {
         if (!hasMin && !hasMax) {
             return new Test(r.mid, r.tid, r.uasid, v, min, max, false, false, Status.NO_LIMIT, null);
         }
+        // Kennwerte statt Prüfungen: untere = obere Grenze (z. B. Umschaltschwelle der Nachkat-Sonde, J1979 TID 01/02).
+        // Grenzen bleiben sichtbar, aber ohne Reserve und ohne „knapp“; eine Abweichung um eine Stelle ist Rundung
+        // (Fahrzeugtest 21.11.2026: 0,7427 V … 0,7427 V gab „knapp“).
+        if (hasMin && hasMax && min == max && Math.abs(v - min) <= 1) {
+            return new Test(r.mid, r.tid, r.uasid, v, min, max, true, true, Status.OK, null);
+        }
         boolean fail = (hasMin && v < min) || (hasMax && v > max);
         Integer reserve;
         if (fail) {
@@ -119,9 +125,19 @@ public final class Mode06Overview {
         } else {
             reserve = min <= 0 ? null : percent((v - min) / (double) min);
         }
+        // Schwellenwert-Tests (J1979 TID 01/02, ME9.7-Nachkat-Sonde TID 81/82) liegen bauartbedingt dicht an der
+        // Schwelle – auch das Beispiel im Werkstatthandbuch (591,8 mV bei Grenze 601,6 mV). Dort gilt nur bestanden
+        // oder nicht, „knapp“ wäre ein Fehlalarm.
         Status status = fail ? Status.FAIL
-                : reserve != null && reserve < CLOSE_PERCENT ? Status.CLOSE : Status.OK;
+                : reserve != null && reserve < CLOSE_PERCENT && !thresholdTest(r.mid, r.tid) ? Status.CLOSE : Status.OK;
         return new Test(r.mid, r.tid, r.uasid, v, min, max, hasMin, hasMax, status, reserve);
+    }
+
+    /** Tests, bei denen nur bestanden/nicht bestanden zählt (Sondenschwellen). */
+    static boolean thresholdTest(int mid, int tid) {
+        boolean o2 = mid >= 0x01 && mid <= 0x10;
+        boolean rearMe97 = mid == 0x02 || mid == 0x06;
+        return o2 && (tid == 0x01 || tid == 0x02) || rearMe97 && (tid == 0x81 || tid == 0x82);
     }
 
     private static int percent(double fraction) {
@@ -401,6 +417,8 @@ public final class Mode06Overview {
                 if (a.mid != pair[0]) continue;
                 Test b = byKey.get((pair[1] << 8) | a.tid);
                 if (b == null || b.uasid != a.uasid || a.reservePercent == null || b.reservePercent == null) continue;
+                // Schwellenprüfungen haben keine aussagekräftige Reserve (siehe evaluate)
+                if (thresholdTest(a.mid, a.tid) || thresholdTest(b.mid, b.tid)) continue;
                 compared++;
                 int gap = a.reservePercent - b.reservePercent;
                 String mark = Math.abs(gap) >= BANK_GAP_PERCENT ? "⚠" : "·";

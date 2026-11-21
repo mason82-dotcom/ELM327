@@ -1,6 +1,6 @@
 # ADR-004: Steuergeräte-Kennung (`1A 86`) und Getriebe-Fehlerspeicher (`18 02 FF 00`) als Testfreigabe
 
-**Status:** Vorgeschlagen (20.11.2026) – Testfreigabe, im Auslieferungszustand ausgeschaltet
+**Status:** Getriebe-Teil angenommen, Motor-Teil verworfen (21.11.2026, Fahrzeugtest) – weiter hinter dem Testschalter
 **Datum:** 20.11.2026
 **Entscheidet:** Betreiber (mason)
 **Bezug:** [ADR-001](adr-001-atf-temperatur.md), [ADR-003](adr-003-atf-antwort-layout.md), Recherche
@@ -73,4 +73,17 @@ Ein ELM327-Klon kann sie senden (Einzelframe-Anfrage, Mehrframe-Antwort). Neu is
 2. [x] `CommandSafety`: exakte Tupel, headerabhängig, nicht im Terminal; Tests.
 3. [x] `KwpReadout` (Android-frei): Kennung und Fehlerliste auswerten; Tests mit Antwortformen aus der Referenz.
 4. [x] Sitzung: exklusive Diagnose mit Header-Wiederherstellung; Schalter aus.
-5. [ ] Am C350 einmal mit Schalter an ausführen, Rohantworten hier eintragen, ADR annehmen oder verwerfen.
+5. [x] Am C350 einmal mit Schalter an ausführen, Rohantworten hier eintragen, ADR annehmen oder verwerfen.
+
+## Ergebnis Fahrzeugtest 21.11.2026
+
+| Anfrage | Antwort | Auswertung |
+|---|---|---|
+| `ATSH7E0` → `1A 86` (Motor) | NO DATA | das ME9.7 antwortet unter 7E0 nicht auf KWP-Dienste |
+| `ATSH7E1` → `1A 86` (Getriebe) | `5A 86 00 34 46 03 10 47 06 19 08 08 04 02 00 08 09 30` | A 003 446 03 10, HW KW 47/06, SW KW 19/08, Lieferant 08, Serie, 30.09.2008 |
+| `18 02 FF 00` (Getriebe) | `58 00` | keine gespeicherten Fehler |
+
+**Entscheidung:** Getriebe-Teil angenommen (Format wie Referenz). Motor-Teil verworfen: `ATSH7E0` und `1A 86` an 7E0
+entfallen aus der Freigabe; der Ablauf fragt nur noch das Getriebe. Der Testschalter bleibt, bis der Getriebe-Teil
+einige Male ohne Auffälligkeit lief.
+

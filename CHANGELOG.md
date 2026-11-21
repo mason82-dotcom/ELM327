@@ -2,6 +2,23 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.14.0 (Monitor) / 0.21.0 (Dashboard): Ergebnisse des Fahrzeugtests vom 21.11.2026
+
+- **ADR-003 angenommen:** Die Antwort `61 30` folgt der eingelegten Stellung – Wählhebel [9] P = 10, R = 9, N = 8,
+  D = 7; Gang [12] je Halbbyte (P = 13, R = 11, N = 0, Gänge 1–7); ATF [13] 8 °C kalt bei 5 °C außen, 62 °C warm. Der
+  ATF-Bericht zeigt jetzt „Wählhebel D · Gang 3 → 2“ im Klartext; Motor- und Wandlermoment vorzeichenrichtig.
+- **ADR-004:** Getriebe-Teil angenommen (A 003 446 03 10, Software KW 19/2008, Fehlerspeicher leer). Motor-Teil
+  verworfen – das ME9.7 antwortet unter 7E0 nicht; `ATSH7E0` ist aus der Freigabe entfernt.
+- **ADR-007 verworfen und entfernt:** Kennungssuche `21 01`–`21 FE` (Motor schweigt, kein Öltemperatursensor).
+  Freigabe, Suchmodus, Knopf und Prüfplanschritt entfallen; alte Prüfplan-Einträge bleiben lesbar.
+- **Mode 06:** Sondenschwellen (Kennwert mit Grenze = Wert, Nachkat-Sonde TID 81/82) gelten nicht mehr als „knapp“ –
+  am C350 waren das 8 Fehlalarme samt Hinweis „gealterte Sonde“.
+- **Prüfplan:** die beiden ATF-Schritte sind erledigt (ADR-003) und entfallen; die Checkliste hat noch 6 Schritte.
+  Alte ATF- und Kennungssuche-Einträge bleiben im Bericht lesbar. Die Datei der Kennungssuche wird beim Start gelöscht.
+- **Starttest:** Ladespannung über 20 s gemessen, bewertet werden die letzten 5 s (das ME fährt die Lichtmaschine
+  verzögert hoch). Bei tief entladener Batterie und zwischenzeitlich mindestens 1 s lang normaler Ladespannung heißt es nicht mehr
+  „Lichtmaschine lädt nicht“, sondern: nach einigen Minuten bei 2000 U/min nachmessen.
+
 ## Version 1.13.3 (Monitor) / 0.20.3 (Dashboard): Wählhebel/Gang-Prüfung richtig benannt
 
 - Der Prüfplanschritt hieß „ATF-Temperatur warm in P, R, N, D“, prüft aber das **Layout der Antwort** `61 30`:

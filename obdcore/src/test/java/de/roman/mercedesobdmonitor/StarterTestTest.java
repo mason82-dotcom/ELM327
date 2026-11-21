@@ -29,7 +29,7 @@ public class StarterTestTest {
                 {2000, 12.4},      // Zündung an, Kraftstoffpumpe
                 {crankMs, crankV}, // Anlassen
                 {400, 12.3},       // Erholung
-                {11_000, chargeV}, // Ladung
+                {21_000, chargeV}, // Ladung
         });
         return t;
     }
@@ -62,7 +62,7 @@ public class StarterTestTest {
     @Test
     public void lowRestAndDeepDropMeansDischarged() {
         StarterTest t = new StarterTest(Double.NaN);
-        play(t, 0, new double[][] {{3500, 11.9}, {2000, 11.9}, {1500, 8.9}, {400, 11.8}, {11_000, 14.0}});
+        play(t, 0, new double[][] {{3500, 11.9}, {2000, 11.9}, {1500, 8.9}, {400, 11.8}, {21_000, 14.0}});
         assertEquals(StarterTest.Phase.DONE, t.phase());
         String r = t.report(Double.NaN);
         assertTrue(r, r.contains("niedrig (entladen)"));
@@ -145,7 +145,7 @@ public class StarterTestTest {
         // Kompressionstakte: Spannung schwankt beim Anlassen, ein einzelner Wert nahe am Bezug beendet es nicht
         StarterTest t = new StarterTest(15);
         play(t, 0, new double[][] {{3500, 12.5}, {2000, 12.5}, {400, 10.2}, {80, 12.3}, {600, 10.6}, {400, 12.4},
-                {11_000, 14.0}});
+                {21_000, 14.0}});
         assertEquals(StarterTest.Phase.DONE, t.phase());
         assertTrue("Anlassdauer " + t.crankMs(), t.crankMs() >= 1000);
     }
@@ -153,7 +153,7 @@ public class StarterTestTest {
     @Test
     public void missedDipStillMeasuresCharging() {
         StarterTest t = new StarterTest(15);
-        play(t, 0, new double[][] {{3500, 12.5}, {2000, 12.5}, {11_000, 14.2}});
+        play(t, 0, new double[][] {{3500, 12.5}, {2000, 12.5}, {21_000, 14.2}});
         assertEquals(StarterTest.Phase.DONE, t.phase());
         String r = t.report(700);
         assertTrue(r, r.contains("Einbruch nicht erfasst"));
@@ -232,7 +232,7 @@ public class StarterTestTest {
     @Test
     public void nonChargingAlternatorEndsCrank() {
         StarterTest t = new StarterTest(15);
-        play(t, 0, new double[][] {{3500, 12.5}, {2000, 12.5}, {1000, 9.8}, {12_000, 12.0}});
+        play(t, 0, new double[][] {{3500, 12.5}, {2000, 12.5}, {1000, 9.8}, {22_000, 12.0}});
         assertEquals(StarterTest.Phase.DONE, t.phase());
         assertTrue("Anlassdauer " + t.crankMs(), t.crankMs() >= 900 && t.crankMs() <= 1200);
         String r = t.report(700);
@@ -244,7 +244,7 @@ public class StarterTestTest {
     @Test
     public void manufacturerValuesInReport() {
         StarterTest t = new StarterTest(9);
-        play(t, 1000, new double[][] {{3500, 11.6}, {2000, 11.5}, {900, 7.6}, {400, 11.8}, {11_000, 14.9}});
+        play(t, 1000, new double[][] {{3500, 11.6}, {2000, 11.5}, {900, 7.6}, {400, 11.8}, {21_000, 14.9}});
         String r = t.report(700);
         assertTrue(r, r.contains("Nahe der Startgrenze: unter etwa 7,0 V"));
         assertTrue(r, r.contains("auch der Werkstatt-Batterietest braucht über 12,4 V Ruhespannung"));
@@ -257,8 +257,39 @@ public class StarterTestTest {
     @Test
     public void fairRestStaysBorderline() {
         StarterTest t = new StarterTest(15);
-        play(t, 1000, new double[][] {{3500, 12.3}, {2000, 12.2}, {900, 10.6}, {400, 12.0}, {11_000, 14.2}});
+        play(t, 1000, new double[][] {{3500, 12.3}, {2000, 12.2}, {900, 10.6}, {400, 12.0}, {21_000, 14.2}});
         String r = t.report(700);
         assertTrue(r, r.contains("Gesamt: unauffällig, einzelne Werte knapp"));
+    }
+
+    /** Fahrzeugtest 21.11.2026: Ruhe 10,6 V, Anlassen 6,9 V, Ladung zuerst 11 V, kurz 13,5 V. */
+    @Test
+    public void deeplyDischargedBatteryDoesNotBlameAlternator() {
+        StarterTest t = new StarterTest(5);
+        play(t, 1000, new double[][] {{3500, 10.6}, {2000, 10.6}, {1200, 6.9}, {400, 10.8},
+                {3000, 13.5}, {18_000, 11.1}});
+        String r = t.report(1140);
+        assertEquals(11.1, t.charge(), 0.001);
+        assertTrue(r, r.contains("bei tief entladener Batterie üblich"));
+        assertFalse(r, r.contains("Lichtmaschine lädt nicht ausreichend"));
+    }
+
+    /** Ladespannung zählt erst am Ende des Fensters (Lichtmaschine fährt verzögert hoch). */
+    @Test
+    public void chargeUsesLastSecondsOfWindow() {
+        StarterTest t = new StarterTest(15);
+        play(t, 1000, new double[][] {{3500, 12.5}, {2000, 12.4}, {900, 10.6}, {400, 12.3},
+                {12_000, 12.6}, {9_000, 14.2}});
+        assertEquals(14.2, t.charge(), 0.001);
+    }
+
+    /** Review: eine einzelne Spitze direkt nach dem Anlassen entlastet die Lichtmaschine nicht. */
+    @Test
+    public void singleSpikeDoesNotHideNonChargingAlternator() {
+        StarterTest t = new StarterTest(10);
+        play(t, 1000, new double[][] {{3500, 11.9}, {2000, 11.8}, {900, 9.5}, {400, 11.5},
+                {160, 13.4}, {21_000, 11.6}});
+        String r = t.report(720);
+        assertTrue(r, r.contains("Lichtmaschine lädt nicht ausreichend"));
     }
 }
