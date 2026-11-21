@@ -2,6 +2,15 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.13.3 (Monitor) / 0.20.3 (Dashboard): Wählhebel/Gang-Prüfung richtig benannt
+
+- Der Prüfplanschritt hieß „ATF-Temperatur warm in P, R, N, D“, prüft aber das **Layout der Antwort** `61 30`:
+  folgen Wählhebel [9] und Gang [11] der eingelegten Stellung (ADR-003)? Die Temperatur hängt nicht von der Stellung
+  ab. Neuer Name „Wählhebel/Gang prüfen in P, R, N, D (ATF-Antwort)“.
+- Zählung: jede Antwort mit Wählhebelfeld bei laufendem Motor, je Stellung einmal – unabhängig davon, ob die
+  Temperatur plausibel ist. „Warm“ ist keine Voraussetzung mehr, nur empfohlen (Vergleich mit der Kaltlesung).
+- README, ADR-003 und Prüfplan-PDF entsprechend.
+
 ## Version 1.13.2 (Monitor) / 0.20.2 (Dashboard): Prüfplan-Zählung nachgeschärft
 
 Code-Review von 1.13.1 (7 Befunde) und Abgleich App/README/PDF.
