@@ -134,6 +134,19 @@ Gesperrt bleiben Fehlerlöschen, Sitzungswechsel, Security Access, Stellglieder,
 - GitHub Actions führt genau diesen Umfang aus und lädt bei jedem Push auf `main` die beiden Debug-APKs hoch
   (`Mercedes_OBD2_Monitor_v<Version>-debug`, `OBD_Dashboard_v<Version>-debug`, Version aus `build.gradle`).
 
+**Signieren (Updates ohne Deinstallation):** Die verteilten Debug-APKs tragen denselben Schlüssel, sobald er bereitliegt – sonst
+lehnt Android ein Update ab, und die App muss mit ihren Daten deinstalliert werden. Der Schlüssel liegt nie im Repo.
+
+- Lokal: `~/.config/elm327/signing/elm327.keystore` (Alias `elm327`, sonst `ELM327_KEY_ALIAS`) und `signing.env`
+  (`ELM327_KEYSTORE_PASSWORD=…`, `ELM327_KEY_PASSWORD=…`, je Zeile ohne Anführungszeichen und ohne `export`);
+  `tools/android-sdk/gradle.sh` liest beides selbst. Mit `./gradlew` direkt:
+  `ELM327_KEYSTORE`, `ELM327_KEYSTORE_PASSWORD`, `ELM327_KEY_PASSWORD` setzen.
+- CI: Actions-Secrets `ELM327_KEYSTORE_B64` (Keystore als Base64), `ELM327_KEYSTORE_PASSWORD`, `ELM327_KEY_PASSWORD` –
+  nur für `main` und manuelle Läufe, nie für Pull Requests.
+  Fehlen sie, warnt der Lauf und signiert mit einem Zufalls-Debug-Schlüssel; der Schritt „Show signing certificate“
+  zeigt den Fingerabdruck.
+- Den Keystore sichern (z. B. im Passwort-Tresor): Geht er verloren, müssen beide Apps einmal neu installiert werden.
+
 | Modul | Inhalt |
 |---|---|
 | `:obdcore` | ELM327-Client, Freigabeliste, Parser, Diagnoseabläufe (`DiagnosticJobs`), Analysen, CSV-Log, Vordergrunddienst – mit allen Unit-Tests |

@@ -29,6 +29,20 @@ jobs:
           # Android 17 QPR2 (SDK 37.2) und Build-Tools 37.0.0, wie in den build.gradle-Dateien festgelegt.
           "$SDKMANAGER" "platforms;android-37.2" "build-tools;37.0.0"
 
+      # Fester Signaturschlüssel (Updates ohne Deinstallation, siehe build.gradle) – nur für main und manuelle Läufe:
+      # ungeprüfter PR-Code darf nie als Update über die App im Auto installierbar sein.
+      - name: Signing key
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.ELM327_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/elm327.keystore"
+          else
+            echo "::warning::Secret ELM327_KEYSTORE_B64 fehlt – APKs mit Zufalls-Debug-Schlüssel, nicht als Update installierbar"
+          fi
+
       # Gradle-Version kommt aus dem Wrapper (gradle/wrapper/gradle-wrapper.properties).
       - uses: gradle/actions/setup-gradle@v4
 
@@ -52,7 +66,19 @@ jobs:
 
       - name: Build debug APKs
         # assembleDebugAndroidTest: UI-Tests mitkompilieren (ausgeführt werden sie im Emulator, tools/android-emulator)
+        # Schlüssel und Passwörter nur in diesem Schritt und nicht für Pull Requests
+        env:
+          ELM327_KEYSTORE: ${{ github.event_name != 'pull_request' && secrets.ELM327_KEYSTORE_B64 != '' && format('{0}/elm327.keystore', runner.temp) || '' }}
+          ELM327_KEYSTORE_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.ELM327_KEYSTORE_PASSWORD || '' }}
+          ELM327_KEY_PASSWORD: ${{ github.event_name != 'pull_request' && secrets.ELM327_KEY_PASSWORD || '' }}
         run: ./gradlew :app:assembleDebug :dashboard:assembleDebug :app:assembleDebugAndroidTest :dashboard:assembleDebugAndroidTest --stacktrace
+
+      - name: Show signing certificate
+        # nur der öffentliche Fingerabdruck: gleich bleibend = Updates möglich
+        shell: bash
+        run: |
+          "${ANDROID_SDK_ROOT}/build-tools/37.0.0/apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk \
+            | grep -m1 'SHA-256' || true
 
       - name: Rename APKs
         id: apk
