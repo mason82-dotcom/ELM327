@@ -126,6 +126,7 @@ public final class TransmissionLive {
         private long lastAt = Long.MIN_VALUE;
         private int failures;
         private String offReason;
+        private boolean noCanNoted;
 
         public boolean due(long nowMs) {
             return offReason == null && (lastAt == Long.MIN_VALUE || nowMs - lastAt >= INTERVAL_MS);
@@ -148,6 +149,13 @@ public final class TransmissionLive {
 
         public void onDropped(String reason) {
             offReason = "Header-Rückweg gescheitert (" + reason + ")";
+        }
+
+        /** true nur beim ersten Aufruf: den Hinweis „nur über CAN 11 bit“ einmal je Sitzung zeigen. */
+        public boolean noteNoCanOnce() {
+            if (noCanNoted) return false;
+            noCanNoted = true;
+            return true;
         }
 
         /** Grund der Abschaltung oder null, solange Getriebe-live läuft. */

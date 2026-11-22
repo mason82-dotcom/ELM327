@@ -125,7 +125,12 @@ done
 echo "== Anfragen über den Proxy: $(wc -l <"$requests")"
 python3 - "$requests" "$BLOCKED" "$LOG_EXEMPT" <<'EOF' || result=1
 import sys
-lines = [l.replace(" ", "").strip().upper() for l in open(sys.argv[1], encoding="latin1")]
+# Zeilen „<Unix-Zeit> <Anfrage>“ (proxy.py --log)
+entries = []
+for l in open(sys.argv[1], encoding="latin1"):
+    t, _, cmd = l.strip().partition(" ")
+    entries.append((float(t), cmd.replace(" ", "").upper()))
+lines = [c for _, c in entries]
 exempt = set(sys.argv[3].split(",")) if len(sys.argv) > 3 and sys.argv[3] else set()
 blocked = [c.replace("_", "").upper() for c in sys.argv[2].split(",") if c not in exempt]
 bad = 0
@@ -154,6 +159,19 @@ if "AT@1" in lines:
         print(f"  OK       kein Mode 03 beim Verbinden ({len(span)} Anfragen bis zur Marke AT@1)")
 else:
     print("  SKIP     DTC-Test der Monitor-App lief nicht – Prüfung „kein 03 beim Verbinden“ entfällt")
+# 4) Getriebe live im 2-s-Takt (ADR-008): Abstand aufeinanderfolgender 21 30 derselben Verbindung (Lücken > 10 s =
+#    andere Test-Sitzung) – Median höchstens 2,6 s
+import statistics
+times = [t for t, c in entries if c == "2130"]
+gaps = [b - a for a, b in zip(times, times[1:]) if b - a < 10]
+if len(gaps) >= 4:
+    med = statistics.median(gaps)
+    if med > 2.6:
+        print(f"  FEHLER   Getriebe live zu langsam: 21 30 im Median alle {med:.2f} s (Soll ≤ 2,6 s)"); bad = 1
+    else:
+        print(f"  OK       Getriebe live im Takt: 21 30 im Median alle {med:.2f} s ({len(gaps) + 1} Abfragen)")
+else:
+    print("  SKIP     zu wenige Getriebe-Abfragen für die Taktprüfung")
 sys.exit(bad)
 EOF
 exit $result

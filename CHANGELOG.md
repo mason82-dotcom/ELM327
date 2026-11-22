@@ -2,6 +2,14 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.16.2 (Monitor) / 0.24.2 (Dashboard): Gang und ATF im 2-s-Takt
+
+- **Getriebe live (ADR-008):** Gang und ATF kamen am C350 nur alle 3,8 s (Median), weil die Abfrage erst nach einer
+  ganzen Runde der übrigen Werte lief. Jetzt wird sie zwischen die einzelnen Abfragen eingeschoben, sobald sie fällig
+  ist: im Emulator alle 2,03 s (95 % unter 2,07 s). Ein Gangwechsel erscheint damit in der Regel nach etwa 2 s
+  (länger, wenn gerade eine andere Abfrage auf eine Antwort wartet). Nicht als erste Anfrage nach einem Neuaufbau;
+  eine Zeitüberschreitung des Getriebes löst keinen Neuaufbau mehr aus. `uitest.sh` prüft den Takt.
+
 ## Version 1.16.1 (Monitor) / 0.24.1 (Dashboard): Bus mitlesen ohne unnötigen Neuaufbau
 
 - **Fehler aus 1.16.0 / 0.24.0 behoben:** Kennt der Adapter das Zurücksetzen des Empfangsfilters nicht (am C350
