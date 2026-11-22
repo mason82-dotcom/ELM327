@@ -2,6 +2,14 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.16.4 (Monitor) / 0.24.4 (Dashboard): Updates ohne Deinstallation
+
+- **Fester Signaturschlüssel:** Bisher signierte jede CI-Runde mit einem neuen Zufalls-Debug-Schlüssel – Android
+  lehnte jedes Update ab, die Apps mussten samt Daten (Fahrtenbuch-Logs, Trim-Verlauf, Prüfplan, Einstellungen)
+  deinstalliert werden. Jetzt signieren lokale Builds und die CI mit einem festen Schlüssel außerhalb des Repos
+  (lokal `~/.config/elm327/signing`, CI: Actions-Secrets). Einmalig: die bisherigen Versionen deinstallieren und
+  diese installieren; ab dann installieren neue Versionen einfach darüber.
+
 ## Version 1.16.3 (Monitor) / 0.24.3 (Dashboard): Fahrtenbuch behält die längere Fahrt
 
 - **Fahrtenbuch:** Wurde eine ältere, kürzere Kopie desselben Logs (z. B. „…_1.csv“) nach der längeren importiert,

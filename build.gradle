@@ -2,3 +2,35 @@ plugins {
     id 'com.android.application' version '9.5.1' apply false
     id 'com.android.library' version '9.5.1' apply false
 }
+
+// Fester Signaturschlüssel für die Debug-APKs (die verteilten APKs): nur dann lassen sich neue Versionen über die installierte App
+// installieren (ohne Deinstallation, App-Daten bleiben). Vorher signierte jede CI-Runde mit einem neuen Zufalls-
+// Debug-Schlüssel. Der Schlüssel liegt nie im (öffentlichen) Repo: lokal ~/.config/elm327/signing (gradle.sh liest
+// ihn), in der CI als Actions-Secrets. Ohne ELM327_KEYSTORE bleibt es beim Standard-Debug-Schlüssel (z. B. Forks).
+def elmKeystore = System.getenv('ELM327_KEYSTORE')
+def elmStorePassword = System.getenv('ELM327_KEYSTORE_PASSWORD')
+if (elmKeystore && !elmStorePassword) {
+    throw new GradleException('ELM327_KEYSTORE ist gesetzt, ELM327_KEYSTORE_PASSWORD fehlt – Signaturschlüssel ' +
+            'unvollständig (lokal: signing.env, CI: Actions-Secrets).')
+}
+subprojects {
+    plugins.withId('com.android.application') {
+        if (elmKeystore) {
+            android {
+                signingConfigs {
+                    stable {
+                        storeFile = file(elmKeystore)
+                        storePassword = elmStorePassword
+                        keyAlias = System.getenv('ELM327_KEY_ALIAS') ?: 'elm327'
+                        keyPassword = System.getenv('ELM327_KEY_PASSWORD') ?: elmStorePassword
+                    }
+                }
+                buildTypes {
+                    debug {
+                        signingConfig = signingConfigs.stable
+                    }
+                }
+            }
+        }
+    }
+}
