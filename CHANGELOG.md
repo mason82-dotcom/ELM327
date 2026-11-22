@@ -2,6 +2,13 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.16.3 (Monitor) / 0.24.3 (Dashboard): Fahrtenbuch behält die längere Fahrt
+
+- **Fahrtenbuch:** Wurde eine ältere, kürzere Kopie desselben Logs (z. B. „…_1.csv“) nach der längeren importiert,
+  ersetzte sie die gespeicherte Fahrt – die Fahrt wirkte danach kürzer (doppelt gezählt wurde nichts). Jetzt bleibt
+  die längere, wenn das neue Teilstück ganz in einer gespeicherten Fahrt liegt; ein wachsendes Log ersetzt sein
+  früheres Teilstück wie bisher. Gefunden bei der Prüfung auf doppelte Einträge (22.11.2026).
+
 ## Version 1.16.2 (Monitor) / 0.24.2 (Dashboard): Gang und ATF im 2-s-Takt
 
 - **Getriebe live (ADR-008):** Gang und ATF kamen am C350 nur alle 3,8 s (Median), weil die Abfrage erst nach einer

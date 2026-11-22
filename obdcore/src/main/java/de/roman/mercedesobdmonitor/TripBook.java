@@ -64,13 +64,18 @@ public final class TripBook {
 
     /**
      * Neue Teilstücke einfügen. Überschneidet sich ein neues zeitlich mit gespeicherten, ersetzt es diese (ein Log,
-     * das beim letzten Einlesen noch wuchs, oder derselbe Log erneut importiert). Gespeichert bleiben Teilstücke je
-     * Log – verbunden wird erst in {@link #joined}, sonst löschte ein nachwachsendes Teilstück eines Logs die schon
-     * verbundene Fahrt samt dem Teil aus dem anderen Log. Ergebnis zeitlich sortiert, höchstens {@link #MAX_TRIPS}.
+     * das beim letzten Einlesen noch wuchs, oder derselbe Log erneut importiert) – außer es liegt ganz innerhalb eines
+     * gespeicherten: Dann ist es eine ältere, kürzere Kopie desselben Logs (Datei „…_1.csv“ nach „…_3.csv“
+     * importiert, 22.11.2026) und das längere bleibt. Gespeichert bleiben Teilstücke je Log – verbunden wird erst in
+     * {@link #joined}, sonst löschte ein nachwachsendes Teilstück eines Logs die schon verbundene Fahrt samt dem Teil
+     * aus dem anderen Log. Ergebnis zeitlich sortiert, höchstens {@link #MAX_TRIPS}.
      */
     public static List<TripComputer.Trip> merge(List<TripComputer.Trip> stored, List<TripComputer.Trip> fresh) {
         List<TripComputer.Trip> out = new ArrayList<>(stored);
         for (TripComputer.Trip f : fresh) {
+            boolean olderCopy = false;
+            for (TripComputer.Trip t : out) olderCopy |= t.startMs <= f.startMs && f.endMs <= t.endMs;
+            if (olderCopy) continue;
             out.removeIf(t -> t.startMs <= f.endMs && f.startMs <= t.endMs);
             out.add(f);
         }

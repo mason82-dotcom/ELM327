@@ -129,6 +129,26 @@ public class TripComputerTest {
         assertEquals(2, TripBook.joined(TripBook.merge(m, List.of(c))).size());
     }
 
+    /**
+     * 22.11.2026: dasselbe Log in drei Kopien (…_1 bis 17:35, …_3 bis 19:14). Wird die kürzere Kopie nach der längeren
+     * importiert, bleibt die längere Fahrt – vorher ersetzte die zuletzt eingelesene sie. Nichts zählt doppelt.
+     */
+    @Test
+    public void olderShorterCopyDoesNotShortenAStoredTrip() {
+        TripComputer.Trip full = new TripComputer.Trip(0, 1_200_000, 11, 1.3, 1_200_000, 200_000, 135, 7.7, false);
+        TripComputer.Trip partial = new TripComputer.Trip(0, 1_020_000, 9, 1.1, 1_020_000, 180_000, 135, 7.6, true);
+        List<TripComputer.Trip> m = TripBook.merge(List.of(full), List.of(partial));
+        assertEquals(1, m.size());
+        assertEquals(1_200_000, m.get(0).endMs);
+        assertEquals(11, m.get(0).km, 0);
+        // dieselbe Kopie noch einmal: unverändert
+        assertEquals(m, TripBook.merge(m, List.of(full)));
+        // umgekehrt (kurz zuerst, dann lang) ersetzt die längere wie bisher
+        m = TripBook.merge(List.of(partial), List.of(full));
+        assertEquals(1, m.size());
+        assertEquals(1_200_000, m.get(0).endMs);
+    }
+
     /** Tankstopp: 60 s Motor aus ist eine echte Fahrtgrenze, auch unter {@link TripBook#JOIN_GAP_MS}. */
     @Test
     public void shortEngineOffStaysTwoTrips() {
