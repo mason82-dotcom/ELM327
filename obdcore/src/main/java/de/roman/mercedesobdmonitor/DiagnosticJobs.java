@@ -183,6 +183,8 @@ final class DiagnosticJobs {
         boolean stuck = false;
         String interrupted = null;
         String filterSkipped = null;
+        String notRestored = null;
+        boolean filterSet = false;   // ein ATCRA<id> ging hinaus – nur dann muss das Zurücksetzen bestätigt werden
         Elm327Client.MonitorResult overview;
         CanMonitor.Result overviewResult;
         Map<Integer, CanMonitor.FilteredRun> filtered = new LinkedHashMap<>();
@@ -202,6 +204,7 @@ final class DiagnosticJobs {
                 }
                 for (int id : CanMonitor.W204_POWERTRAIN.keySet()) {
                     if (stuck || filterSkipped != null) break;
+                    filterSet = true;
                     if (!isOk(host.diag(c, CommandSafety.receiveFilter(id), 1500).raw)) {
                         filterSkipped = String.format(Locale.GERMANY, "der Adapter lehnt den Empfangsfilter %03X ab", id);
                         break;
@@ -211,12 +214,23 @@ final class DiagnosticJobs {
                     filtered.put(id, new CanMonitor.FilteredRun(CanMonitor.parse(m.raw), m.elapsedMs, m.truncated));
                 }
                 if (!stuck) {
-                    boolean acks = isOk(host.diag(c, CommandSafety.RECEIVE_FILTER_RESET, 1500).raw)
-                            & isOk(host.diag(c, CommandSafety.AUTO_FORMAT, 1500).raw)
-                            & isOk(host.diag(c, LinkPolicy.DIAG_HEADERS, 1500).raw);
+                    // Ohne gesetzten Filter kein Zurücksetzen verlangen: Adapter ohne „ATCRA“ ohne Adresse (am C350,
+                    // 22.11.) wurden sonst nach jedem Mitlesen grundlos neu verbunden.
+                    if (filterSet && !isOk(host.diag(c, CommandSafety.RECEIVE_FILTER_RESET, 1500).raw)) {
+                        notRestored = "der Adapter hat das Zurücksetzen des Empfangsfilters nicht bestätigt";
+                    }
+                    if (!isOk(host.diag(c, CommandSafety.AUTO_FORMAT, 1500).raw) && notRestored == null) {
+                        notRestored = "der Adapter hat ATCAF1 (normales Format) nicht bestätigt";
+                    }
+                    if (!isOk(host.diag(c, LinkPolicy.DIAG_HEADERS, 1500).raw) && notRestored == null) {
+                        notRestored = "der Adapter hat ATH0 nicht bestätigt";
+                    }
                     // Prüfanfrage: eine 41-00-Antwort im normalen Format (ohne PCI-Byte) zeigt, dass Filter und Format
                     // zurück sind. Antwortete das Fahrzeug schon vorher nicht, zählen nur die Bestätigungen.
-                    restored = acks && (vehicleAnswers ? obdAnswers(host.diag(c, "0100", 2000).raw) : true);
+                    if (notRestored == null && vehicleAnswers && !obdAnswers(host.diag(c, "0100", 2000).raw)) {
+                        notRestored = "nach dem Mitlesen kam keine gültige Antwort auf 01 00";
+                    }
+                    restored = notRestored == null;
                 }
             } catch (IOException e) {
                 // gesammelte Daten behalten; ohne bestätigte Wiederherstellung wird unten die Verbindung verworfen
@@ -236,8 +250,8 @@ final class DiagnosticJobs {
             report.append("\n\nHinweis: Mitlesen unterbrochen (").append(interrupted)
                     .append("); die bisherigen Ergebnisse stehen oben, die Verbindung wird neu aufgebaut.");
         } else if (!restored) {
-            report.append("\n\nHinweis: Nach dem Mitlesen kam keine gültige Antwort auf 01 00 – Filter oder Format sind "
-                    + "nicht sicher zurückgesetzt; die Verbindung wird neu aufgebaut.");
+            report.append("\n\nHinweis: ").append(notRestored)
+                    .append(" – Filter oder Format sind nicht sicher zurückgesetzt; die Verbindung wird neu aufgebaut.");
         } else if (!vehicleAnswers) {
             report.append("\n\nHinweis: Das Fahrzeug beantwortete 01 00 schon vor dem Mitlesen nicht (Zündung aus?); "
                     + "der Adapter hat das Zurücksetzen bestätigt.");

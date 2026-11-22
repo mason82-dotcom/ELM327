@@ -287,7 +287,24 @@ public class DiagnosticJobsTest {
         String r = new DiagnosticJobs(host).readCanMonitor(client);
         assertTrue(received.toString(), received.stream().noneMatch(c -> c.startsWith("ATCRA") && c.length() > 5));
         assertTrue(r, r.contains("übersprungen: der Adapter kennt das Zurücksetzen des Empfangsfilters (ATCRA) nicht"));
+        // C350, 22.11.: ohne gesetzten Filter kein zweites ATCRA und kein Neuaufbau
+        assertEquals(1, received.stream().filter("ATCRA"::equals).count());
+        assertTrue(host.dropped.isEmpty());
+        assertFalse(r, r.contains("neu aufgebaut"));
+    }
+
+    @Test
+    public void canMonitorNamesTheUnconfirmedStep() throws Exception {
+        answers = c -> switch (c) {
+            case "ATMA" -> monitorAnswer(null);
+            case "ATCRA" -> "?";
+            case "ATCAF1" -> "?";
+            case "0100" -> "41 00 BE 3F A8 13";
+            default -> "OK";
+        };
+        String r = new DiagnosticJobs(host).readCanMonitor(client);
         assertEquals(1, host.dropped.size());
+        assertTrue(r, r.contains("der Adapter hat ATCAF1 (normales Format) nicht bestätigt"));
     }
 
     @Test

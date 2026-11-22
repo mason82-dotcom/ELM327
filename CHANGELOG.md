@@ -2,6 +2,14 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.16.1 (Monitor) / 0.24.1 (Dashboard): Bus mitlesen ohne unnötigen Neuaufbau
+
+- **Fehler aus 1.16.0 / 0.24.0 behoben:** Kennt der Adapter das Zurücksetzen des Empfangsfilters nicht (am C350
+  am 22.11.: Antwort auf `ATCRA` ohne Adresse fehlte), setzt die App zu Recht keinen Filter – verlangte am Ende aber
+  trotzdem dessen Bestätigung und baute danach jedes Mal die Verbindung neu auf, mit der falschen Meldung „keine
+  gültige Antwort auf 01 00“. Jetzt wird das Zurücksetzen nur nach einem gesetzten Filter verlangt, und der Hinweis
+  nennt den Schritt, der nicht bestätigt wurde.
+
 ## Version 1.16.0 (Monitor) / 0.24.0 (Dashboard): Bus mitlesen mit Filter je Botschaft
 
 - **Bus mitlesen (ADR-002, Option C):** Am 21.11. lief der WLAN-Adapter ungefiltert nach 0,2 s über (BUFFER FULL,
