@@ -34,7 +34,7 @@ weitere Befehl weicht die Freigabe auf. Neu: Last auf dem Adapter und Wartezeit 
 - **Header immer zurück:** `ATSH7DF` im `finally`; scheitert das oder meldet der Client danach nicht 7DF, wird die
   Verbindung verworfen (Reconnect setzt den Header über `LinkPolicy.reconnectInit`).
 - **Selbstabschaltung:** nach 3 Fehlschlägen in Folge (keine/unplausible Antwort, Ablehnung 7F) oder einem
-  verworfenen Header für den Rest der Sitzung aus, mit Hinweis in der Konsole – kein Dauerfehler bei einem anderen
+  verworfenen Header für den Rest der Sitzung aus (bis „Trennen“; automatische Neuverbindungen ändern daran nichts), mit Hinweis in der Konsole – kein Dauerfehler bei einem anderen
   Fahrzeug oder Adapter.
 - **Kein alter Wert:** Gang und ATF laufen durch dasselbe Alterslimit wie alle Live-Werte (`LiveValues`, 15 s) und
   zeigen „–“ ohne frische Antwort. Rohwert 0/1 oder unplausibel (ADR-001) = kein Wert.
@@ -88,3 +88,13 @@ Der Takt von 2 s ist der kleinste, bei dem ein Gangwechsel noch sichtbar folgt, 
 4. [x] Dashboard: Gang und ATF auf LIVE (Hoch- und Querformat, Radio 1024×600).
 5. [x] Tests: Parser mit `ATH1`-Antwort, Sequenz und Abschaltung im ELM-Nachbau, Warnregeln, UI-Test über `proxy.py`.
 6. [ ] Am C350: Fahrt mit Gangwechseln, Prüfplan-Bericht teilen.
+
+## Nachtrag 22.11.2026: Takt am C350
+
+Erste Fahrten mit Getriebe live (Logs 22.11.): Gang D1–D7 passend zum Tempo (D7 ab 85 km/h), ATF 6 → 64 °C, übrige
+Werte +10–15 % langsamer (Drehzahl alle 2,35 s statt 2,0–2,15 s) – wie abgeschätzt. Gang/ATF kamen aber nur alle
+3,8 s (Median), weil der Block erst nach einer ganzen Abfragerunde lief. Seitdem prüft die Schleife vor jeder PID,
+ob er fällig ist (nicht als erste Anfrage nach einem Neuaufbau, mit 25 ms Abstand danach); im Emulator 2,03 s
+Median, 2,07 s p95. Getriebe-Zeitüberschreitungen zählen nicht mehr in den Verbindungszähler der PIDs, nur in die
+Abschaltung nach drei Fehlschlägen. `uitest.sh` prüft den Takt über das Proxy-Protokoll (Median ≤ 2,6 s).
+

@@ -573,8 +573,8 @@ public final class ObdSession {
 
     private void monitorLoop(int session, String host, int port, ElmLink.Opener transport) {
         int pollCycle = 0;
-        TransmissionLive.Schedule gearbox = new TransmissionLive.Schedule();   // je Verbindung (ADR-008)
-        boolean gearboxNoCanNoted = false;
+        // je Sitzung (ADR-008): gilt über automatische Neuverbindungen hinweg, eine Abschaltung also bis „Trennen“
+        TransmissionLive.Schedule gearbox = new TransmissionLive.Schedule();
         publishTransmissionNote(session, null);
         while (monitoring.get() && !userDisconnect && session == sessionGeneration.get()) {
             // Age limit on every path (slow PIDs, paused polling during diagnoses, any future branch).
@@ -600,6 +600,12 @@ public final class ObdSession {
                 if (!monitoring.get() || userDisconnect || exclusiveRequest.get()
                         || session != sessionGeneration.get()) break;
                 if (!PollSchedule.shouldPoll(pid.pid, cycle, fuelTrimTest.isRunning())) continue;
+                // ADR-008: Gang/ATF zwischen den PIDs, sobald fällig – nach einer ganzen Runde kamen sie am C350 nur
+                // alle 3,8 s statt 2 s (22.11.2026). Verwarf der Block die Verbindung, endet die Runde.
+                if (maybePollTransmission(session, gearbox)) {
+                    if (!c.isConnected()) break;
+                    ElmText.sleepQuiet(25);   // wie nach jeder PID: Abstand nach dem Header-Wechsel
+                }
 
                 // Freshness guard: a polled PID keeps a value only if THIS poll produced one. Every other way
                 // out of the try block (NO DATA, link/parser error, timeout, I/O error, session change, a future
@@ -654,16 +660,7 @@ public final class ObdSession {
                 }
                 ElmText.sleepQuiet(25);
             }
-            if (transmissionLive && monitoring.get() && !userDisconnect && !exclusiveRequest.get()
-                    && session == sessionGeneration.get()) {
-                if (!LinkPolicy.isCan11Bit(protocolNumber)) {
-                    if (!gearboxNoCanNoted) publishTransmissionNote(session, "aus – nur über CAN 11 bit");
-                    gearboxNoCanNoted = true;
-                } else if (gearbox.due(SystemClock.elapsedRealtime())) {
-                    Elm327Client current = client;
-                    if (current != null && current.isConnected()) pollTransmission(session, current, gearbox);
-                }
-            }
+            maybePollTransmission(session, gearbox);   // Rückfall, falls die Runde keine PID abfragte
             if (driveCyclePid && cycle % DRIVE_CYCLE_EVERY == 0 && monitoring.get() && !userDisconnect
                     && !exclusiveRequest.get() && session == sessionGeneration.get()) {
                 Elm327Client current = client;
@@ -715,6 +712,28 @@ public final class ObdSession {
     }
 
     /**
+     * Getriebe-live, wenn eingeschaltet, auf 11-bit-CAN und fällig (Live-Thread, ADR-008). Nicht als erste Anfrage
+     * nach einem (Neu-)Aufbau: die erste Antwort darf lange dauern ({@link LinkPolicy#FIRST_REQUEST_TIMEOUT_MS}), die
+     * kurzen Fristen der Getriebe-Sequenz würden sie als Fehlschlag zählen.
+     * @return true, wenn die Sequenz lief
+     */
+    private boolean maybePollTransmission(int session, TransmissionLive.Schedule gearbox) {
+        if (!transmissionLive || firstRequestAfterInit || !monitoring.get() || userDisconnect || exclusiveRequest.get()
+                || session != sessionGeneration.get()) {
+            return false;
+        }
+        if (!LinkPolicy.isCan11Bit(protocolNumber)) {
+            if (gearbox.noteNoCanOnce()) publishTransmissionNote(session, "aus – nur über CAN 11 bit");
+            return false;
+        }
+        if (!gearbox.due(SystemClock.elapsedRealtime())) return false;
+        Elm327Client current = client;
+        if (current == null || !current.isConnected()) return false;
+        pollTransmission(session, current, gearbox);
+        return true;
+    }
+
+    /**
      * ADR-008: Gang und ATF im Live-Thread (eigene Schlüssel, Alterslimit wie alle Live-Werte). Verbindung verloren
      * oder Header nicht zurück → Verbindung verworfen und Getriebe-live für die Sitzung aus; wiederholt keine gültige
      * Antwort → ebenfalls aus.
@@ -731,7 +750,7 @@ public final class ObdSession {
             schedule.onDropped(e.getMessage());
             invalidateTransmission(session);
             append("Getriebe live: " + schedule.offReason() + " · Verbindung wird neu aufgebaut, Getriebe live für "
-                    + "diese Verbindung aus (ADR-008)");
+                    + "diese Sitzung aus (ADR-008)");
             publishTransmissionNote(session, "aus – Header-Rückweg gescheitert");
             cancelFuelTrimForConnectionLoss("Verbindungsfehler");
             updateStats();
@@ -747,19 +766,15 @@ public final class ObdSession {
             return;
         }
         if (s.timedOut) {
-            // wie ein PID-Timeout: gezählt, und wiederholt in Folge führt es zum Neuaufbau
+            // Gezählt, aber nicht im Verbindungszähler der PIDs: antwortet nur das Getriebe nicht, ist die Verbindung
+            // in Ordnung – die Abschaltung nach MAX_FAILURES regelt das (Review: sonst setzte die nächste PID den
+            // Zähler zurück, und eine Getriebe-Zeitüberschreitung sollte ohnehin keinen Neuaufbau auslösen).
             timeouts.incrementAndGet();
-            if (pollTimeouts.onTimeout(true)) {
-                append("Timeout bei 21 30 (" + pollTimeouts.consecutive() + "× in Folge) · Verbindung wird neu aufgebaut");
-                pollTimeouts.reset();
-                cancelFuelTrimForConnectionLoss("Timeout");
-                closeClientIfCurrent(c);
-            }
         } else {
             pollTimeouts.onResponse();
         }
         if (schedule.onResult(s.valid(), s.problem)) {
-            append("Getriebe live: " + schedule.offReason() + " · für diese Verbindung aus (ADR-008)");
+            append("Getriebe live: " + schedule.offReason() + " · für diese Sitzung aus (ADR-008)");
             publishTransmissionNote(session, "aus – Getriebe antwortet nicht");
         }
         // ATF trägt Statistik und Rohantwort, der Gang aus derselben Antwort nicht noch einmal

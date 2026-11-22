@@ -79,6 +79,7 @@ Danach prüft `uitest.sh` im Protokoll des Proxys (Ende-zu-Ende-Prüfung der Rea
 - **Verbinden sendet kein Mode 03:** Der DTC-Test der Monitor-App setzt vor dem Klick auf „DTC“ die Marke `AT@1`
   (nie von den Apps gesendet – `ATDPN` gehört zum Verbindungsaufbau und taugt nicht); zwischen dem `ATZ` dieser
   Verbindung und der Marke darf kein `03` stehen, Live-Abfragen (`01…`) müssen dort stehen.
+- **Getriebe live im Takt:** `21 30` im Median höchstens alle 2,6 s (ADR-008, Soll 2 s).
 
 Der Simulator bedient wie ein WLAN-ELM327 nur eine Verbindung zur Zeit; nach jedem Test wartet der Test, bis er
 wieder antwortet (im Protokoll `simulator free after … ms`, bisher etwa 0,5 s). `uitest.sh` schaltet im Emulator

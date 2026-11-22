@@ -150,6 +150,13 @@ public class TransmissionLiveTest {
     }
 
     @Test
+    public void noCanHintOnlyOncePerConnection() {
+        TransmissionLive.Schedule s = new TransmissionLive.Schedule();
+        assertTrue(s.noteNoCanOnce());
+        assertFalse(s.noteNoCanOnce());
+    }
+
+    @Test
     public void droppedHeaderSwitchesOffAtOnce() {
         TransmissionLive.Schedule s = new TransmissionLive.Schedule();
         s.onDropped("Timeout");

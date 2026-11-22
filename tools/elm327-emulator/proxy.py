@@ -13,8 +13,8 @@ complete answers (everything up to the ELM327 prompt '>') before they reach the 
            itself answers NO DATA
 
 Modes can be combined: hot,slow. The app connects to the proxy port instead of 35000.
-With --log FILE every request of the app is appended to FILE, one per line (the UI tests check with it that blocked
-commands never reached the adapter).
+With --log FILE every request of the app is appended to FILE, one per line with a Unix time in front (the UI tests
+check with it that blocked commands never reached the adapter and that the gearbox is polled every ~2 s).
 
     python3 tools/elm327-emulator/proxy.py hot                       # listens on 192.168.178.50:35010
     python3 tools/elm327-emulator/proxy.py weak,slow=1.5 --listen 0.0.0.0:35010 --upstream 127.0.0.1:35000
@@ -181,7 +181,7 @@ def address(text):
 
 
 class RequestLog:
-    """Appends each request line to a file; thread-safe, flushed per line."""
+    """Appends each request line to a file as "<unix time> <request>"; thread-safe, flushed per line."""
 
     def __init__(self, path):
         self.lock = threading.Lock()
@@ -191,7 +191,7 @@ class RequestLog:
         if not self.file:
             return
         with self.lock:
-            self.file.write(text + "\n")
+            self.file.write(f"{time.time():.3f} {text}\n")
             self.file.flush()
 
 

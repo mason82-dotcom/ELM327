@@ -121,7 +121,7 @@ public final class DashboardActivity extends Activity implements ObdSession.List
     private final Map<Integer, GaugeView> gauges = new HashMap<>();
     private final Map<Integer, TextView> tiles = new HashMap<>();
     private static final String ATF_TILE = "ATF Getriebe";
-    /** Grund, wenn Getriebe live für die Verbindung aus ist (ADR-008); die ATF-Kachel zeigt dann „aus“. */
+    /** Grund, wenn Getriebe live für die Sitzung aus ist (ADR-008); die ATF-Kachel zeigt dann „aus“. */
     private String transmissionNote;
     private final Map<Integer, TextView> valueRows = new LinkedHashMap<>();
     private final Map<Integer, Button> trendButtons = new HashMap<>();
