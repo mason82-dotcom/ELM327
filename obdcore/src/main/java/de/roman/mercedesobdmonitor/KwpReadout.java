@@ -1,5 +1,6 @@
 package de.roman.mercedesobdmonitor;
 
+import java.util.EnumSet;
 import java.util.Locale;
 
 /**
@@ -49,12 +50,58 @@ public final class KwpReadout {
         if (count == 0 && listed == 0) return sb.append("  Keine gespeicherten Fehler.").toString();
         sb.append(String.format(Locale.GERMANY, "  %d gespeichert%s:%n", count,
                 count != listed ? " (aufgelistet " + listed + ")" : ""));
+        EnumSet<Vgs7229Codes.Group> active = EnumSet.noneOf(Vgs7229Codes.Group.class);
+        EnumSet<Vgs7229Codes.Group> storedOnly = EnumSet.noneOf(Vgs7229Codes.Group.class);
+        boolean matched = false, unknown = false;
         for (int i = 0; i < listed; i++) {
             int hi = r[2 + 3 * i] & 0xFF, lo = r[3 + 3 * i] & 0xFF, status = r[4 + 3 * i] & 0xFF;
-            sb.append(String.format(Locale.GERMANY, "  • %02X%02X (ISO-Lesart %s) · Status %02X%n", hi, lo, iso(hi, lo), status));
+            String code = Vgs7229Codes.code(hi, lo);   // immer die gesendeten 2 Bytes, nichts vorangestellt
+            Vgs7229Codes.Entry e = Vgs7229Codes.lookup(hi, lo);
+            sb.append(String.format(Locale.GERMANY, "  • %s · Status %02X (%s) – ", code, status, statusText(status)));
+            if (e != null) {
+                matched = true;
+                (isPresent(status) ? active : storedOnly).addAll(e.groups);
+                sb.append(e.text).append('\n');
+                continue;
+            }
+            unknown = true;
+            sb.append("nicht in der 722.9-Tabelle (ISO-Lesart ").append(iso(hi, lo)).append(", nur zum Nachschlagen)");
+            Vgs7229Codes.Entry maybe = Vgs7229Codes.possibleECode(hi, lo);
+            if (maybe != null) {
+                sb.append("\n    möglich, nicht belegt: ").append(maybe.code).append(" – ").append(maybe.text);
+            }
+            sb.append('\n');
         }
-        sb.append("  Codes sind Daimler-Kennungen; die ISO-Lesart ist nur eine Hilfe zum Nachschlagen. Löschen bleibt gesperrt.");
+        sb.append(Vgs7229Codes.advice(active));
+        storedOnly.removeAll(active);
+        if (!storedOnly.isEmpty()) {
+            StringBuilder names = new StringBuilder();
+            for (Vgs7229Codes.Group g : storedOnly) names.append(names.length() == 0 ? "" : ", ").append(g.title);
+            sb.append("  Nur gespeichert, derzeit nicht vorhanden (").append(names)
+                    .append("): kein akuter Handlungsbedarf. Tritt der Fehler wieder auf, erneut lesen.\n");
+        }
+        if (matched) sb.append("  Kurztexte: eigene Fassung der WIS-Tabelle „ETC2 (722.9) ab 2008“.\n");
+        if (unknown) sb.append("  Codes ohne Eintrag: Daimler-Kennungen anderer Stände oder Steuergeräte.\n");
+        sb.append("  Statusbyte nach ISO 14230 gelesen – am C350 noch nicht mit einem gespeicherten Fehler bestätigt. "
+                + "Löschen bleibt gesperrt.");
         return sb.toString().trim();
+    }
+
+    /** Speicherzustand im Statusbyte nach ISO 14230-3 (Bits 6–5); Bit 7 = Warnlampe angefordert. */
+    static String statusText(int status) {
+        String state = switch ((status >> 5) & 0x3) {
+            case 3 -> "aktuell vorhanden";
+            case 2 -> "in Prüfung";
+            case 1 -> "gespeichert, derzeit nicht vorhanden";
+            default -> "ohne Speicherzustand";
+        };
+        return (status & 0x80) != 0 ? state + ", Warnlampe" : state;
+    }
+
+    /** Aktuell vorhanden oder noch in Prüfung – dann gilt der Rat sofort. */
+    static boolean isPresent(int status) {
+        int s = (status >> 5) & 0x3;
+        return s == 3 || s == 2;
     }
 
     /** ISO-15031-6-Schreibweise eines 2-Byte-Codes, z. B. 0x0715 → P0715. */

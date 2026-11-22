@@ -16,8 +16,8 @@ android {
         applicationId = 'de.roman.mercedesobdmonitor'
         minSdk = 26
         targetSdk = 37
-        versionCode = 44
-        versionName = '1.14.2'
+        versionCode = 45
+        versionName = '1.15.0'
         // UI tests against the emulator and the ELM327 simulator: tools/android-emulator/uitest.sh
         testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
     }

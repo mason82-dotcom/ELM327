@@ -115,7 +115,7 @@ public class DiagnosticJobsTest {
         assertEquals(CommandSafety.DEFAULT_HEADER, client.header());
         assertTrue(r, r.contains("Code 11: Dienst nicht unterstützt"));
         assertTrue(r, r.contains("keine verwertbare Kennung"));
-        assertTrue(r, r.contains("0715 (ISO-Lesart P0715) · Status E0"));
+        assertTrue(r, r.contains("0715 · Status E0 (aktuell vorhanden, Warnlampe) – nicht in der 722.9-Tabelle"));
         assertTrue(host.dropped.isEmpty());
     }
 

@@ -80,7 +80,9 @@ Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantwort
   ab und bewertet bei ungenauem Adapter nach dem Steuergerät.
 - **Bus mitlesen:** 5 s passiv, ob die Diagnosedose Bus-Botschaften durchreicht.
 - **Kennung + Getriebe-Fehler** (Testfreigabe, ausgeliefert aus): Teilenummer/Softwarestand von Motor und Getriebe,
-  herstellereigener Getriebe-Fehlerspeicher.
+  herstellereigener Getriebe-Fehlerspeicher – jeder Code der 7G-Tronic 722.9 im Klartext (129 Kennungen, eigene
+  Kurzfassung der WIS-Tabelle) mit einem Hinweis „Was jetzt“ je Gruppe (Öl, Schalten, Ventil, Sensor, Wählhebel,
+  Steuergerät, Spannung, Datenbus).
 
 **Werkzeuge**
 - Konsole mit allen Rohantworten, ELM327-Terminal (nur freigegebene Befehle), Statistik zu Antwortzeit und Fehlern.
