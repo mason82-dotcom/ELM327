@@ -18,8 +18,8 @@ android {
         applicationId = 'de.roman.obddashboard'
         minSdk = 26
         targetSdk = 37
-        versionCode = 38
-        versionName = '0.22.0'
+        versionCode = 39
+        versionName = '0.23.0'
         // UI tests against the emulator and the ELM327 simulator: tools/android-emulator/uitest.sh
         testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
     }

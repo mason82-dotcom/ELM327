@@ -1,6 +1,7 @@
 package de.roman.mercedesobdmonitor;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -38,9 +39,11 @@ public class KwpReadoutTest {
     @Test public void dtcList() {
         String t = KwpReadout.dtcs("58 02 07 15 E0 21 01 20");
         assertTrue(t, t.contains("2 gespeichert:"));
-        assertTrue(t, t.contains("0715 (ISO-Lesart P0715) · Status E0"));
-        assertTrue(t, t.contains("2101 (ISO-Lesart P2101) · Status 20"));
-        assertTrue(t, t.contains("Löschen bleibt gesperrt"));
+        assertTrue(t, t.contains("0715 · Status E0 (aktuell vorhanden, Warnlampe) – nicht in der 722.9-Tabelle (ISO-Lesart P0715"));
+        assertTrue(t, t.contains("2101 · Status 20 (gespeichert, derzeit nicht vorhanden) – nicht in der 722.9-Tabelle"));
+        assertTrue(t, t.contains("Codes ohne Eintrag"));
+        assertFalse(t, t.contains("Kurztexte"));      // kein Tabellentext gezeigt, keine Quellenzeile
+        assertTrue(t, t.endsWith("Löschen bleibt gesperrt."));
         assertTrue(KwpReadout.dtcs("58 00").contains("Keine gespeicherten Fehler"));
         assertTrue(KwpReadout.dtcs("58 03 07 15 E0").contains("3 gespeichert (aufgelistet 1)"));
         assertTrue(KwpReadout.dtcs("58 01 07 15").contains("Länge passt nicht"));

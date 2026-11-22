@@ -2,6 +2,16 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.15.0 (Monitor) / 0.23.0 (Dashboard): Getriebe-Fehlercodes im Klartext
+
+- **Getriebe-Fehlerspeicher (ADR-004, `18 02 FF 00`):** jeder Code der 7G-Tronic 722.9 mit Bauteil und Teilfehler
+  (z. B. „2759 – Magnetventil Wandlerüberbrückung (Y3/8y8): elektrische Prüfung fehlgeschlagen“), alle 129 Kennungen
+  der WIS-Tabelle „ETC2 (722.9) ab 2008“ als eigene Kurzfassung. Angezeigt werden immer die gesendeten 2 Bytes;
+  eine 5-stellige E-Kennung mit denselben letzten Stellen erscheint nur als „möglich, nicht belegt“, ohne Rat.
+  Statusbyte nach ISO 14230 gelesen (aktuell vorhanden / nur gespeichert, Warnlampe): Hinweise „Was jetzt“ je Gruppe
+  nur für aktuelle Fehler, nur gespeicherte ohne akuten Rat. Codes ohne Eintrag mit ISO-Lesart zum Nachschlagen.
+  Keine neuen Befehle.
+
 ## Version 1.14.2 (Monitor) / 0.22.0 (Dashboard): Gang und Getriebeöl live
 
 - **Gang und ATF live im Dashboard (ADR-008):** Gang groß im Drehzahlmesser („D 3“, beim Schalten „D 3→2“, „P“/„R“/„N“),
