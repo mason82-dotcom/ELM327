@@ -233,4 +233,110 @@ public class DiagnosticJobsTest {
         assertTrue(r, r.contains("Gemischadaption Faktor (Ref. 0,70–1,30)"));
         assertTrue(saved.get(), saved.get() != null && saved.get().contains(";88.00000;"));
     }
+
+    /** ATMA-Antworten wie am C350: ungefiltert sofort voll, mit Filter 30D zwei Frames, sonst still. */
+    private static String monitorAnswer(String filter) {
+        if (filter == null) return "105 00 1C E4 00 00 00 00 00\r105 00 1C E5 00 00 00 00 00\rBUFFER FULL";
+        return filter.equals("30D") ? "@stream=30D 5A 3C 6E 41 02 00 0A 00\r30D 5A 3C 6E 41 02 00 0B 00\r" : "@stream=";
+    }
+
+    /** Elm-Nachbau mit Filterzustand; {@code probe} liefert die Antworten auf 01 00 der Reihe nach. */
+    private void filteringElm(String... probe) {
+        String[] filter = {null};
+        int[] probes = {0};
+        answers = c -> {
+            if (c.startsWith("ATCRA")) filter[0] = c.length() > 5 ? c.substring(5) : null;
+            return switch (c) {
+                case "ATMA" -> monitorAnswer(filter[0]);
+                case "0100" -> probe[Math.min(probes[0]++, probe.length - 1)];
+                default -> "OK";
+            };
+        };
+    }
+
+    /** ADR-002 Option C: Vergleich, Überblick, Rücksetz-Probe, je Kennung ein Filter, Rücksetzen, Prüfanfrage. */
+    @Test
+    public void canMonitorFiltersEachKnownFrameAndVerifiesTheReset() throws Exception {
+        filteringElm("41 00 BE 3F A8 13");
+        String r = new DiagnosticJobs(host).readCanMonitor(client);
+        List<String> expected = new ArrayList<>(List.of("0100", "ATH1", "ATCAF0", "ATMA", "ATCRA"));
+        for (int id : CanMonitor.W204_POWERTRAIN.keySet()) {
+            expected.add(CommandSafety.receiveFilter(id));
+            expected.add("ATMA");
+        }
+        expected.addAll(List.of("ATCRA", "ATCAF1", "ATH0", "0100"));
+        assertEquals(expected, received);
+        assertTrue(host.dropped.isEmpty());
+        assertTrue(r, r.contains("BUFFER FULL"));
+        assertTrue(r, r.contains("• 30D ECM_A1 (Motorsteuergerät) · 2 Frames"));
+        assertTrue(r, r.contains("Motoröltemperatur: 110"));                    // Byte 2 = 0x6E, roh
+        assertTrue(r, r.contains("• 2F1 TCM_A1 (Getriebesteuergerät) – nicht empfangen"));
+        assertTrue(r, r.contains("1 von 5 bekannten Botschaften kommen am OBD-Port an"));
+        assertFalse(r, r.contains("Hinweis: Nach dem Mitlesen"));
+    }
+
+    @Test
+    public void canMonitorNeverSetsAFilterTheAdapterCannotReset() throws Exception {
+        // Klon kennt ATCRA ohne Adresse nicht: kein einziger Filter, Verbindung danach neu (Bestätigung fehlt)
+        answers = c -> switch (c) {
+            case "ATMA" -> monitorAnswer(null);
+            case "ATCRA" -> "?";
+            case "0100" -> "41 00 BE 3F A8 13";
+            default -> "OK";
+        };
+        String r = new DiagnosticJobs(host).readCanMonitor(client);
+        assertTrue(received.toString(), received.stream().noneMatch(c -> c.startsWith("ATCRA") && c.length() > 5));
+        assertTrue(r, r.contains("übersprungen: der Adapter kennt das Zurücksetzen des Empfangsfilters (ATCRA) nicht"));
+        assertEquals(1, host.dropped.size());
+    }
+
+    @Test
+    public void canMonitorDropsWhenTheRawFormatStays() throws Exception {
+        // ATCAF1 ohne Wirkung: 01 00 kommt mit PCI-Byte zurück – kein gültiges normales Format
+        filteringElm("41 00 BE 3F A8 13", "06 41 00 BE 3F A8 13");
+        String r = new DiagnosticJobs(host).readCanMonitor(client);
+        assertEquals(1, host.dropped.size());
+        assertTrue(r, r.contains("keine gültige Antwort auf 01 00"));
+    }
+
+    @Test
+    public void canMonitorKeepsTheConnectionWithIgnitionOff() throws Exception {
+        filteringElm("NO DATA");
+        String r = new DiagnosticJobs(host).readCanMonitor(client);
+        assertTrue(host.dropped.isEmpty());
+        assertTrue(r, r.contains("Zündung aus?"));
+    }
+
+    @Test
+    public void canMonitorKeepsResultsWhenAFilterTimesOut() throws Exception {
+        String[] filter = {null};
+        answers = c -> {
+            if (c.startsWith("ATCRA")) filter[0] = c.length() > 5 ? c.substring(5) : null;
+            if (c.equals("ATCRA105")) return null;                          // keine Antwort
+            return c.equals("ATMA") ? monitorAnswer(filter[0]) : c.equals("0100") ? "41 00 BE 3F A8 13" : "OK";
+        };
+        String r = new DiagnosticJobs(host).readCanMonitor(client);
+        assertTrue(r, r.contains("• 30D ECM_A1 (Motorsteuergerät) · 2 Frames"));   // vor dem Abbruch gesammelt
+        assertTrue(r, r.contains("Mitlesen unterbrochen"));
+        assertEquals(1, host.dropped.size());
+    }
+
+    @Test
+    public void canMonitorSkipsFiltersWhenAtmaIsUnknown() throws Exception {
+        answers = c -> c.equals("ATMA") ? "?" : c.equals("0100") ? "41 00 BE 3F A8 13" : "OK";
+        String r = new DiagnosticJobs(host).readCanMonitor(client);
+        assertTrue(r, r.contains("übersprungen: der Adapter kennt ATMA nicht"));
+        // kein Filter gesetzt; das abschließende Zurücksetzen (ATCRA ohne Adresse) läuft immer
+        assertTrue(received.toString(), received.stream().noneMatch(c -> c.startsWith("ATCRA") && c.length() > 5));
+        assertTrue(host.dropped.isEmpty());
+    }
+
+    @Test
+    public void canMonitorStopsAtOnceWhenTheAdapterKeepsStreaming() throws Exception {
+        answers = c -> c.equals("ATMA") ? "@stuck=105 00 1C E4 00 00 00 00 00\r" : c.equals("0100") ? "41 00 BE 3F A8 13" : "OK";
+        String r = new DiagnosticJobs(host).readCanMonitor(client);
+        assertEquals(List.of("0100", "ATH1", "ATCAF0", "ATMA"), received);   // keine Filter, kein Rücksetzen ins Leere
+        assertEquals(1, host.dropped.size());
+        assertTrue(r, r.contains("nicht sauber beendet"));
+    }
 }

@@ -1,7 +1,7 @@
 # ADR-002: Passives Mitlesen der Bus-Botschaften am OBD-Port
 
-**Status:** Vorgeschlagen (20.11.2026)
-**Datum:** 20.11.2026
+**Status:** Angenommen – Teil A nach dem Lauf am C350 (21.11.2026), gefiltertes Mitlesen (Option C) ergänzt (22.11.2026)
+**Datum:** 20.11.2026, fortgeschrieben 22.11.2026
 **Entscheidet:** Betreiber (mason)
 
 ## Kontext
@@ -72,4 +72,43 @@ Widerspricht dem Read-only-Grundsatz. Abgelehnt.
 4. [x] `CanMonitor` mit Tests (Bitzählung, Leerzeichen/ohne, Statuszeilen, leerer Bus, nur Diagnose-Antworten).
 5. [x] `ObdSession.runCanMonitor` mit Wiederherstellung; `reconnectInit` sendet `ATCAF1`.
 6. [x] Knopf „Bus mitlesen“ in beiden Apps (Dashboard: ANALYSE).
-7. [ ] Am C350 bei laufendem Motor ausführen und Ergebnis hier eintragen.
+7. [x] Am C350 bei laufendem Motor ausgeführt (21.11.2026), Ergebnis unten.
+
+## Fahrzeugtest 21.11.2026 und Fortschreibung: gefiltertes Mitlesen (Option C)
+
+**Ergebnis ungefiltert:** nach 0,2 s 13 Frames, dann `BUFFER FULL`; erkannt nur `0x105` (Drehzahl 925 U/min, passt
+zu 01 0C). Der Bus ist am OBD-Port also hörbar – das Gateway reicht Antriebsstrang-Botschaften durch –, aber der
+WLAN-Adapter kommt mit der Datenmenge des 500-kbit/s-Busses nicht mit und läuft sofort über. Ob die eigentlich
+gesuchten Botschaften (Ölstand/Öltemperatur `0x30D`, ATF/Wählhebel `0x2F1`, Gang `0x0F3`) ankommen, sagt dieser Lauf
+nicht.
+
+**Entscheidung (Option C):** zusätzlich je bekannter Botschaft gefiltert mitlesen.
+
+- Freigegeben werden genau `ATCRA30D`, `ATCRA105`, `ATCRA2F1`, `ATCRA0F3`, `ATCRA19F` und `ATCRA` ohne Adresse
+  (Filter zurücksetzen) – keine Muster, keine anderen Kennungen, nicht im Terminal. `ATCRA` ändert nur, welche
+  empfangenen Frames der Adapter zeigt; es sendet nichts an das Fahrzeug.
+- Ablauf in „Bus mitlesen“: ungefiltert 1 s (Überblick über die Kennungen bis zum Überlauf), dann je Kennung
+  `ATCRA<id>` und 2 s `ATMA`. Danach `ATCRA`, `ATCAF1`, `ATH0` und eine **Prüfanfrage `0100`**: Nur wenn sie eine
+  gültige Antwort bringt, gilt der Adapter als zurückgesetzt; sonst wird die Verbindung verworfen.
+- `LinkPolicy.reconnectInit` sendet zusätzlich `ATCRA`: Ein stehengebliebener Filter würde alle OBD-Antworten
+  ausblenden und überlebt bei WLAN-Adaptern den TCP-Reconnect.
+- Der Bericht zeigt je Kennung: empfangen ja/nein, Anzahl, Rohwerte an den dokumentierten Bitpositionen (weiterhin
+  ohne Umrechnung, bis eine Eichung am C350 vorliegt).
+
+| Alternative | Bewertung |
+|---|---|
+| Maske `ATCF`/`ATCM` | ein Filter für mehrere Kennungen, aber zwei Befehle je Einstellung und Bitmasken – schwerer als Liste exakter Strings zu prüfen |
+| `ATS0`/kürzere Ausgabe | spart ~30 % Zeichen; reicht gegen den Überlauf nicht |
+| Rücksetzen mit `ATD`/`ATZ` | setzt mehr zurück als nötig (Echo, Protokoll, Header), danach volle Initialisierung |
+| weiter nur ungefiltert | beantwortet die Frage nach Ölstand/ATF auf dem Bus nicht |
+
+**Risiko:** Billige Klone kennen `ATCRA` ohne Adresse eventuell nicht – ein gesetzter Filter bliebe dann über jeden
+Neuaufbau stehen. Deshalb (Code-Review): Vor dem ersten Filter sendet die App `ATCRA` ohne Adresse; ohne „OK“ setzt
+sie gar keinen Filter. Lehnt der Adapter einen Filter oder `ATMA` ab, endet der gefilterte Teil mit dieser Ursache.
+Eine `0100` vor dem Mitlesen zeigt, ob das Fahrzeug antwortet; nur dann muss die Prüfanfrage danach eine `41 00` im
+normalen Format (ohne PCI-Byte, also mit `ATCAF1`) bringen, sonst genügen die Bestätigungen der Rücksetzbefehle.
+Abbrüche mitten im Lauf behalten die gesammelten Ergebnisse; die Verbindung wird dann neu aufgebaut.
+
+8. [x] Freigaben und Tests (`CommandSafety`, Terminal gesperrt), Ablauf in `DiagnosticJobs.readCanMonitor`,
+   `reconnectInit` mit `ATCRA`, Bericht je Kennung.
+9. [ ] Am C350 erneut „Bus mitlesen“ bei laufendem Motor und warm; Ergebnis hier eintragen.

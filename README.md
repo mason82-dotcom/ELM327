@@ -78,7 +78,8 @@ Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantwort
 - **Starttest:** Ruhespannung, Einbruch und Dauer beim Anlassen, Ladespannung (nur `ATRV`); bewertet mit Herstellerwerten
   (Startgrenze ~7 V, Batterietest ab 12,4 V, Ladung bis 15 V); gleicht die Adapter-Spannung mit dem Motorsteuergerät
   ab und bewertet bei ungenauem Adapter nach dem Steuergerät.
-- **Bus mitlesen:** 5 s passiv, ob die Diagnosedose Bus-Botschaften durchreicht.
+- **Bus mitlesen:** passiv, etwa 12 s: 1 s Überblick, dann je bekannter Botschaft (Öltemperatur/Ölstand, ATF,
+  Gang, Kombi) 2 s mit Empfangsfilter – zeigt, welche Werte die Diagnosedose durchreicht (Rohwerte, ungeeicht).
 - **Kennung + Getriebe-Fehler** (Testfreigabe, ausgeliefert aus): Teilenummer/Softwarestand von Motor und Getriebe,
   herstellereigener Getriebe-Fehlerspeicher – jeder Code der 7G-Tronic 722.9 im Klartext (129 Kennungen, eigene
   Kurzfassung der WIS-Tabelle) mit einem Hinweis „Was jetzt“ je Gruppe (Öl, Schalten, Ventil, Sensor, Wählhebel,
@@ -97,7 +98,7 @@ Jede Ausnahme ist eine eigene Entscheidung mit exakt festgelegten Befehlen und R
 | Entscheidung | Was sie freigibt |
 |---|---|
 | [ADR-001](docs/adr-001-atf-temperatur.md) | ATF-Temperatur: `ATSH7E1` → `21 30` → `ATSH7DF` |
-| [ADR-002](docs/adr-002-can-mitlesen.md) | Bus mitlesen: `ATMA` zeitbegrenzt, `ATCAF0/1` |
+| [ADR-002](docs/adr-002-can-mitlesen.md) | Bus mitlesen: `ATMA` zeitbegrenzt, `ATCAF0/1`, Empfangsfilter `ATCRA` nur für fünf bekannte Kennungen |
 | [ADR-003](docs/adr-003-atf-antwort-layout.md) | Auswertung der ATF-Antwort: Wählhebel, Gang, ATF – am C350 bestätigt (kein neuer Befehl) |
 | [ADR-004](docs/adr-004-kwp-kennung-fehlerspeicher.md) | Getriebe-Kennung `1A 86` und -Fehler `18 02 FF 00` (nur 7E1) – am C350 bestätigt, Testschalter |
 | [ADR-005](docs/adr-005-bluetooth.md) | Transport über Bluetooth (SPP) – keine neuen Befehle |

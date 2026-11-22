@@ -2,6 +2,17 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.16.0 (Monitor) / 0.24.0 (Dashboard): Bus mitlesen mit Filter je Botschaft
+
+- **Bus mitlesen (ADR-002, Option C):** Am 21.11. lief der WLAN-Adapter ungefiltert nach 0,2 s über (BUFFER FULL,
+  nur 0x105). Jetzt nach 1 s Überblick je bekannter W204-Botschaft (0x30D Öltemperatur/Ölstand, 0x105, 0x2F1 ATF/
+  Wählhebel, 0x0F3 Gang, 0x19F Kombi) 2 s mit Empfangsfilter: der Bericht sagt je Kennung „empfangen“ mit Rohwerten
+  oder „nicht empfangen“, und ob der Filter wirkt. Freigegeben sind genau `ATCRA30D`, `ATCRA105`, `ATCRA2F1`,
+  `ATCRA0F3`, `ATCRA19F` und `ATCRA` (zurücksetzen), nie im Terminal. Ein Filter wird nur gesetzt, wenn der Adapter
+  das Zurücksetzen vorher bestätigt; danach Rücksetzen und Prüfanfrage 01 00 im normalen Format (bei Zündung aus
+  genügen die Bestätigungen) – sonst Neuaufbau, der den Filter immer zurücksetzt. Abbrüche behalten die bisherigen
+  Ergebnisse. Anzeige „Lese Bus (etwa 12 s)“.
+
 ## Version 1.15.0 (Monitor) / 0.23.0 (Dashboard): Getriebe-Fehlercodes im Klartext
 
 - **Getriebe-Fehlerspeicher (ADR-004, `18 02 FF 00`):** jeder Code der 7G-Tronic 722.9 mit Bauteil und Teilfehler

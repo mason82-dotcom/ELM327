@@ -51,8 +51,10 @@ public final class LinkPolicy {
         cmds.add("ATE0");
         cmds.add("ATL0");
         cmds.add("ATS0");
-        // ADR-002: ein abgebrochenes Mitlesen kann ATCAF0 hinterlassen; der Adapter behält es über TCP-Reconnects.
+        // ADR-002: ein abgebrochenes Mitlesen kann ATCAF0 oder einen Empfangsfilter (ATCRA30D …) hinterlassen; der
+        // Adapter behält beides über TCP-Reconnects, ein Filter blendete sonst alle OBD-Antworten aus.
         cmds.add(CommandSafety.AUTO_FORMAT);
+        cmds.add(CommandSafety.RECEIVE_FILTER_RESET);
         cmds.add(liveHeaders(dpn));
         cmds.add("ATAT1");
         cmds.add(protocolSelect(dpn));

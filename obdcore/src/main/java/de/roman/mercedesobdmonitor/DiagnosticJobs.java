@@ -3,7 +3,10 @@ package de.roman.mercedesobdmonitor;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -56,8 +59,12 @@ final class DiagnosticJobs {
     /** Antwortzeit je ATRV-Probe im Starttest; ATRV misst im Adapter, ohne Fahrzeugbus. */
     static final int STARTER_ATRV_TIMEOUT_MS = 800;
 
-    /** Mitlesedauer und Datenlimit für „Bus mitlesen“ (ADR-002). */
-    static final int CAN_MONITOR_MS = 5000;
+    /**
+     * „Bus mitlesen“ (ADR-002): ungefilterter Überblick (lief am C350 nach 0,2 s über), dann je bekannter Kennung
+     * gefiltert ({@link #CAN_FILTER_MS} je Kennung); Datenlimit je Lauf.
+     */
+    static final int CAN_MONITOR_MS = 1000;
+    static final int CAN_FILTER_MS = 2000;
     static final int CAN_MONITOR_MAX_BYTES = 256 * 1024;
 
     /**
@@ -169,29 +176,91 @@ final class DiagnosticJobs {
         if (!LinkPolicy.isCan11Bit(host.protocolNumber())) {
             return "Mitlesen wertet nur CAN mit 11-bit-Kennungen (ISO 15765-4) aus. Erkanntes Protokoll: " + host.protocol();
         }
+        // Vergleich vor dem Mitlesen: antwortet das Fahrzeug überhaupt (Zündung aus → die Prüfanfrage danach sagt
+        // nichts über den Adapter)?
+        boolean vehicleAnswers = obdAnswers(host.diag(c, "0100", 2000).raw);
         boolean restored = false;
-        Elm327Client.MonitorResult m;
+        boolean stuck = false;
+        String interrupted = null;
+        String filterSkipped = null;
+        Elm327Client.MonitorResult overview;
+        CanMonitor.Result overviewResult;
+        Map<Integer, CanMonitor.FilteredRun> filtered = new LinkedHashMap<>();
         try {
             host.diag(c, "ATH1", 1500);
             host.diag(c, CommandSafety.RAW_FORMAT, 1500);
-            m = c.monitorPassive(CAN_MONITOR_MS, CAN_MONITOR_MAX_BYTES);
-            host.log(CommandSafety.MONITOR_ALL + " → " + m.raw.length() + " Zeichen in " + m.elapsedMs + " ms"
-                    + (m.endedByAdapter ? " (vom Adapter beendet)" : "")
-                    + (m.stopTimedOut ? " (kein Prompt nach dem Stopp – Verbindung wird neu aufgebaut)" : ""));
-            if (!m.stopTimedOut) {
-                host.diag(c, CommandSafety.AUTO_FORMAT, 1500);
-                host.diag(c, LinkPolicy.DIAG_HEADERS, 1500);
-                restored = true;
+            overview = monitor(c, "ungefiltert", CAN_MONITOR_MS);
+            overviewResult = CanMonitor.parse(overview.raw);
+            stuck = overview.stopTimedOut;
+            try {
+                if (!stuck && overviewResult.unsupported) {
+                    filterSkipped = "der Adapter kennt ATMA nicht";
+                } else if (!stuck && !isOk(host.diag(c, CommandSafety.RECEIVE_FILTER_RESET, 1500).raw)) {
+                    // Nie einen Filter setzen, den dieser Adapter nicht zurücksetzen kann – er bliebe über jeden
+                    // Neuaufbau stehen und blendete alle OBD-Antworten aus.
+                    filterSkipped = "der Adapter kennt das Zurücksetzen des Empfangsfilters (ATCRA) nicht";
+                }
+                for (int id : CanMonitor.W204_POWERTRAIN.keySet()) {
+                    if (stuck || filterSkipped != null) break;
+                    if (!isOk(host.diag(c, CommandSafety.receiveFilter(id), 1500).raw)) {
+                        filterSkipped = String.format(Locale.GERMANY, "der Adapter lehnt den Empfangsfilter %03X ab", id);
+                        break;
+                    }
+                    Elm327Client.MonitorResult m = monitor(c, String.format(Locale.GERMANY, "Filter %03X", id), CAN_FILTER_MS);
+                    stuck = m.stopTimedOut;
+                    filtered.put(id, new CanMonitor.FilteredRun(CanMonitor.parse(m.raw), m.elapsedMs, m.truncated));
+                }
+                if (!stuck) {
+                    boolean acks = isOk(host.diag(c, CommandSafety.RECEIVE_FILTER_RESET, 1500).raw)
+                            & isOk(host.diag(c, CommandSafety.AUTO_FORMAT, 1500).raw)
+                            & isOk(host.diag(c, LinkPolicy.DIAG_HEADERS, 1500).raw);
+                    // Prüfanfrage: eine 41-00-Antwort im normalen Format (ohne PCI-Byte) zeigt, dass Filter und Format
+                    // zurück sind. Antwortete das Fahrzeug schon vorher nicht, zählen nur die Bestätigungen.
+                    restored = acks && (vehicleAnswers ? obdAnswers(host.diag(c, "0100", 2000).raw) : true);
+                }
+            } catch (IOException e) {
+                // gesammelte Daten behalten; ohne bestätigte Wiederherstellung wird unten die Verbindung verworfen
+                interrupted = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             }
         } finally {
-            // ATCAF0 darf nicht stehen bleiben, sonst lesen die OBD-Parser rohe Frames: ohne bestätigte
-            // Wiederherstellung Verbindung verwerfen, LinkPolicy.reconnectInit setzt ATCAF1.
+            // ATCAF0 oder ein Filter dürfen nicht stehen bleiben, sonst lesen die OBD-Parser rohe oder gar keine
+            // Antworten: ohne bestätigte Wiederherstellung Verbindung verwerfen (reconnectInit setzt beides zurück).
             if (!restored) host.drop(c);
         }
-        String report = CanMonitor.report(CanMonitor.parse(m.raw), m.elapsedMs, m.truncated);
-        return m.stopTimedOut
-                ? report + "\n\nHinweis: Der Adapter hat das Mitlesen nicht sauber beendet; die Verbindung wird neu aufgebaut."
-                : report;
+        StringBuilder report = new StringBuilder(CanMonitor.report(overviewResult, overview.elapsedMs, overview.truncated))
+                .append(CanMonitor.filteredReport(filtered));
+        if (filterSkipped != null) report.append("\n\nGefiltertes Mitlesen übersprungen: ").append(filterSkipped).append('.');
+        if (stuck) {
+            report.append("\n\nHinweis: Der Adapter hat das Mitlesen nicht sauber beendet; die Verbindung wird neu aufgebaut.");
+        } else if (interrupted != null) {
+            report.append("\n\nHinweis: Mitlesen unterbrochen (").append(interrupted)
+                    .append("); die bisherigen Ergebnisse stehen oben, die Verbindung wird neu aufgebaut.");
+        } else if (!restored) {
+            report.append("\n\nHinweis: Nach dem Mitlesen kam keine gültige Antwort auf 01 00 – Filter oder Format sind "
+                    + "nicht sicher zurückgesetzt; die Verbindung wird neu aufgebaut.");
+        } else if (!vehicleAnswers) {
+            report.append("\n\nHinweis: Das Fahrzeug beantwortete 01 00 schon vor dem Mitlesen nicht (Zündung aus?); "
+                    + "der Adapter hat das Zurücksetzen bestätigt.");
+        }
+        return report.toString();
+    }
+
+    private static boolean isOk(String raw) {
+        return raw != null && raw.toUpperCase(Locale.US).contains("OK");
+    }
+
+    /** Gültige 01-00-Antwort im normalen Format: eine Nachricht beginnt mit 41 00 (kein PCI-Byte davor). */
+    private static boolean obdAnswers(String raw) {
+        for (String m : ObdParser.canMessages(raw)) if (m.startsWith("4100") && m.length() >= 12) return true;
+        return false;
+    }
+
+    private Elm327Client.MonitorResult monitor(Elm327Client c, String what, int durationMs) throws IOException {
+        Elm327Client.MonitorResult m = c.monitorPassive(durationMs, CAN_MONITOR_MAX_BYTES);
+        host.log(CommandSafety.MONITOR_ALL + " (" + what + ") → " + m.raw.length() + " Zeichen in " + m.elapsedMs + " ms"
+                + (m.endedByAdapter ? " (vom Adapter beendet)" : "")
+                + (m.stopTimedOut ? " (kein Prompt nach dem Stopp – Verbindung wird neu aufgebaut)" : ""));
+        return m;
     }
 
     String readVehicleProfile(Elm327Client c) throws IOException {

@@ -190,10 +190,12 @@ public class C350FeaturesTest {
         assertEquals(obd, CommandSafety.headerAfter("ATZ", tcu));
         // everything else stays blocked
         for (String cmd : new String[]{"ATSH7E2", "ATSH7E3", "ATSH18DB33F1", "2131", "2101", "22F190", "1003", "2701",
-                "3101", "2E0001", "14FF00", "1101", "ATCRA7E9", "ATCRA", "2130;0101"}) {
+                "3101", "2E0001", "14FF00", "1101", "ATCRA7E9", "2130;0101"}) {
             assertFalse(cmd, CommandSafety.isAllowed(cmd));
             assertFalse(cmd, CommandSafety.isAllowed(cmd, "7E1"));
         }
+        // ATCRA (Filter zurücksetzen) ist seit ADR-002 Option C freigegeben, aber nie auf dem Getriebe-Header
+        assertFalse(CommandSafety.isAllowed("ATCRA", "7E1"));
     }
 
     @Test

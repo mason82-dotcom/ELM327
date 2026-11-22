@@ -57,7 +57,24 @@ public final class CommandSafety {
     public static final String MONITOR_ALL = "ATMA";
     public static final String RAW_FORMAT = "ATCAF0";
     public static final String AUTO_FORMAT = "ATCAF1";
-    private static final Set<String> ADR002_EXACT = Set.of(RAW_FORMAT, AUTO_FORMAT);
+    /**
+     * ADR-002, Option C (22.11.2026): Empfangsfilter genau auf die bekannten W204-Botschaften
+     * ({@link CanMonitor#W204_POWERTRAIN}) und sein Rücksetzen. Ändert nur, welche empfangenen Frames der Adapter zeigt,
+     * sendet nichts ans Fahrzeug; nur in „Bus mitlesen“, nie im Terminal.
+     */
+    public static final String RECEIVE_FILTER_RESET = "ATCRA";
+    private static final Set<String> ADR002_EXACT = adr002();
+
+    /** {@code ATCRA30D} usw. für eine bekannte Kennung. */
+    public static String receiveFilter(int id) {
+        return String.format(Locale.US, "ATCRA%03X", id);
+    }
+
+    private static Set<String> adr002() {
+        Set<String> s = new java.util.HashSet<>(Set.of(RAW_FORMAT, AUTO_FORMAT, RECEIVE_FILTER_RESET));
+        for (int id : CanMonitor.W204_POWERTRAIN.keySet()) s.add(receiveFilter(id));
+        return java.util.Collections.unmodifiableSet(s);
+    }
 
     private static final Pattern SAFE_TIMEOUT = Pattern.compile("^ATST[0-9A-F]{2}$");
     // Feste Auswahl der Standard-OBD-Protokolle 1–9 (reiner Adapterbefehl, kein Fahrzeug-Request).
@@ -164,7 +181,8 @@ public final class CommandSafety {
             return "Mitlesen (ATMA) läuft nur zeitbegrenzt über „Bus mitlesen“ (ADR-002); Filter-Varianten sind gesperrt.";
         }
         if (ADR002_EXACT.contains(cmd)) {
-            return "ATCAF0/ATCAF1 schaltet nur „Bus mitlesen“ um und stellt es selbst wieder her (ADR-002).";
+            return "ATCAF0/ATCAF1 und die Empfangsfilter (ATCRA) schaltet nur „Bus mitlesen“ um und stellt sie selbst "
+                    + "wieder her (ADR-002).";
         }
         if ("04".equals(cmd)) {
             return "Mode 04 (Fehlercodes löschen / ECU-Reset der Emissionsdiagnose) ist gesperrt.";
