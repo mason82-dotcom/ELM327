@@ -14,7 +14,9 @@ import java.util.function.Function;
 /**
  * ELM327-Nachbau über einen lokalen Socket: nimmt Befehle bis CR, merkt sie in {@link #received} und antwortet mit
  * {@link #answers} (null = keine Antwort, Timeout beim Client). Eine Antwort mit Präfix {@code "@delay=<ms>;"}
- * kommt erst nach dieser Zeit – für verspätete Antworten (Resynchronisation).
+ * kommt erst nach dieser Zeit – für verspätete Antworten (Resynchronisation). Wie {@code ATMA}:
+ * {@code "@stream=<frames>"} schickt die Frames ohne Prompt und den Prompt erst nach einem Leerzeichen,
+ * {@code "@stuck=<frames>"} gibt danach gar keinen Prompt mehr.
  */
 final class ElmFake implements AutoCloseable {
     volatile Function<String, String> answers = c -> "?";
@@ -45,7 +47,16 @@ final class ElmFake implements AutoCloseable {
             OutputStream out = s.getOutputStream();
             StringBuilder cmd = new StringBuilder();
             int b;
+            String streaming = null;   // "stream" oder "stuck", solange ein ATMA läuft
             while ((b = in.read()) >= 0) {
+                if ("stuck".equals(streaming)) continue;   // hängt: bleibt stumm, bis die Verbindung zu ist
+                if (streaming != null) {
+                    // wie der ELM327: jedes Zeichen beendet das Mitlesen, ein Leerzeichen wird nicht als Befehl gelesen
+                    out.write("\r>".getBytes(StandardCharsets.US_ASCII));
+                    out.flush();
+                    streaming = null;
+                    continue;
+                }
                 if (b != '\r') {
                     cmd.append((char) b);
                     continue;
@@ -55,6 +66,12 @@ final class ElmFake implements AutoCloseable {
                 received.add(c);
                 String a = answers.apply(c);
                 if (a == null) continue;
+                if (a.startsWith("@stream=") || a.startsWith("@stuck=")) {
+                    streaming = a.substring(1, a.indexOf('='));
+                    out.write(a.substring(a.indexOf('=') + 1).getBytes(StandardCharsets.US_ASCII));
+                    out.flush();
+                    continue;
+                }
                 if (a.startsWith("@delay=")) {
                     int end = a.indexOf(';');
                     sleep(Long.parseLong(a.substring(7, end)));

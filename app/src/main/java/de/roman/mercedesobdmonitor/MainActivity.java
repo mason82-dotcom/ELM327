@@ -554,7 +554,7 @@ public final class MainActivity extends Activity implements ObdSession.Listener 
                 starterButton.setText(busy ? "Starttest abbrechen" : "Starttest");
                 return;
             }
-            case CAN_MONITOR -> { b = canMonitorButton; idle = "Bus mitlesen"; working = "Lese Bus (5 s) …"; }
+            case CAN_MONITOR -> { b = canMonitorButton; idle = "Bus mitlesen"; working = "Lese Bus (etwa 12 s) …"; }
             case KWP -> { b = kwpButton; idle = "Kennung + Getriebe-Fehler (Test)"; working = "Lese Steuergeräte …"; }
             case INSPECTION -> { b = inspectionButton; idle = "HU/AU-Check"; working = "Lese Readiness …"; }
             default -> { return; }

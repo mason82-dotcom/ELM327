@@ -200,14 +200,7 @@ public final class CanMonitor {
             IdStats s = r.ids.get(k.id);
             if (s == null) continue;
             anyKnown = true;
-            sb.append(String.format(Locale.GERMANY, "• %03X %s (%s) · %.1f/s · %s%n",
-                    k.id, k.name, k.sender, s.count / sec, hex(s.last)));
-            for (Signal sig : k.signals) {
-                long v = bits(s.last, sig.offset, sig.length);
-                sb.append("    ").append(sig.name).append(": ")
-                        .append(v < 0 ? "–" : String.valueOf(v))
-                        .append(" (").append(sig.note).append(")\n");
-            }
+            appendKnown(sb, k, s, sec);
         }
         if (!anyKnown) sb.append("• keine der bekannten Kennungen gesehen\n");
 
@@ -218,6 +211,63 @@ public final class CanMonitor {
         }
         if (r.unparsed > 0) sb.append(r.unparsed).append(" Zeilen nicht lesbar\n");
         return sb.toString().trim();
+    }
+
+    private static void appendKnown(StringBuilder sb, KnownFrame k, IdStats s, double sec) {
+        sb.append(String.format(Locale.GERMANY, "• %03X %s (%s) · %d Frames · %.1f/s · %s%n",
+                k.id, k.name, k.sender, s.count, s.count / sec, hex(s.last)));
+        for (Signal sig : k.signals) {
+            long v = bits(s.last, sig.offset, sig.length);
+            sb.append("    ").append(sig.name).append(": ")
+                    .append(v < 0 ? "–" : String.valueOf(v))
+                    .append(" (").append(sig.note).append(")\n");
+        }
+    }
+
+    /** Ein gefilterter Lauf (ADR-002 Option C): nur Frames einer Kennung. */
+    public static final class FilteredRun {
+        final Result result;
+        final long elapsedMs;
+        final boolean truncated;
+
+        public FilteredRun(Result result, long elapsedMs, boolean truncated) {
+            this.result = result;
+            this.elapsedMs = elapsedMs;
+            this.truncated = truncated;
+        }
+    }
+
+    /**
+     * Bericht der gefilterten Läufe: je bekannter Kennung empfangen oder nicht, mit Rohwerten. Leer, wenn keiner lief.
+     */
+    public static String filteredReport(Map<Integer, FilteredRun> runs) {
+        if (runs.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder("\n\nGefiltert je Kennung (Empfangsfilter, je etwa 2 s):\n");
+        int received = 0;
+        for (Map.Entry<Integer, FilteredRun> e : runs.entrySet()) {
+            KnownFrame k = W204_POWERTRAIN.get(e.getKey());
+            FilteredRun run = e.getValue();
+            IdStats s = run.result.ids.get(k.id);
+            if (run.result.unsupported) {
+                sb.append(String.format(Locale.GERMANY, "• %03X %s – ATMA nicht verstanden (Antwort „?“)%n", k.id, k.name));
+            } else if (s == null) {
+                sb.append(String.format(Locale.GERMANY, "• %03X %s (%s) – nicht empfangen%s%n", k.id, k.name, k.sender,
+                        run.result.bufferFull ? " (BUFFER FULL trotz Filter)" : ""));
+            } else {
+                received++;
+                appendKnown(sb, k, s, Math.max(0.001, run.elapsedMs / 1000.0));
+                if (run.result.bufferFull) sb.append("    Hinweis: BUFFER FULL trotz Filter\n");
+            }
+            int other = run.result.frames - (s == null ? 0 : s.count);
+            if (other > 0) sb.append("    ").append(other).append(" andere Frames trotz Filter – Filter wirkt nicht\n");
+            if (run.truncated) sb.append("    Hinweis: Datenmenge begrenzt, der Rest wurde verworfen.\n");
+        }
+        sb.append(received == 0
+                ? "Keine der bekannten Botschaften kam gefiltert an: Öl-, ATF- und Ganganzeige vom Bus sind am OBD-Port "
+                        + "nicht erreichbar (oder der Adapter filtert nicht)."
+                : received + " von " + runs.size() + " bekannten Botschaften kommen am OBD-Port an – Rohwerte noch ohne "
+                        + "Eichung (Vergleich mit den OBD-Werten offen).");
+        return sb.toString();
     }
 
     static String hex(byte[] data) {

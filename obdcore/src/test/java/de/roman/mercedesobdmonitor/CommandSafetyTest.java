@@ -55,8 +55,8 @@ public class CommandSafetyTest {
 
     /** ADR-002: ATMA läuft nie über die normale Befehlsschnittstelle, Formatwechsel nicht im Terminal. */
     @Test public void canMonitorStaysOutsideNormalWhitelist() {
-        for (String cmd : new String[] {"ATMA", "AT MA", "ATMR30D", "ATMT30", "ATMA;0100", "ATCRA30D", "ATCF30D",
-                "ATCM7FF", "ATCAF", "ATCAF2", "ATCSM0"}) {
+        for (String cmd : new String[] {"ATMA", "AT MA", "ATMR30D", "ATMT30", "ATMA;0100", "ATCRA7E8", "ATCRA7DF",
+                "ATCRA30", "ATCRA30DX", "ATCRAXXX", "ATCRA 1FF", "ATCF30D", "ATCM7FF", "ATCAF", "ATCAF2", "ATCSM0"}) {
             assertFalse(cmd, CommandSafety.isAllowed(cmd));
             assertFalse(cmd, CommandSafety.isAllowedInTerminal(cmd));
         }
@@ -66,6 +66,20 @@ public class CommandSafetyTest {
         assertFalse(CommandSafety.isAllowedInTerminal("ATCAF1"));
         assertFalse(CommandSafety.changesHeader("ATCAF0"));
         assertTrue(CommandSafety.blockedReason("ATMA").contains("ADR-002"));
+    }
+
+    /** ADR-002 Option C: genau die Filter der bekannten W204-Botschaften und ihr Rücksetzen, nie im Terminal. */
+    @Test public void receiveFiltersOnlyForKnownFramesAndNeverInTerminal() {
+        for (String cmd : new String[] {"ATCRA30D", "ATCRA105", "ATCRA2F1", "ATCRA0F3", "ATCRA19F", "ATCRA", "at cra 30d"}) {
+            assertTrue(cmd, CommandSafety.isAllowed(cmd));
+            assertTrue(cmd, CommandSafety.isAllowed(cmd, CommandSafety.DEFAULT_HEADER));
+            assertFalse(cmd, CommandSafety.isAllowedInTerminal(cmd));
+            assertFalse(cmd, CommandSafety.isAllowed(cmd, "7E1"));      // nie auf dem Getriebe-Header
+            assertTrue(cmd, CommandSafety.terminalBlockedReason(cmd).contains("ADR-002"));
+        }
+        // Eine neue Kennung in CanMonitor erweitert die Freigabe: absichtlich nur mit Anpassung dieses Tests
+        assertEquals(java.util.Set.of(0x30D, 0x105, 0x2F1, 0x0F3, 0x19F), CanMonitor.W204_POWERTRAIN.keySet());
+        assertTrue(LinkPolicy.reconnectInit("A6").contains(CommandSafety.RECEIVE_FILTER_RESET));
     }
 
     /** Das Terminal nennt den passenden Grund: ADR-002 für die Formatwechsel, ADR-001 für die ATF-Sequenz. */

@@ -648,7 +648,8 @@ public final class DashboardActivity extends Activity implements ObdSession.List
                 : "Fahrzeugprofil: welche Werte Motor und Getriebe melden – einmal am Fahrzeug lesen.");
         canMonitorText = resultText(results.containsKey(ResultRouter.Target.CAN_MONITOR)
                 ? results.get(ResultRouter.Target.CAN_MONITOR)
-                : "Bus mitlesen: 5 s passiv zuhören, ob der OBD-Port Bus-Botschaften zeigt (ADR-002, sendet nichts).");
+                : "Bus mitlesen: etwa 12 s passiv zuhören, welche Bus-Botschaften der OBD-Port zeigt – je bekannter Botschaft "
+                        + "mit Filter (ADR-002, sendet nichts).");
         kwpText = resultText(results.containsKey(ResultRouter.Target.KWP) ? results.get(ResultRouter.Target.KWP)
                 : "Kennung + Getriebe-Fehler: Testfreigabe ADR-004 (1A 86, 18 02 FF 00), nur lesend.");
         LinearLayout content = column();
