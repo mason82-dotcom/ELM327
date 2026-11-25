@@ -89,8 +89,8 @@ public class TestPlanTest {
         java.util.Map<Integer, Long> at = new java.util.HashMap<>();
         v.put(0x0C, 720.0);
         at.put(0x0C, 1_000L);
-        assertEquals(720.0, LiveValues.fresh(v, at, 0x0C, 1_000L + LiveValues.MAX_AGE_MS), 0);
-        assertEquals(null, LiveValues.fresh(v, at, 0x0C, 1_001L + LiveValues.MAX_AGE_MS));
-        assertEquals(null, LiveValues.fresh(v, at, 0x05, 2_000L));
+        assertEquals(720.0, LiveValues.fresh(v, at, 0x0C, 1_000L + LiveValues.MAX_AGE_MS, false), 0);
+        assertEquals(null, LiveValues.fresh(v, at, 0x0C, 1_001L + LiveValues.MAX_AGE_MS, false));
+        assertEquals(null, LiveValues.fresh(v, at, 0x05, 2_000L, false));
     }
 }

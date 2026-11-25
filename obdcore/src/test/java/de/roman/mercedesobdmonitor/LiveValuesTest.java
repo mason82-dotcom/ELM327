@@ -52,9 +52,29 @@ public class LiveValuesTest {
         at.put(0x0C, 100_000L);                       // fresh
         at.put(0x05, 100_000L - LiveValues.MAX_AGE_MS); // exactly at the limit: still valid
         at.put(0x42, 100_000L - LiveValues.MAX_AGE_MS - 1); // older: expired
-        java.util.List<Integer> old = LiveValues.expired(at, 100_000L, LiveValues.MAX_AGE_MS);
+        java.util.List<Integer> old = LiveValues.expired(at, 100_000L, false);
         org.junit.Assert.assertEquals(java.util.Collections.singletonList(0x42), old);
         // Slow PIDs (every 10th cycle at about 1 s) and short diagnoses stay below the limit.
         org.junit.Assert.assertTrue(LiveValues.MAX_AGE_MS >= 10 * 1000);
+    }
+
+    /** Langsame PIDs kommen alle 10–13 s (C350, 21./22.11.2026): eigenes Höchstalter, schnelle bleiben bei 15 s. */
+    @Test
+    public void slowPidsKeepTheirValueBetweenTwoPolls() {
+        Map<Integer, Long> at = new HashMap<>();
+        at.put(0x07, 0L);
+        at.put(0x0C, 0L);
+        at.put(0x04, 0L);
+        at.put(TransmissionLive.KEY_ATF, 0L);
+        List<Integer> old = LiveValues.expired(at, 20_000L, false);
+        assertFalse(old.contains(0x07));
+        assertTrue(old.contains(0x0C) && old.contains(0x04) && old.contains(TransmissionLive.KEY_ATF));
+        assertTrue(LiveValues.expired(at, 30_001L, false).contains(0x07));
+        // im Fuel-Trim-Test ist 04 langsam und 07 schnell
+        old = LiveValues.expired(at, 20_000L, true);
+        assertTrue(old.contains(0x07));
+        assertFalse(old.contains(0x04));
+        Map<Integer, Double> v = Map.of(0x07, 3.0);
+        assertEquals(3.0, LiveValues.fresh(v, at, 0x07, 20_000L, false), 0);
     }
 }

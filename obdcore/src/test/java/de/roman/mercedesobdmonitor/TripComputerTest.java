@@ -347,4 +347,16 @@ public class TripComputerTest {
         assertEquals(40, j.maxCoolantC, 0);
         assertEquals(TripBook.TrimQuality.COLD_SHORT, TripBook.trimQuality(List.of(j)).get(0));
     }
+
+    @Test public void smallClockStepBackDoesNotSplitATrip() {
+        assertEquals(1, tripsWithStep(3_000).size());
+        assertEquals(2, tripsWithStep(600_000).size());
+    }
+
+    private static java.util.List<TripComputer.Trip> tripsWithStep(long back) {
+        TripComputer c = new TripComputer();
+        for (long t = 1_000_000; t < 1_100_000; t += 1_000) c.onSample(t, 0x0C, 800);
+        for (long t = 1_100_000; t < 1_200_000; t += 1_000) c.onSample(t - back, 0x0C, 800);
+        return c.finish();
+    }
 }

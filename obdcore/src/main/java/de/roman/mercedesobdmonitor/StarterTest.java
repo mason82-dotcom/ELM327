@@ -609,6 +609,15 @@ public final class StarterTest {
             issues.add("Einbruch beim Anlassen nicht bewertbar (Adapter misst ungenau).");
         }
         if (issues.isEmpty()) {
+            List<String> open = new ArrayList<>();
+            if (rest == Rating.UNKNOWN) open.add("Ruhespannung");
+            if (crank == Rating.UNKNOWN) open.add("Einbruch beim Anlassen");
+            if (charge == Rating.UNKNOWN) open.add("Ladespannung");
+            if (!open.isEmpty()) {
+                boolean fair = rest == Rating.FAIR || crank == Rating.FAIR || charge == Rating.FAIR;
+                return "Gesamt: soweit gemessen unauffällig" + (fair ? ", einzelne Werte knapp" : "")
+                        + " – nicht bewertet: " + String.join(", ", open) + ". Test wiederholen.";
+            }
             boolean allGood = rest != Rating.FAIR && crank != Rating.FAIR && charge != Rating.FAIR;
             return allGood ? "Gesamt: Batterie, Anlassen und Ladung unauffällig."
                     : "Gesamt: unauffällig, einzelne Werte knapp – bei Kälte im Blick behalten.";

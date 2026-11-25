@@ -103,7 +103,7 @@ python3 tools/elm327-emulator/proxy.py weak,slow    # Modi lassen sich kombinier
 | `weak` | Steuergerätespannung 01 42 → 11,5 V, Drehzahl 01 0C → 0 | Batteriewarnung, Motor aus |
 | `dtc` | Fehlerspeicher 03: statt „keine“ P0171 und P0302 | Erklärungen, M272-Hinweise |
 | `slow` / `slow=1.5` | jede Antwort 0,7 s (bzw. 1,5 s) später | Ladezustände, Abfragetakt |
-| `atf` / `atf=135` | Getriebe `21 30` → Antwort der Fahrt vom 21.11. (D, Gang 3→2) mit ATF 125 °C (bzw. 135 °C), mit oder ohne CAN-Header wie in der App eingestellt; der Simulator selbst antwortet NO DATA | Gang/ATF live, ATF-Warnung (ADR-008) |
+| `atf` / `atf=135` | Getriebe `21 30` → Antwort der Fahrt vom 21.11. (D, Gang 2→3) mit ATF 125 °C (bzw. 135 °C), mit oder ohne CAN-Header wie in der App eingestellt; der Simulator selbst antwortet NO DATA | Gang/ATF live, ATF-Warnung (ADR-008) |
 
 Andere Adressen mit `--listen host:port` und `--upstream host:port`. Anfragen der App gehen unverändert durch;
 `--log datei` schreibt jede Anfrage als eigene Zeile mit Zeitstempel mit (die UI-Tests prüfen damit, dass gesperrte

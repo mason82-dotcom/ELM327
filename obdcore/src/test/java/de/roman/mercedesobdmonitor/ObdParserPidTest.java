@@ -2,6 +2,9 @@ package de.roman.mercedesobdmonitor;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.Set;
@@ -37,5 +40,40 @@ public class ObdParserPidTest {
                 + "7E9 21 44 45 46 47 00 00 00\r7EA 21 31 32 33 34 00 00 00";
         java.util.List<String> m = ObdParser.canMessages(raw);
         assertEquals(java.util.List.of("49020141424344454647", "49020158595A31323334"), m);
+    }
+
+    @Test public void isoTpRejectsMissingSwappedAndShortSegments() {
+        String ok = "00A\r0:490201313233\r1:34353637";
+        assertEquals(1, ObdParser.canMessages(ok).size());
+        assertFalse(ObdParser.hasIncompleteMessage(ok));
+        for (String bad : new String[] {
+                "018\r0:613001560000\r2:70000000000000\r3:00000000000000",
+                "018\r0:613001560000\r2:70000000000000\r1:00000000000000\r3:00000000000000",
+                "018\r0:613001560000\r1:00000000000000",
+                "018\r0:613001560000\r1:00000000000000<RX ERROR\r2:00000000000000\r3:00000000000000",
+                "1:34353637"}) {
+            assertTrue(bad, ObdParser.canMessages(bad).isEmpty());
+            assertTrue(bad, ObdParser.hasIncompleteMessage(bad));
+        }
+        // Zählerüberlauf F → 0 bei langen Antworten
+        StringBuilder sb = new StringBuilder("07A\r0:4902AAAAAAAA");
+        for (int i = 1; i <= 17; i++) sb.append('\r').append(String.format("%X", i & 15)).append(":AAAAAAAAAAAAAA");
+        assertEquals(1, ObdParser.canMessages(sb.toString()).size());
+    }
+
+    @Test public void singleFrameOfAnotherEcuDoesNotCutAMultiframe() {
+        java.util.List<String> m = ObdParser.canMessages("00A\r0:430401710172\r4300\r1:01740175");
+        assertTrue(m.toString(), m.contains("4300") && m.contains("43040171017201740175"));
+    }
+
+    @Test public void corruptedLinesAreNoValues() {
+        assertNull(ObdParser.mode01Data("410C0FA0<RX ERROR", 0x0C, 2));
+        assertNull(ObdParser.mode01Data("0A410C0FA0", 0x0C, 2));
+        assertNull(ObdParser.mode01Data("410C0FA", 0x0C, 1));
+        assertNotNull(ObdParser.mode01Data("41 0C 0F A0", 0x0C, 2));
+        for (String e : new String[] {"410C0FA0 <RX ERROR", "LV RESET", "ACT ALERT", "ERR94"}) {
+            assertTrue(e, ObdParser.isLinkError(e));
+        }
+        assertFalse(ObdParser.isLinkError("410C0FA0"));
     }
 }

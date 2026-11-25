@@ -123,9 +123,9 @@ public class DashboardUiTest {
     public void gearAndTransmissionOilAreLiveWithWarning() {
         launch(ElmTest.atfProxyPort());
         on(withText("Verbinden")).perform(click());
-        // proxy.py atf: recorded answer of 21.11. (D, gear 3 → 2) with ATF 125 °C
+        // proxy.py atf: recorded answer of 21.11. (D, gear 2 → 3) with ATF 125 °C
         waitFor(allOf(tileValue("ATF Getriebe"), withText("125 °C")), 25_000);
-        waitFor(withContentDescription(containsString("Gang D 3→2")), 5_000);
+        waitFor(withContentDescription(containsString("Gang D 2→3")), 5_000);
         // 125 °C ≥ 120 °C: warning after its hold time, gone at once after disconnecting
         waitFor(withText(containsString("Getriebeöl 125 °C")), 20_000);
         on(withText("Trennen")).perform(click());

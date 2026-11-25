@@ -51,7 +51,7 @@ Danach **TEILEN**: ein Text mit Checkliste und allen Ergebnissen samt Rohantwort
   Steuergerätespannung, Soll-Lambda, Umgebungsdruck; Dashboard mit Rundinstrumenten und Verlaufskurven.
 - Werte des Motorsteuergeräts (7E8), auch wenn das Getriebe dieselben PIDs beantwortet.
 - **Gang und Getriebeöl live (Dashboard):** Gang groß im Drehzahlmesser („P“, „R“, „N“, „D 3“, beim Schalten
-  „D 3→2“), ATF-Temperatur als Kachel; alle 2 s über dieselben drei Befehle wie „ATF lesen“ (ADR-008). Antwortet das
+  „D 2→3“), ATF-Temperatur als Kachel; alle 2 s über dieselben drei Befehle wie „ATF lesen“ (ADR-008). Antwortet das
   Getriebe nicht (anderes Fahrzeug, Adapter ohne `ATSH`), schaltet sich das bis zum nächsten Verbinden ab und die Kachel
   nennt den Grund.
 - **Warnungen (Dashboard):** Leiste über allen Seiten bei hoher Kühlmitteltemperatur (gelb ab 108 °C, rot ab 115 °C),

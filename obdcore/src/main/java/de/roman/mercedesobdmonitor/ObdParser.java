@@ -13,6 +13,8 @@ import java.util.regex.Pattern;
 public final class ObdParser {
     // Vorkompiliert: der Parser läuft im Polling-Takt für jede Antwort.
     private static final Pattern NON_HEX = Pattern.compile("[^0-9A-F]");
+    /** Interner Adapterfehler „ERR94“ u. a. */
+    private static final Pattern ELM_ERR = Pattern.compile("\\bERR[0-9]{2}");
     private static final Pattern ISO_TP_LENGTH = Pattern.compile("[0-9A-F]{3}");
     private static final Pattern ISO_TP_SEGMENT = Pattern.compile("[0-9A-F]:[0-9A-F]*");
     /** 11-bit-Antwortkennung 7E8–7EF + Single-Frame-PCI 01–07 (ATH1, ATS0), z. B. „7E803410C0EE7“. */
@@ -34,10 +36,10 @@ public final class ObdParser {
         if (raw == null) return null;
         String marker = String.format(Locale.US, "41%02X", pid & 0xFF);
         for (String line : payloadLines(raw)) {
-            int pos = line.indexOf(marker);
-            if (pos < 0) continue;
-            String hex = hexOnly(line.substring(pos + marker.length()));
-            if (hex.length() < minBytes * 2) continue;
+            // Antwort beginnt mit der Kennung; gestörte Zeilen (Fremdzeichen, halbes Byte) zählen nicht
+            if (!line.startsWith(marker) || NON_HEX.matcher(line).find()) continue;
+            String hex = line.substring(marker.length());
+            if (hex.length() < minBytes * 2 || hex.length() % 2 != 0) continue;
             byte[] out = new byte[hex.length() / 2];
             try {
                 for (int i = 0; i < out.length; i++) {
@@ -89,9 +91,8 @@ public final class ObdParser {
         long unionMask = 0L;
 
         for (String line : payloadLines(raw)) {
-            int pos = line.indexOf(marker);
-            if (pos < 0) continue;
-            String hex = hexOnly(line.substring(pos + marker.length()));
+            if (!line.startsWith(marker)) continue;
+            String hex = hexOnly(line.substring(marker.length()));
             if (hex.length() < 8) continue;
             try {
                 long mask = Long.parseLong(hex.substring(0, 8), 16);
@@ -121,7 +122,8 @@ public final class ObdParser {
         String u = raw.toUpperCase(Locale.US);
         return u.contains("UNABLE TO CONNECT") || u.contains("BUS ERROR") || u.contains("BUS INIT")
                 || u.contains("CAN ERROR") || u.contains("FB ERROR") || u.contains("DATA ERROR")
-                || u.contains("BUFFER FULL") || u.contains("STOPPED");
+                || u.contains("BUFFER FULL") || u.contains("STOPPED") || u.contains("RX ERROR")
+                || u.contains("LV RESET") || u.contains("ACT ALERT") || ELM_ERR.matcher(u).find();
     }
 
     /**
@@ -241,41 +243,77 @@ public final class ObdParser {
         return false;
     }
 
-    /** Fügt ISO-TP-Segmente zusammen; Single-Frame-Zeilen bleiben einzeln. */
-    static List<String> assembleCanMessages(List<String> lines) {
-        List<String> messages = new ArrayList<>();
-        StringBuilder current = null;
-        int expectedBytes = -1;
-
-        for (String line : lines) {
-            if (isIsoTpLength(line)) {
-                flush(messages, current, expectedBytes);
-                current = new StringBuilder();
-                expectedBytes = Integer.parseInt(line, 16);
-            } else if (isIsoTpSegment(line)) {
-                if (current == null) {
-                    current = new StringBuilder();
-                    expectedBytes = -1;
-                }
-                current.append(line.substring(2));
-            } else {
-                flush(messages, current, expectedBytes);
-                current = null;
-                expectedBytes = -1;
-                messages.add(hexOnly(line));
-            }
-        }
-        flush(messages, current, expectedBytes);
-        return messages;
+    /** true, wenn eine mehrteilige Antwort verworfen wurde (Segment fehlt, falsche Reihenfolge, zu kurz). */
+    public static boolean hasIncompleteMessage(String raw) {
+        return raw != null && new IsoTp(payloadLines(raw)).incomplete;
     }
 
-    private static void flush(List<String> messages, StringBuilder current, int expectedBytes) {
-        if (current == null || current.length() == 0) return;
-        String hex = current.toString();
-        if (expectedBytes > 0 && hex.length() > expectedBytes * 2) {
-            hex = hex.substring(0, expectedBytes * 2);
+    /**
+     * Fügt ISO-TP-Segmente zusammen; Single-Frame-Zeilen bleiben einzeln. Mehrteilige Antworten mit fehlendem
+     * oder vertauschtem Segment oder weniger Bytes als angekündigt fallen weg.
+     */
+    static List<String> assembleCanMessages(List<String> lines) {
+        return new IsoTp(lines).messages;
+    }
+
+    private static final class IsoTp {
+        final List<String> messages = new ArrayList<>();
+        boolean incomplete;
+        private StringBuilder current;
+        private int expectedBytes = -1, nextSegment;
+
+        IsoTp(List<String> lines) {
+            for (String line : lines) {
+                if (isIsoTpLength(line)) {
+                    flush();
+                    current = new StringBuilder();
+                    expectedBytes = Integer.parseInt(line, 16);
+                } else if (isIsoTpSegment(line)) {
+                    segment(Character.digit(line.charAt(0), 16), line.substring(2));
+                } else {
+                    // Einzelantwort eines zweiten Steuergeräts zwischen zwei Segmenten beendet die Nachricht nicht
+                    if (current == null || expectedBytes < 0 || complete()) flush();
+                    messages.add(hexOnly(line));
+                }
+            }
+            flush();
         }
-        messages.add(hex);
+
+        private void segment(int number, String data) {
+            if (current == null) {
+                if (number != 0) {     // Rest einer Nachricht, deren Anfang fehlt
+                    incomplete = true;
+                    return;
+                }
+                current = new StringBuilder();
+            }
+            if (number != nextSegment) {
+                incomplete = true;
+                reset();
+                return;
+            }
+            current.append(data);
+            nextSegment = (nextSegment + 1) & 0x0F;
+        }
+
+        private boolean complete() {
+            return expectedBytes < 0 || current.length() >= expectedBytes * 2;
+        }
+
+        private void flush() {
+            if (current != null) {
+                if (current.length() == 0 || !complete()) incomplete = true;
+                else messages.add(expectedBytes > 0 && current.length() > expectedBytes * 2
+                        ? current.substring(0, expectedBytes * 2) : current.toString());
+            }
+            reset();
+        }
+
+        private void reset() {
+            current = null;
+            expectedBytes = -1;
+            nextSegment = 0;
+        }
     }
 
     /** Legacy: jeder Frame beginnt mit der Kennung und ist 7 Byte lang. */
@@ -373,6 +411,8 @@ public final class ObdParser {
                 if (dots >= 0 && dots + 3 < s.length()) s = s.substring(dots + 3).trim();
                 else continue;
             }
+            // „… <RX ERROR“ / „… <DATA ERROR“: diese Zeile ist gestört, ihre Bytes sind nicht verlässlich
+            if (s.indexOf('<') >= 0) continue;
             List<String> frames = flattenedFrames(s);
             if (frames != null) lines.addAll(frames);
             else lines.add(s.replace(" ", "").replace("\t", ""));

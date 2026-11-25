@@ -66,7 +66,7 @@ Apps protokollieren:
 | `unreachableAdapterNeverShowsValues` | ✓ | ✓ | Adapter nicht erreichbar: 8 s lang nie ein Wert |
 | `storedCodesAreReadOnlyOnRequest` | ✓ | ✓ | Verbinden liest keinen Fehlerspeicher; erst auf Knopfdruck P0171 und P0302 |
 | `overheatingFromLiveValueRaisesAlarmAndDisconnectClearsIt` | – | ✓ | 120 °C → Alarm „Motor überhitzt“, Trennen nimmt ihn weg |
-| `gearAndTransmissionOilAreLiveWithWarning` | – | ✓ | Gang „D 3→2“ am Drehzahlmesser, ATF 125 °C, Warnung „Getriebeöl“; Trennen nimmt alles weg (ADR-008) |
+| `gearAndTransmissionOilAreLiveWithWarning` | – | ✓ | Gang „D 2→3“ am Drehzahlmesser, ATF 125 °C, Warnung „Getriebeöl“; Trennen nimmt alles weg (ADR-008) |
 | `transmissionLiveSwitchesOffWhenTheGearboxNeverAnswers` | – | ✓ | Simulator ohne Getriebe: nach 3 Versuchen „ATF Getriebe · aus“, übrige Werte laufen weiter |
 | `terminalRefusesWritingCommandsAndSendsReadOnlyOnes` | ✓ | – | Terminal sperrt `04`, `14 FF 00`, `2E F1 90 00`, `31 01 FF 00`, `27 01`, `ATSH7E1`; `ATIGN` geht hinaus |
 

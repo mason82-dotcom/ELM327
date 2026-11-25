@@ -356,4 +356,40 @@ public class DiagnosticJobsTest {
         assertEquals(1, host.dropped.size());
         assertTrue(r, r.contains("nicht sauber beendet"));
     }
+
+    @Test
+    public void dtcIncompleteAnswerIsNotReportedAsNoCodes() throws Exception {
+        answers = map(Map.of("03", "4300\r00A\r0:430401710172", "07", "43 00", "0A", "NO DATA", "0100", "41 00 BE 3F A8 13"));
+        String r = new DiagnosticJobs(host).readDtcReport(client);
+        assertTrue(r, r.contains("Gespeichert: nicht gelesen – Antwort unvollständig"));
+    }
+
+    @Test
+    public void misfireReportNamesCylindersThatDidNotAnswer() throws Exception {
+        answers = c -> switch (c) {
+            case "06A0" -> "46 A0 60 00 00 00";       // A2, A3
+            case "06A2" -> "013\r0:46A20B240000\r1:0000FFFFA20C24\r2:00000000FFFF";
+            default -> "CAN ERROR";
+        };
+        String r = new DiagnosticJobs(host).readMisfires(client);
+        assertTrue(r, r.contains("Zyl. 2: nicht gelesen"));
+        assertTrue(r, r.contains("nur 1 von 2 Zylindern"));
+    }
+
+    /** 01 42 im Starttest: mit Headern, damit das Motorsteuergerät gilt und nicht die zuerst eintreffende Antwort. */
+    @Test
+    public void starterTestReadsTheEngineEcu() throws Exception {
+        FakeHost h = new FakeHost() {
+            @Override public boolean starterCancelled() { return true; }
+        };
+        answers = c -> c.equals("0142") ? "7E9 04 41 42 2A 94\r7E8 04 41 42 2C EC" : "OK";
+        DiagnosticJobs jobs = new DiagnosticJobs(h);
+        jobs.readStarterTest(client);
+        assertEquals(List.of("ATH1", "0142"), received);
+        received.clear();
+        h.protocolNumber = "3";
+        jobs.readStarterTest(client);
+        assertEquals(List.of("0142"), received);
+        assertEquals(11.5, ObdPid.of(0x42).parse("7E9 04 41 42 2A 94\r7E8 04 41 42 2C EC"), 0.01);
+    }
 }

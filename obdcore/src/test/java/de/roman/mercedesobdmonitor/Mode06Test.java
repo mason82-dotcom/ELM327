@@ -59,4 +59,17 @@ public class Mode06Test {
     @Test public void emptyReport() {
         assertTrue(Mode06.misfireReport(new ArrayList<>()).contains("keine zylinderbezogenen"));
     }
+
+    @Test public void notRunIsNoMeasuredZero() {
+        Mode06.Misfire m = Mode06.misfire("013\r0:46A20B240000\r1:00000000A20C24\r2:000000000000", 1);
+        assertNull(m.ewma);
+        assertNull(m.currentCycle);
+        String r = Mode06.misfireReport(java.util.List.of(m));
+        assertTrue(r, r.contains("Zyl. 1 (Bank 1): noch nicht gelaufen"));
+        assertTrue(r, r.contains("keine Aussage"));
+        Mode06.Misfire ok = Mode06.misfire("013\r0:46A30B240000\r1:0000FFFFA30C24\r2:00000000FFFF", 2);
+        r = Mode06.misfireReport(java.util.List.of(m, ok), java.util.List.of(3));
+        assertTrue(r, r.contains("keine Aussetzer gezählt (nur 1 von 3 Zylindern ausgewertet)"));
+        assertTrue(r, r.contains("Zyl. 3: nicht gelesen"));
+    }
 }

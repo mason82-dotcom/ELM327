@@ -104,20 +104,20 @@ public final class TransmissionLive {
     }
 
     /**
-     * Wählhebel [9] und Gang [12] (oberes Halbbyte = eingelegt, unteres = Ziel, ADR-003): „P“, „R“, „N“, „D 3“,
-     * beim Schalten „D 3→2“. null bei unbekanntem Wählhebel (keine Vermutung).
+     * Wählhebel [9] und Gang [12] (unteres Halbbyte = eingelegt, oberes = Ziel; ADR-003, Berichtigung 25.11.2026):
+     * „P“, „R“, „N“, „D 3“, beim Schalten „D 2→3“. null bei unbekanntem Wählhebel (keine Vermutung).
      */
     static String gearText(byte[] r) {
         String sel = AtfTemperature.selector(r[9] & 0xFF);
         if (sel == null) return null;
         if (!"D".equals(sel)) return sel;
-        int g = r[12] & 0xFF, now = g >> 4, target = g & 0x0F;
+        int g = r[12] & 0xFF, now = g & 0x0F, target = g >> 4;
         if (now < 1 || now > 7) return "D";
         return target >= 1 && target <= 7 && target != now ? "D " + now + "→" + target : "D " + now;
     }
 
     static int gearNumber(byte[] r) {
-        int now = (r[12] & 0xFF) >> 4;
+        int now = r[12] & 0x0F;
         return "D".equals(AtfTemperature.selector(r[9] & 0xFF)) && now >= 1 && now <= 7 ? now : 0;
     }
 

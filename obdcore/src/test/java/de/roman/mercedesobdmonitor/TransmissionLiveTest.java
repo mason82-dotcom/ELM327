@@ -16,7 +16,7 @@ import org.junit.Test;
 
 /** ADR-008: Getriebe live – Sequenz, Header-Rückweg, Gang-Text, Takt und Selbstabschaltung. */
 public class TransmissionLiveTest {
-    /** Antwort 61 30 der Fahrt am 21.11.2026 (D, Gang 3 → 2, ATF 0x70 = 62 °C), im Live-Format mit ATH1. */
+    /** Antwort 61 30 der Fahrt am 21.11.2026 (D, Gang 2 → 3, ATF 0x70 = 62 °C), im Live-Format mit ATH1. */
     static final String DRIVE_ATH1 = "7E9 10 18 61 30 01 56 00 2D\r7E9 21 03 C8 01 07 01 02 32\r"
             + "7E9 22 70 00 A3 00 A2 02 7B\r7E9 23 03 81 00 90 00 00 00";
     /** Dieselbe Antwort ohne Header (ATH0), wie die exklusive Diagnose sie sieht. */
@@ -53,8 +53,8 @@ public class TransmissionLiveTest {
         TransmissionLive.Sample s = poll();
         assertEquals(List.of("ATSH7E1", "2130", "ATSH7DF"), elm.received);
         assertEquals(62.0, s.celsius, 0.01);
-        assertEquals("D 3→2", s.gear);
-        assertEquals(3, s.gearNumber);
+        assertEquals("D 2→3", s.gear);
+        assertEquals(2, s.gearNumber);
         assertEquals(CommandSafety.DEFAULT_HEADER, client.header());
         assertEquals(0, drops.get());
     }
@@ -63,7 +63,7 @@ public class TransmissionLiveTest {
     public void parsesTheSameAnswerWithoutHeaders() {
         AtfTemperature.Reading r = AtfTemperature.parse(DRIVE_ATH0);
         assertEquals(62.0, r.celsius, 0.01);
-        assertEquals("D 3→2", TransmissionLive.sample(r, 0, false).gear);
+        assertEquals("D 2→3", TransmissionLive.sample(r, 0, false).gear);
         assertEquals(62.0, AtfTemperature.parse(DRIVE_ATH1).celsius, 0.01);
     }
 
@@ -121,7 +121,7 @@ public class TransmissionLiveTest {
         assertEquals("R", gear(9, 0xBB));
         assertEquals("N", gear(8, 0x00));
         assertEquals("D 1", gear(7, 0x11));
-        assertEquals("D 3→2", gear(7, 0x32));
+        assertEquals("D 2→3", gear(7, 0x32));
         assertEquals("D", gear(7, 0x00));       // D im Stand ohne eingelegten Gang
         assertNull(gear(3, 0x11));              // unbekannter Wählhebel: keine Vermutung
     }

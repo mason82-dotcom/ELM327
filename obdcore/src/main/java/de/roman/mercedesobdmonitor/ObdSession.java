@@ -227,7 +227,7 @@ public final class ObdSession {
 
     /** Letzter gültiger Live-Wert unter diesem Schlüssel (PID oder {@link TransmissionLive}), null ohne frischen Wert. */
     public synchronized Double latestValue(int key) {
-        return LiveValues.fresh(latestValues, latestAt, key, SystemClock.elapsedRealtime());
+        return LiveValues.fresh(latestValues, latestAt, key, SystemClock.elapsedRealtime(), fuelTrimTest.isRunning());
     }
 
     public LiveWarnings.Warning currentWarning() {
@@ -578,7 +578,7 @@ public final class ObdSession {
         publishTransmissionNote(session, null);
         while (monitoring.get() && !userDisconnect && session == sessionGeneration.get()) {
             // Age limit on every path (slow PIDs, paused polling during diagnoses, any future branch).
-            for (Integer old : LiveValues.expired(latestAt, SystemClock.elapsedRealtime(), LiveValues.MAX_AGE_MS)) {
+            for (Integer old : LiveValues.expired(latestAt, SystemClock.elapsedRealtime(), fuelTrimTest.isRunning())) {
                 invalidatePid(session, old);
             }
             if (exclusiveRequest.get()) {
@@ -1791,8 +1791,8 @@ public final class ObdSession {
         if (op == null) return;
         // nur frische Werte: eine Drehzahl von kurz vor dem Abstellen darf nicht „Motor läuft“ melden
         long now = SystemClock.elapsedRealtime();
-        Double coolant = LiveValues.fresh(latestValues, latestAt, 0x05, now);
-        Double rpm = LiveValues.fresh(latestValues, latestAt, 0x0C, now);
+        Double coolant = LiveValues.fresh(latestValues, latestAt, 0x05, now, fuelTrimTest.isRunning());
+        Double rpm = LiveValues.fresh(latestValues, latestAt, 0x0C, now, fuelTrimTest.isRunning());
         synchronized (testPlan) {
             testPlan.record(new TestPlan.Record(op, System.currentTimeMillis(), coolant == null ? Double.NaN : coolant,
                     rpm == null ? Double.NaN : rpm, message));

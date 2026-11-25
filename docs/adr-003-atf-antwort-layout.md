@@ -82,7 +82,7 @@ In B enthalten, weil Index 11 als Gangfeld sichtbar bleibt.
 
 ## Ergebnis Fahrzeugtest 21.11.2026 (C350 S204, 722.9, Kaltstart bei 5 °C außen)
 
-| Lage | U/min | [9] Wählhebel | [11] Gang | [12] Ist/Ziel | [13] → ATF |
+| Lage | U/min | [9] Wählhebel | [11] Gang | [12] Ziel/Ist | [13] → ATF |
 |---|---|---|---|---|---|
 | P, Motor aus | 0 | 10 | 0 | DD | 3A → 8 °C |
 | P | 1058 | 10 | 0 | DD | 3A → 8 °C |
@@ -92,8 +92,11 @@ In B enthalten, weil Index 11 als Gangfeld sichtbar bleibt.
 | D, Fahrt | 1683 | 7 | 2 | 32 | 70 → 62 °C |
 
 - **[9] Wählhebel** folgt der Stellung: P = 10, R = 9, N = 8, D = 7 (722.9-Kodierung, nicht die des EGS52).
-- **[12] Ist/Zielgang** je Halbbyte: P = 13 (D), R = 11 (B), N = 0, Gänge 1–7; in der Fahrt 3 → 2 (Schaltung).
-- **[11] erkannter Gang** ist im Stand 0, in der Fahrt 2 – passt zum Zielgang.
+- **[12] Ziel-/Istgang** je Halbbyte (oben Ziel, unten eingelegt): P = 13 (D), R = 11 (B), N = 0, Gänge 1–7; in der
+  Fahrt 32 = Schaltung 2 → 3.
+- **[11] erkannter Gang** ist im Stand 0, in der Fahrt 2 – der eingelegte Gang. Während einer Schaltung auch andere Werte.
+- **Berichtigung 25.11.2026:** Hier stand zuerst „Ist oben, Ziel unten“ (3 → 2). Die Fahrtlogs belegen das Gegenteil:
+  Der Gang vor der Schaltung steht im unteren Halbbyte (38 von 39 Fällen), der Gang danach im oberen (48 von 49).
 - **[13] ATF** kalt 8 °C bei 5 °C außen und 6 °C Kühlmittel, warm 62 °C nach 30 min Fahrt: plausibel. Die Formel
   „Datenbyte 11 − 50“ (Index 13 ab `61`) gilt damit als bestätigt.
 - **[14]/[16]** sind vorzeichenbehaftet (`FF B3` = −77 bei stehendem Motor).

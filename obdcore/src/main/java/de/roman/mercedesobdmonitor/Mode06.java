@@ -96,16 +96,22 @@ public final class Mode06 {
         return out;
     }
 
-    /** Aussetzerdaten eines Zylinders aus der Antwort auf 06A(1+Zyl.). null = nicht enthalten. */
+    /**
+     * Aussetzerdaten eines Zylinders aus der Antwort auf 06A(1+Zyl.). null = nicht enthalten. Ein Zähler mit Wert und
+     * Grenzen 0 ist nach J1979 noch nicht gelaufen und bleibt null – er ist keine gemessene Null.
+     */
     public static Misfire misfire(String raw, int cylinder) {
         int mid = MID_MISFIRE_CYL1 + cylinder - 1;
         Integer ewma = null, current = null;
+        boolean found = false;
         for (TestResult r : results(raw)) {
             if (r.mid != mid || r.uasid != UASID_COUNTS) continue;
+            found = true;
+            if (r.value == 0 && r.min == 0 && r.max == 0) continue;
             if (r.tid == TID_EWMA) ewma = r.value;
             else if (r.tid == TID_CURRENT_CYCLE) current = r.value;
         }
-        if (ewma == null && current == null) return null;
+        if (!found) return null;
         return new Misfire(cylinder, ewma, current);
     }
 
@@ -115,17 +121,30 @@ public final class Mode06 {
     }
 
     public static String misfireReport(List<Misfire> list) {
+        return misfireReport(list, List.of());
+    }
+
+    /** @param failed Zylinder, deren Antwort gestört war oder ausblieb */
+    public static String misfireReport(List<Misfire> list, List<Integer> failed) {
         StringBuilder sb = new StringBuilder("Aussetzer pro Zylinder (Mode 06)\n");
         sb.append("EWMA = gleitender Mittelwert über 10 Fahrzyklen · Zyklus = letzter/aktueller Fahrzyklus\n\n");
+        for (int cyl : failed) sb.append("Zyl. ").append(cyl).append(": nicht gelesen – bitte erneut lesen\n");
+        if (list.isEmpty() && !failed.isEmpty()) return sb.append("\nBewertung: keine Aussage.").toString();
         if (list.isEmpty()) {
             sb.append("Das Motorsteuergerät liefert keine zylinderbezogenen Aussetzerdaten (OBDMID A2–A7).");
             return sb.toString();
         }
-        int total = 0;
+        int total = 0, notRun = 0;
         int worst = -1;
         int worstCount = 0;
         int[] bank = new int[3];
         for (Misfire m : list) {
+            if (m.ewma == null && m.currentCycle == null) {
+                notRun++;
+                sb.append("Zyl. ").append(m.cylinder).append(" (Bank ").append(m272Bank(m.cylinder))
+                        .append("): noch nicht gelaufen\n");
+                continue;
+            }
             int cur = m.currentCycle == null ? 0 : m.currentCycle;
             int ew = m.ewma == null ? 0 : m.ewma;
             total += cur;
@@ -141,8 +160,14 @@ public final class Mode06 {
                     m.currentCycle == null ? "–" : m.currentCycle.toString()));
         }
         sb.append('\n');
-        if (worstCount == 0) {
-            sb.append("Bewertung: keine Aussetzer gezählt.");
+        int counted = list.size() - notRun;
+        if (counted == 0) {
+            sb.append("Bewertung: keine Aussage – die Zählung ist in diesem Fahrzyklus noch nicht gelaufen.");
+        } else if (worstCount == 0) {
+            sb.append("Bewertung: keine Aussetzer gezählt");
+            if (notRun + failed.size() > 0) sb.append(" (nur ").append(counted).append(" von ")
+                    .append(list.size() + failed.size()).append(" Zylindern ausgewertet)");
+            sb.append('.');
         } else {
             sb.append(String.format(Locale.GERMANY,
                     "Bewertung: %d Aussetzer im Zyklus (Bank 1: %d · Bank 2: %d); auffälligster Zylinder %d.%n",
