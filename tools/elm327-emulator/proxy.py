@@ -8,7 +8,7 @@ complete answers (everything up to the ELM327 prompt '>') before they reach the 
     weak   control module voltage 01 42 → 11.5 V and RPM 01 0C → 0 (battery warning, engine off)
     dtc    stored DTCs 03: "no codes" → P0171 and P0302 (M272 hints, explanations)
     slow   every answer 0.7 s late (or slow=<seconds>; loading states, poll timing)
-    atf    transmission 21 30 (ADR-001/008) → recorded answer of 21.11.2026 (D, gear 3→2) with ATF 125 °C
+    atf    transmission 21 30 (ADR-001/008) → recorded answer of 21.11.2026 (D, gear 2→3) with ATF 125 °C
            (or atf=<°C>), as ISO-TP frames with or without CAN headers like the app's ATH setting; the emulator
            itself answers NO DATA
 
@@ -94,7 +94,7 @@ def _dtc(line):
 REWRITES = {"hot": _set_bytes(_hot), "weak": _set_bytes(_weak), "dtc": _dtc}
 
 
-# Answer 61 30 of the drive on 21.11.2026: selector [9] = 07 (D), gear [12] = 32 (3 → 2), ATF [13] = value − 50
+# Answer 61 30 of the drive on 21.11.2026: selector [9] = 07 (D), gear [12] = 32 (upper nibble = target 3, lower = engaged 2), ATF [13] = value − 50
 ATF_RECORDED = bytes.fromhex("6130015600 2D03C801070102 32700 0A300A2027B03810090".replace(" ", ""))
 
 

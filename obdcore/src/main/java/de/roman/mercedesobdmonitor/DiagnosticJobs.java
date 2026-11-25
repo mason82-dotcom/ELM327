@@ -128,6 +128,9 @@ final class DiagnosticJobs {
                 if (ObdParser.isLinkError(r.raw)) {
                     return label + ": nicht gelesen – Adapter meldet " + raw;
                 }
+                if (ObdParser.hasIncompleteMessage(r.raw)) {
+                    return label + ": nicht gelesen – Antwort unvollständig, bitte erneut lesen\nRohantwort: " + raw;
+                }
                 if (ObdParser.isNoData(r.raw)) {
                     return responseMode == 0x4A
                             ? label + ": nicht unterstützt / NO DATA"
@@ -147,6 +150,9 @@ final class DiagnosticJobs {
                 shownBefore.add(code);
                 // mehrere Mercedes-Teilfehler je P-Code („·“ oder „/“): gemeint ist genau einer davon
                 if (me != null) sb.append(Me97Codes.hasAlternatives(me) ? "\n   ME9.7, einer von: " : "\n   ME9.7: ").append(me);
+            }
+            if (ObdParser.hasIncompleteMessage(r.raw) || ObdParser.isLinkError(r.raw)) {
+                sb.append("\nHinweis: Ein Teil der Antwort war gestört – es können Codes fehlen, bitte erneut lesen.");
             }
             return sb.toString();
         } catch (SocketTimeoutException e) {
@@ -353,17 +359,23 @@ final class DiagnosticJobs {
         Elm327Client.CommandResult sup = host.diag(c, Mode06.command(Mode06.MID_SUPPORT_A0), 3000);
         Set<Integer> mids = Mode06.supportedMids(sup.raw, Mode06.MID_SUPPORT_A0);
         boolean bitmapKnown = !mids.isEmpty();
+        // eine gestörte Bitmap ist keine fehlende: dann gilt ein stummer Zylinder als nicht gelesen
+        boolean bitmapAbsent = !bitmapKnown && !ObdParser.isLinkError(sup.raw)
+                && (ObdParser.isNoData(sup.raw) || Mode06.hasBitmap(sup.raw, Mode06.MID_SUPPORT_A0));
 
         List<Mode06.Misfire> list = new ArrayList<>();
+        List<Integer> failed = new ArrayList<>();
         for (int cyl = 1; cyl <= 6; cyl++) {
             int mid = Mode06.MID_MISFIRE_CYL1 + cyl - 1;
             if (bitmapKnown && !mids.contains(mid)) continue;
             Elm327Client.CommandResult r = host.diag(c, Mode06.command(mid), 3000);
-            if (ObdParser.isNoData(r.raw)) continue;
+            // gibt es keine Bitmap, heißt NO DATA „nicht unterstützt“; ein angekündigter Zylinder muss antworten
+            if (ObdParser.isNoData(r.raw) && bitmapAbsent) continue;
             Mode06.Misfire m = Mode06.misfire(r.raw, cyl);
-            if (m != null) list.add(m);
+            if (m != null && !ObdParser.isLinkError(r.raw)) list.add(m);
+            else if (!bitmapAbsent || ObdParser.isLinkError(r.raw) || ObdParser.hasIncompleteMessage(r.raw)) failed.add(cyl);
         }
-        String report = Mode06.misfireReport(list);
+        String report = Mode06.misfireReport(list, failed);
         if (!bitmapKnown) {
             report += "\n\nHinweis: Keine Mode-06-Bitmap (06A0) erhalten – Zylinder wurden direkt abgefragt.";
         }
@@ -378,6 +390,7 @@ final class DiagnosticJobs {
         // Vor dem Lesen: das Live-Polling pausiert während der Diagnose, danach ist der Wert oft schon verfallen.
         double coolant = host.liveCoolant();
         try {
+            List<String> problems = new ArrayList<>();
             List<Mode06Overview.Test> tests = Mode06Overview.read(new InspectionReader.Transport() {
                 @Override
                 public String send(String cmd, int timeoutMs) throws IOException {
@@ -391,8 +404,8 @@ final class DiagnosticJobs {
                     host.log("Monitortests: Timeout · " + (ok ? "Prompt resynchronisiert, weiter" : "kein Prompt"));
                     return ok;
                 }
-            });
-            String report = Mode06Overview.report(tests);
+            }, problems);
+            String report = Mode06Overview.report(tests, problems);
             // Nur ME9.7 (Profil M272) und nur, wenn MID 81/82 überhaupt geliefert wurde
             if (!VehicleProfile.ACTIVE.m272Hints || !MixtureAdaptation.present(tests)) return report;
             // Gemischadaption direkt unter die Überschrift, vor die Einzeltests
@@ -458,6 +471,16 @@ final class DiagnosticJobs {
         boolean linkLost = false;
         long lastStatus = -1;
         int probes = 0;
+        // Header an: auf 01 42 antwortet oft zuerst das Getriebe (etwa 0,6 V weniger), bewertet wird das Motorsteuergerät
+        // (7E8, ObdParser.payloadLines). leaveDiagnosis stellt danach den Live-Zustand her, der ebenfalls ATH1 ist.
+        if (LinkPolicy.isCan11Bit(host.protocolNumber())) {
+            try {
+                c.sendCommand("ATH1", 1000);
+            } catch (SocketTimeoutException e) {
+                host.countTimeouts(1);
+                if (!c.resync(1500)) throw e;
+            }
+        }
         // Abgleich vor der Messung (Zündung an, Motor aus): Steuergerät-Spannung, damit die Startaufforderung nicht wartet
         t.setEcuRest(ecuVolts(c));
         host.log("Starttest: ATRV-Abtastung läuft (Konsole schweigt bis zum Ende)");
@@ -521,7 +544,9 @@ final class DiagnosticJobs {
      */
     private double ecuVolts(Elm327Client c) throws IOException {
         try {
-            Double v = ObdPid.of(0x42).parse(c.sendCommand("0142", 1000).raw);
+            String raw = c.sendCommand("0142", 1000).raw;
+            // nur eine ungestörte Antwort des Motorsteuergeräts ist ein Vergleichswert
+            Double v = ObdParser.isEngineAnswer(raw, 0x42) ? ObdPid.of(0x42).parse(raw) : null;
             return v == null ? Double.NaN : v;
         } catch (SocketTimeoutException e) {
             host.countTimeouts(1);

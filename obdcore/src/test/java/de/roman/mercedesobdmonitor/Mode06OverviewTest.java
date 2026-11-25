@@ -183,4 +183,32 @@ public class Mode06OverviewTest {
             assertFalse(line, line.contains("näher an der Grenze"));
         }
     }
+
+    @Test public void failedMonitorsAndBitmapsAreReported() throws IOException {
+        Fake f = car();
+        f.answers.put("0601", "TIMEOUT");
+        f.answers.put("0620", "CAN ERROR");
+        List<String> problems = new ArrayList<>();
+        List<Mode06Overview.Test> tests = Mode06Overview.read(f, problems);
+        assertEquals(2, problems.size());
+        String r = Mode06Overview.report(tests, problems);
+        assertTrue(r, r.contains("Unvollständig") && r.contains("0620 (Busfehler)") && r.contains("Zeitüberschreitung"));
+        assertFalse(r, r.contains("liefert keine Mode-06"));
+        problems.clear();
+        Mode06Overview.read(new Fake(), problems);
+        assertTrue(problems.isEmpty());
+    }
+
+    @Test public void signedValueWithZeroLimitsHasNoLimit() {
+        Mode06Overview.Test t = Mode06Overview.evaluate(new Mode06.TestResult(0x81, 0x80, 0xAF, 0xFFCC, 0, 0));
+        assertEquals(Mode06Overview.Status.NO_LIMIT, t.status);
+    }
+
+    @Test public void emptyBitmapIsACompleteAnswer() throws IOException {
+        Fake f = car();
+        f.answers.put("0620", "46 20 00 00 00 00");
+        List<String> problems = new ArrayList<>();
+        assertEquals(1, Mode06Overview.read(f, problems).size());
+        assertTrue(problems.toString(), problems.isEmpty());
+    }
 }

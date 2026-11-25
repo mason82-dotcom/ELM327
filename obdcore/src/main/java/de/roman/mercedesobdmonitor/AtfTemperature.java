@@ -69,6 +69,7 @@ public final class AtfTemperature {
                     + (code >= 0 ? String.format(Locale.GERMANY, ", Code %02X: %s", code, KwpReadout.nrc(code)) : "") + ")",
                     spaced(rejected));
         }
+        if (data == null && ObdParser.hasIncompleteMessage(raw)) return new Reading(null, "Antwort unvollständig", raw.trim());
         if (data == null) return new Reading(null, "unerwartete Antwort", spaced(other));
         byte[] bytes = bytes(data);
         if (bytes.length < BYTE_INDEX + 1) return new Reading(null, "Antwort zu kurz", spaced(data), bytes);
@@ -98,8 +99,8 @@ public final class AtfTemperature {
         if (r.length > 11) sb.append(field(11, "erkannter Gang", r[11] & 0xFF, gear(r[11] & 0xFF)));
         if (r.length > 12) {
             int v = r[12] & 0xFF;
-            sb.append(String.format(Locale.GERMANY, "• [12] Ist-/Zielgang: %02X → Ist %s, Ziel %s%n",
-                    v, gearNibble(v >> 4), gearNibble(v & 0x0F)));
+            sb.append(String.format(Locale.GERMANY, "• [12] Ziel-/Istgang: %02X → Ist %s, Ziel %s%n",
+                    v, gearNibble(v & 0x0F), gearNibble(v >> 4)));
         }
         signedWord(sb, r, 14, "Motormoment");
         signedWord(sb, r, 16, "Wandlermoment");
@@ -114,12 +115,12 @@ public final class AtfTemperature {
                 + "(ADR-003); die übrigen nach EGS52-Layout (722.6), Rohwerte ohne Einheit:\n" + sb).trim();
     }
 
-    /** Klartextzeile „Wählhebel D · Gang 3 → 2“; null ohne die Felder. */
+    /** Klartextzeile „Wählhebel D · Gang 2 → 3“; null ohne die Felder. */
     static String shiftSummary(byte[] r) {
         if (r == null || r.length <= 12) return null;
         String sel = selector(r[9] & 0xFF);
         int g = r[12] & 0xFF;
-        String ist = gearNibble(g >> 4), ziel = gearNibble(g & 0x0F);
+        String ist = gearNibble(g & 0x0F), ziel = gearNibble(g >> 4);
         return "Wählhebel " + (sel == null ? "? (" + (r[9] & 0xFF) + ")" : sel)
                 + " · Gang " + (ist.equals(ziel) ? ist : ist + " → " + ziel);
     }

@@ -63,13 +63,23 @@ public final class Mode06Overview {
      * danach jeden Monitor einzeln. Einzelne Timeouts werden übersprungen.
      */
     public static List<Test> read(InspectionReader.Transport transport) throws IOException {
+        return read(transport, new ArrayList<>());
+    }
+
+    /** @param problems nimmt auf, was nicht gelesen werden konnte (für {@link #report(List, List)}) */
+    public static List<Test> read(InspectionReader.Transport transport, List<String> problems) throws IOException {
         TolerantQuery q = new TolerantQuery(transport);
         Set<Integer> mids = new TreeSet<>();
         for (int base = 0x00; base <= 0xE0; base += 0x20) {
             String raw = q.query(Mode06.command(base), 3000);
-            if (raw == null || ObdParser.isNoData(raw) || ObdParser.isLinkError(raw)) break;
-            Set<Integer> supported = Mode06.supportedMids(raw, base);
-            if (supported.isEmpty()) break;
+            // NO DATA auf 06 00 heißt „kein Mode 06“; jede weitere Bitmap hat das Steuergerät selbst angekündigt
+            if (base == 0 && raw != null && ObdParser.isNoData(raw) && !ObdParser.isLinkError(raw)) break;
+            Set<Integer> supported = raw == null || ObdParser.isLinkError(raw) ? Set.of() : Mode06.supportedMids(raw, base);
+            if (supported.isEmpty() && raw != null && !ObdParser.isLinkError(raw) && Mode06.hasBitmap(raw, base)) break;
+            if (supported.isEmpty()) {
+                problems.add(String.format(Locale.US, "Testliste ab %s (%s)", Mode06.command(base), reason(raw)));
+                break;
+            }
             mids.addAll(supported);
             if (!supported.contains(base + 0x20)) break;
         }
@@ -77,12 +87,24 @@ public final class Mode06Overview {
         for (int mid : mids) {
             if (mid % 0x20 == 0) continue; // Bitmap-MID, kein Test
             String raw = q.query(Mode06.command(mid), 3000);
-            if (raw == null || ObdParser.isNoData(raw) || ObdParser.isLinkError(raw)) continue;
-            for (Mode06.TestResult r : Mode06.results(raw)) {
-                if (r.mid == mid) tests.add(evaluate(r));
+            boolean any = false;
+            if (raw != null && !ObdParser.isNoData(raw) && !ObdParser.isLinkError(raw)) {
+                for (Mode06.TestResult r : Mode06.results(raw)) {
+                    if (r.mid != mid) continue;
+                    tests.add(evaluate(r));
+                    any = true;
+                }
             }
+            if (!any || ObdParser.hasIncompleteMessage(raw)) problems.add(midName(mid) + " (" + reason(raw) + ")");
         }
         return tests;
+    }
+
+    private static String reason(String raw) {
+        if (raw == null) return "Zeitüberschreitung";
+        if (ObdParser.isLinkError(raw)) return "Busfehler";
+        if (ObdParser.isNoData(raw)) return "keine Daten";
+        return ObdParser.hasIncompleteMessage(raw) ? "Antwort unvollständig" : "keine gültige Antwort";
     }
 
     // ---------------------------------------------------------------- Bewertung
@@ -102,7 +124,7 @@ public final class Mode06Overview {
         boolean hasMin = min > lowest;
         boolean hasMax = max < highest;
         // Grenzen 0/0 bei vorhandenem Wert: reiner Informationswert ohne Grenze.
-        if (r.min == 0 && r.max == 0) hasMax = false;
+        if (r.min == 0 && r.max == 0) hasMin = hasMax = false;
 
         if (!hasMin && !hasMax) {
             return new Test(r.mid, r.tid, r.uasid, v, min, max, false, false, Status.NO_LIMIT, null);
@@ -312,9 +334,18 @@ public final class Mode06Overview {
     // ---------------------------------------------------------------- Bericht
 
     public static String report(List<Test> tests) {
+        return report(tests, List.of());
+    }
+
+    public static String report(List<Test> tests, List<String> problems) {
         StringBuilder sb = new StringBuilder("Monitortests (Mode 06)\n");
+        if (!problems.isEmpty()) {
+            sb.append("⚠ Unvollständig – nicht gelesen: ").append(String.join(", ", problems))
+                    .append(". Bitte erneut lesen.\n");
+        }
         if (tests.isEmpty()) {
-            sb.append("\nDas Motorsteuergerät liefert keine Mode-06-Testergebnisse.");
+            sb.append(problems.isEmpty() ? "\nDas Motorsteuergerät liefert keine Mode-06-Testergebnisse."
+                    : "\nKeine Testergebnisse gelesen.");
             return sb.toString();
         }
         int[] count = new int[Status.values().length];

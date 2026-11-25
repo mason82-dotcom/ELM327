@@ -146,8 +146,8 @@ public class C350FeaturesTest {
         assertTrue(t, t.contains("[4] Wandler-Drehzahl: 1000"));            // 16 Bit big-endian
         assertTrue(t, t.contains("[8] Wandlerzustand: 6 (EGS52: geschlossen)"));
         assertTrue(t, t.contains("[11] erkannter Gang: 1 (Gang 1)"));
-        assertTrue(t, t.contains("Ist-/Zielgang: 12 → Ist 1, Ziel 2"));
-        assertTrue(t, t.contains("Wählhebel N · Gang 1 → 2"));
+        assertTrue(t, t.contains("Ziel-/Istgang: 12 → Ist 2, Ziel 1"));
+        assertTrue(t, t.contains("Wählhebel N · Gang 2 → 1"));
         assertTrue(t, t.contains("[14] Motormoment: 200"));
         assertTrue(t, t.contains("[18] Abtriebsdrehzahl: 0"));
         assertFalse(t, t.contains("Schaltbits"));                            // Antwort endet vor Index 20
@@ -283,7 +283,7 @@ public class C350FeaturesTest {
             {"61 30 02 AA 00 00 00 00 00 09 01 00 BB 3B 00 1F 00 3B 00 00 00 01 00 00", "Wählhebel R · Gang R", "9 °C"},
             {"61 30 00 74 00 00 00 00 00 08 01 00 00 3B 00 0E 00 0D 00 00 04 01 00 06", "Wählhebel N · Gang N", "9 °C"},
             {"61 30 02 9E 02 DF 00 00 00 07 01 00 11 3B 00 1F 00 3B 00 00 00 01 00 00", "Wählhebel D · Gang 1", "9 °C"},
-            {"61 30 01 56 00 2D 03 C8 01 07 01 02 32 70 00 A3 00 A2 02 7B 03 81 00 90", "Wählhebel D · Gang 3 → 2", "62 °C"},
+            {"61 30 01 56 00 2D 03 C8 01 07 01 02 32 70 00 A3 00 A2 02 7B 03 81 00 90", "Wählhebel D · Gang 2 → 3", "62 °C"},
         };
         for (String[] c : cases) {
             String t = AtfTemperature.parse(c[0]).text();

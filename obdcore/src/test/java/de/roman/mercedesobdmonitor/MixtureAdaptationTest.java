@@ -35,7 +35,7 @@ public class MixtureAdaptationTest {
         MixtureAdaptation m = new MixtureAdaptation();
         m.add(r);
         String s = m.report(r, BERLIN);
-        assertTrue(s, s.contains("Bank 1 (rechts, Zyl. 1–3): Faktor 1,051 (17 % bis zur Grenze 1,30) · -0,52 %"));
+        assertTrue(s, s.contains("Bank 1 (rechts, Zyl. 1–3): Faktor 1,051 (17 % des Wegs zur Grenze 1,30) · -0,52 %"));
         assertTrue(s, s.contains("Differenz B1−B2: +0,026"));
         assertTrue(s, s.contains("erst ab zwei Lesungen"));
         assertFalse(s, s.contains("⚠"));
@@ -59,7 +59,7 @@ public class MixtureAdaptationTest {
     public void richBankNamesRichCode() {
         MixtureAdaptation.Reading r = MixtureAdaptation.from(tests(34446, 24262), 1, 88);   // B2 0,74
         String s = new MixtureAdaptation().report(r, BERLIN);
-        assertTrue(s, s.contains("Bank 2 (links, Zyl. 4–6): Faktor 0,740 (87 % bis zur Grenze 0,70) ⚠ nahe der Grenze – P0175 (fett) droht"));
+        assertTrue(s, s.contains("Bank 2 (links, Zyl. 4–6): Faktor 0,740 (87 % des Wegs zur Grenze 0,70) ⚠ nahe der Grenze – P0175 (fett) droht"));
     }
 
     /** Review: gleiche Werte nicht doppelt, binnen einer Stunde ersetzen, anderes Fahrzeug nicht im Verlauf. */
@@ -86,5 +86,20 @@ public class MixtureAdaptationTest {
         m.add(r);
         assertTrue(m.readings().isEmpty());
         assertTrue(m.report(r, BERLIN).contains("nicht geliefert"));
+    }
+
+    @Test public void trendComparesMagnitudes() {
+        assertTrue(trend(-0.08, -0.02).contains("nimmt ab"));
+        assertTrue(trend(-0.02, -0.08).contains("wächst"));
+        assertTrue(trend(0.04, -0.04).contains("kehrt sich um"));
+        assertTrue(trend(0.04, 0.05).contains("stabil"));
+    }
+
+    private static String trend(double first, double last) {
+        MixtureAdaptation m = new MixtureAdaptation();
+        m.add(new MixtureAdaptation.Reading(0, 90, 0, 1 + first, 0, 1));
+        MixtureAdaptation.Reading now = new MixtureAdaptation.Reading(100_000_000L, 90, 0, 1 + last, 0, 1);
+        m.add(now);
+        return m.report(now, java.time.ZoneOffset.UTC);
     }
 }

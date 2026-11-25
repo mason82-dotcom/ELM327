@@ -183,8 +183,11 @@ public final class MixtureAdaptation {
                         Double.isNaN(r.coolantC) ? "" : String.format(Locale.GERMANY, " · %.0f °C", r.coolantC)));
             }
             double first = withDiff.get(0).factorDiff(), last = withDiff.get(withDiff.size() - 1).factorDiff();
-            String trend = last - first >= TREND_STEP ? "Bankunterschied wächst"
-                    : first - last >= TREND_STEP ? "Bankunterschied nimmt ab" : "Bankunterschied stabil";
+            // Betrag zählt: von −0,08 nach −0,02 nimmt der Unterschied ab
+            double growth = Math.abs(last) - Math.abs(first);
+            String trend = growth >= TREND_STEP ? "Bankunterschied wächst"
+                    : growth <= -TREND_STEP ? "Bankunterschied nimmt ab"
+                    : Math.abs(last - first) >= TREND_STEP ? "Bankunterschied kehrt sich um" : "Bankunterschied stabil";
             sb.append(String.format(Locale.GERMANY, "  %s (%+.3f → %+.3f über %d Lesungen)%n", trend, first, last,
                     withDiff.size()));
         } else {
@@ -199,7 +202,7 @@ public final class MixtureAdaptation {
         if (Double.isNaN(factor) && Double.isNaN(percent)) return sb.append("–\n").toString();
         if (!Double.isNaN(factor)) {
             double used = usedPercent(factor, min, max);
-            sb.append(String.format(Locale.GERMANY, "Faktor %.3f (%.0f %% bis zur Grenze %.2f)", factor, used,
+            sb.append(String.format(Locale.GERMANY, "Faktor %.3f (%.0f %% des Wegs zur Grenze %.2f)", factor, used,
                     limit(factor, min, max)));
             if (used >= 80) {
                 // >1: Steuergerät gibt Kraftstoff dazu (Bank lief mager), <1: nimmt weg (lief fett)

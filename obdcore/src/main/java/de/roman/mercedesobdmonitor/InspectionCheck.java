@@ -11,6 +11,8 @@ import java.util.Locale;
 public final class InspectionCheck {
     public enum Verdict { READY, NOT_READY, UNCERTAIN }
 
+    static final String PERMANENT_LABEL = "permanente DTCs (0A)";
+
     public static final class Input {
         public Readiness readiness;
         public List<String> stored = new ArrayList<>();
@@ -102,7 +104,7 @@ public final class InspectionCheck {
         if (in.pendingKnown) appendCodes(sb, "Pending", in.pending);
         else sb.append("  Pending: nicht lesbar\n");
         if (in.permanentSupported) appendCodes(sb, "Permanent", in.permanent);
-        else sb.append("  Permanent: nicht unterstützt\n");
+        else sb.append(in.unavailable.contains(PERMANENT_LABEL) ? "  Permanent: nicht lesbar\n" : "  Permanent: nicht unterstützt\n");
 
         if (in.kmSinceCleared != null || in.warmupsSinceCleared != null || in.kmWithMil != null) {
             sb.append("\nSeit dem letzten Rücksetzen des Diagnosespeichers:\n");

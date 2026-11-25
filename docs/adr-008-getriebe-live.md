@@ -10,7 +10,7 @@
 
 ADR-001 gibt genau drei Befehle frei – `ATSH7E1` → `21 30` → `ATSH7DF` – und nur auf Knopfdruck, weil die Formel
 damals für den C350 unbelegt war. Seit dem Fahrzeugtest vom 21.11. ist das Antwortlayout `61 30` bestätigt
-(ADR-003): Wählhebel [9] (P 10, R 9, N 8, D 7), Gang [12] je Halbbyte, ATF [13] = Wert − 50, kalt 8 °C bei 5 °C
+(ADR-003): Wählhebel [9] (P 10, R 9, N 8, D 7), Gang [12] je Halbbyte (oben Ziel, unten eingelegt), ATF [13] = Wert − 50, kalt 8 °C bei 5 °C
 außen, 62 °C nach 30 min Fahrt. Gang und ATF während der Fahrt sind der meistgewünschte Zusatzwert.
 
 Die Live-Schleife (`ObdSession.monitorLoop`) fragt alle PIDs nacheinander in **einem** Thread ab (Live-Polling mit

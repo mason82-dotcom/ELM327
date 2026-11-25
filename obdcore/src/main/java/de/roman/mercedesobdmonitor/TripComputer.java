@@ -19,6 +19,8 @@ public final class TripComputer {
     public static final long STOP_CONFIRM_MS = 3_000;
     /** Lücke im Log, ab der die Fahrt endet (Verbindung weg, Log angehalten). */
     public static final long GAP_MS = 120_000;
+    /** Rücksprung der Uhr, der noch als Zeitabgleich gilt. */
+    public static final long CLOCK_STEP_MS = 5_000;
     /**
      * Längster Abstand zweier Werte, über den noch integriert wird. Im normalen Abfragetakt kommt das Tempo oft nur
      * alle 5–6 s (Log 19.11.2026: 95. Perzentil 5,7 s); eine Grenze von 5 s hätte bis zur Hälfte der Strecke verloren
@@ -124,8 +126,10 @@ public final class TripComputer {
     private Double lastSpeed, lastRuntime;
     private boolean stoppedSinceRuntime;
 
-    /** Einen Messwert mit Zeitstempel (ms) aufnehmen; Werte müssen zeitlich aufsteigend kommen. */
+    /** Einen Messwert mit Zeitstempel (ms) aufnehmen; Werte kommen zeitlich aufsteigend, kleine Rücksprünge der Uhr sind erlaubt. */
     public void onSample(long t, int pid, double value) {
+        // Kleine Uhrkorrektur (Zeitabgleich des Geräts) zerteilt keine Fahrt: Zeit anhalten, bis sie aufholt
+        if (state != null && t < last && last - t <= CLOCK_STEP_MS) t = last;
         if (state != null && (t - last > GAP_MS || t < last)) close(last, false);
         // Neustart: Laufzeit springt zurück UND der Motor stand dazwischen. Ein einzelner gestörter Laufzeitwert
         // (der ELM327-Simulator liefert sogar Zufallswerte) zerteilt so keine Fahrt.

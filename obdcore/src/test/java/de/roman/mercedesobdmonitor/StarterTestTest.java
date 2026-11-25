@@ -157,6 +157,8 @@ public class StarterTestTest {
         assertEquals(StarterTest.Phase.DONE, t.phase());
         String r = t.report(700);
         assertTrue(r, r.contains("Einbruch nicht erfasst"));
+        assertTrue(r, r.contains("nicht bewertet: Einbruch beim Anlassen"));
+        assertFalse(r, r.contains("Ladung unauffällig."));
         assertTrue(r, r.contains("Lichtmaschine lädt"));
         assertFalse(r, r.contains("zu tief"));
     }

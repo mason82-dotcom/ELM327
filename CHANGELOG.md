@@ -2,6 +2,23 @@
 
 Neueste Version zuerst. Monitor = Modul `:app`, Dashboard = Modul `:dashboard`.
 
+## Version 1.16.5 (Monitor) / 0.24.5 (Dashboard): Messwertprüfung
+
+Ergebnis der Prüfung aller Messwerte gegen 47 269 Rohantworten des C350 (25.11.2026): Formeln und Quelle stimmen; zwölf
+Befunde behoben.
+
+- **Gangwechsel war vertauscht:** In [12] der Getriebeantwort ist das untere Halbbyte der eingelegte, das obere der
+  Zielgang. „D 3→2“ war ein Hochschalten „D 2→3“; Anzeige, Gangnummer im Log und ATF-Bericht berichtigt (ADR-003).
+- **Langsame Werte fielen auf „–“:** Sie kommen nur alle 10–13 s; ihr Höchstalter ist jetzt 30 s (schnelle weiter 15 s).
+- **Starttest:** Die Vergleichsspannung 01 42 kommt jetzt vom Motorsteuergerät; vorher galt die erste Antwort, oft die
+  des Getriebes (etwa 0,6 V weniger). Nicht bewertete Teile gelten nicht mehr als unauffällig.
+- **Mehrteilige Antworten:** Fehlende oder vertauschte Segmente und zu kurze Antworten werden verworfen und gemeldet,
+  auch bei Fehlercodes. `<RX ERROR`, `LV RESET`, `ACT ALERT` und `ERRxx` gelten als Busfehler; gestörte Zeilen nie als Wert.
+- **Mode 06:** Nicht gelesene Monitore und Zylinder werden genannt; Tests ohne Grenzen (vorzeichenbehaftet, 0/0) gelten
+  nicht mehr als geprüft; „nicht gelaufen“ ist keine gemessene Null mehr.
+- **Gemischadaption:** Der Trend vergleicht Beträge; Text „x % des Wegs zur Grenze“.
+- **Fahrtenbuch:** Ein Rücksprung der Uhr bis 5 s teilt keine Fahrt mehr.
+
 ## Version 1.16.4 (Monitor) / 0.24.4 (Dashboard): Updates ohne Deinstallation
 
 - **Fester Signaturschlüssel:** Bisher signierte jede CI-Runde mit einem neuen Zufalls-Debug-Schlüssel – Android

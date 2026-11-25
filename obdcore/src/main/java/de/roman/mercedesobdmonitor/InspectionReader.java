@@ -56,6 +56,10 @@ public final class InspectionReader {
 
         String perm = query("0A", 3500);
         in.permanentSupported = perm != null && ObdParser.hasDtcResponse(perm, 0x4A, isCan);
+        if (perm == null || ObdParser.isLinkError(perm) || ObdParser.hasIncompleteMessage(perm)) {
+            in.permanentSupported = false;
+            in.unavailable.add(InspectionCheck.PERMANENT_LABEL);
+        }
         if (in.permanentSupported) in.permanent = ObdParser.dtcs(perm, 0x4A, isCan);
 
         in.kmWithMil = optionalWord(0x21, "Strecke mit MIL (01 21)", in);
@@ -108,7 +112,7 @@ public final class InspectionReader {
      * nicht „keine Codes“.
      */
     private boolean isValidDtcAnswer(String raw, int mode) {
-        if (raw == null || ObdParser.isLinkError(raw)) return false;
+        if (raw == null || ObdParser.isLinkError(raw) || ObdParser.hasIncompleteMessage(raw)) return false;
         return ObdParser.hasDtcResponse(raw, mode, isCan) || ObdParser.isNoData(raw);
     }
 

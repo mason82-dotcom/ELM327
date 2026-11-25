@@ -3,6 +3,7 @@ package de.roman.mercedesobdmonitor;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntToLongFunction;
 
 /**
  * Regeln für angezeigte Live-Werte (Android-frei, damit testbar): ein Messwert, der nicht frisch
@@ -31,26 +32,26 @@ public final class LiveValues {
     }
 
     /**
-     * Höchstalter eines angezeigten Messwerts. Langsame PIDs werden jede 5. Runde (Fuel-Trim-Test: jede 10.)
-     * gelesen, Kühlmittel und Spannung jede 2. (Fuel-Trim-Test: jede 3.); eine Runde dauert im Log 20.11.2026 etwa
-     * 2 s; Diagnosen pausieren das Polling. Älter als das gilt als nicht frisch (auch für {@link LiveWarnings}).
+     * Höchstalter eines angezeigten Messwerts, der mindestens jede 3. Runde gelesen wird (Runde etwa 2 s; auch für
+     * {@link LiveWarnings}). Langsame PIDs haben ein eigenes Höchstalter: {@link PollSchedule#maxAgeMs}.
      */
     public static final long MAX_AGE_MS = 15_000;
 
-    /** PIDs, deren letzter frischer Wert älter als {@code maxAgeMs} ist (Zeit in ms, monoton). */
-    public static List<Integer> expired(Map<Integer, Long> freshAt, long nowMs, long maxAgeMs) {
+    /** PIDs, deren letzter frischer Wert älter als ihr Höchstalter ist (Zeit in ms, monoton). */
+    public static List<Integer> expired(Map<Integer, Long> freshAt, long nowMs, IntToLongFunction maxAge) {
         List<Integer> out = new ArrayList<>();
         for (Map.Entry<Integer, Long> e : freshAt.entrySet()) {
-            if (nowMs - e.getValue() > maxAgeMs) out.add(e.getKey());
+            if (nowMs - e.getValue() > maxAge.applyAsLong(e.getKey())) out.add(e.getKey());
         }
         return out;
     }
 
-    /** Messwert nur, wenn er höchstens {@link #MAX_AGE_MS} alt ist; sonst null (Review: Prüfplan nahm alte Drehzahl). */
-    public static Double fresh(Map<Integer, Double> values, Map<Integer, Long> freshAt, int pid, long nowMs) {
+    /** Messwert nur, wenn er nicht älter als sein Höchstalter ist; sonst null (Review: Prüfplan nahm alte Drehzahl). */
+    public static Double fresh(Map<Integer, Double> values, Map<Integer, Long> freshAt, int pid, long nowMs,
+            IntToLongFunction maxAge) {
         Double v = values.get(pid);
         Long at = freshAt.get(pid);
-        return v == null || at == null || nowMs - at > MAX_AGE_MS ? null : v;
+        return v == null || at == null || nowMs - at > maxAge.applyAsLong(pid) ? null : v;
     }
 
     public static boolean isValid(String text) {
