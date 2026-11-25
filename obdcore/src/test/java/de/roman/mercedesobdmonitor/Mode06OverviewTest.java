@@ -203,4 +203,12 @@ public class Mode06OverviewTest {
         Mode06Overview.Test t = Mode06Overview.evaluate(new Mode06.TestResult(0x81, 0x80, 0xAF, 0xFFCC, 0, 0));
         assertEquals(Mode06Overview.Status.NO_LIMIT, t.status);
     }
+
+    @Test public void emptyBitmapIsACompleteAnswer() throws IOException {
+        Fake f = car();
+        f.answers.put("0620", "46 20 00 00 00 00");
+        List<String> problems = new ArrayList<>();
+        assertEquals(1, Mode06Overview.read(f, problems).size());
+        assertTrue(problems.toString(), problems.isEmpty());
+    }
 }

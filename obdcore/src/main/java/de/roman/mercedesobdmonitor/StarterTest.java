@@ -608,11 +608,11 @@ public final class StarterTest {
         if (crank == Rating.UNKNOWN && crankStart >= 0 && !crankMissed) {
             issues.add("Einbruch beim Anlassen nicht bewertbar (Adapter misst ungenau).");
         }
+        List<String> open = new ArrayList<>();
+        if (rest == Rating.UNKNOWN) open.add("Ruhespannung");
+        if (crank == Rating.UNKNOWN && (crankStart < 0 || crankMissed)) open.add("Einbruch beim Anlassen");
+        if (charge == Rating.UNKNOWN) open.add("Ladespannung");
         if (issues.isEmpty()) {
-            List<String> open = new ArrayList<>();
-            if (rest == Rating.UNKNOWN) open.add("Ruhespannung");
-            if (crank == Rating.UNKNOWN) open.add("Einbruch beim Anlassen");
-            if (charge == Rating.UNKNOWN) open.add("Ladespannung");
             if (!open.isEmpty()) {
                 boolean fair = rest == Rating.FAIR || crank == Rating.FAIR || charge == Rating.FAIR;
                 return "Gesamt: soweit gemessen unauffällig" + (fair ? ", einzelne Werte knapp" : "")
@@ -622,6 +622,7 @@ public final class StarterTest {
             return allGood ? "Gesamt: Batterie, Anlassen und Ladung unauffällig."
                     : "Gesamt: unauffällig, einzelne Werte knapp – bei Kälte im Blick behalten.";
         }
+        if (!open.isEmpty()) issues.add("Nicht bewertet: " + String.join(", ", open) + ".");
         return "Gesamt: " + String.join(" ", issues);
     }
 

@@ -148,6 +148,7 @@ public final class ObdSession {
     /** Zeitpunkt (elapsedRealtime) des letzten frischen Werts je PID; Grundlage des Alterslimits. */
     private final Map<Integer, Long> latestAt = new ConcurrentHashMap<>();
     private final FuelTrimTest fuelTrimTest = new FuelTrimTest();
+    private final PollSchedule.AgeLimit ageLimit = new PollSchedule.AgeLimit();
     private final WarmupCheck warmupCheck = new WarmupCheck();
     /** Steuergerät meldet PID 41 (Monitorstatus dieser Fahrt) als unterstützt. */
     private volatile boolean driveCyclePid;
@@ -227,7 +228,7 @@ public final class ObdSession {
 
     /** Letzter gültiger Live-Wert unter diesem Schlüssel (PID oder {@link TransmissionLive}), null ohne frischen Wert. */
     public synchronized Double latestValue(int key) {
-        return LiveValues.fresh(latestValues, latestAt, key, SystemClock.elapsedRealtime(), fuelTrimTest.isRunning());
+        return LiveValues.fresh(latestValues, latestAt, key, SystemClock.elapsedRealtime(), this::maxAgeMs);
     }
 
     public LiveWarnings.Warning currentWarning() {
@@ -571,6 +572,10 @@ public final class ObdSession {
         }
     }
 
+    private long maxAgeMs(int key) {
+        return ageLimit.of(key, fuelTrimTest.isRunning(), SystemClock.elapsedRealtime());
+    }
+
     private void monitorLoop(int session, String host, int port, ElmLink.Opener transport) {
         int pollCycle = 0;
         // je Sitzung (ADR-008): gilt über automatische Neuverbindungen hinweg, eine Abschaltung also bis „Trennen“
@@ -578,7 +583,7 @@ public final class ObdSession {
         publishTransmissionNote(session, null);
         while (monitoring.get() && !userDisconnect && session == sessionGeneration.get()) {
             // Age limit on every path (slow PIDs, paused polling during diagnoses, any future branch).
-            for (Integer old : LiveValues.expired(latestAt, SystemClock.elapsedRealtime(), fuelTrimTest.isRunning())) {
+            for (Integer old : LiveValues.expired(latestAt, SystemClock.elapsedRealtime(), this::maxAgeMs)) {
                 invalidatePid(session, old);
             }
             if (exclusiveRequest.get()) {
@@ -857,9 +862,8 @@ public final class ObdSession {
         @Override public String previousMixtureAdaptation() { return readStore(mixtureFile); }
         @Override public void saveMixtureAdaptation(String text) { writeStore(mixtureFile, text, "Gemischadaption"); }
         @Override public double liveCoolant() {
-            Double v = latestValues.get(0x05);
-            Long at = latestAt.get(0x05);
-            return v == null || at == null || SystemClock.elapsedRealtime() - at > LiveValues.MAX_AGE_MS ? Double.NaN : v;
+            Double v = LiveValues.fresh(latestValues, latestAt, 0x05, SystemClock.elapsedRealtime(), ObdSession.this::maxAgeMs);
+            return v == null ? Double.NaN : v;
         }
         @Override public double recentAmbient() { return ObdSession.this.recentAmbient(); }
         @Override public boolean livePid(int pid) { return activePids.isEmpty() || containsPid(pid); }
@@ -1791,8 +1795,8 @@ public final class ObdSession {
         if (op == null) return;
         // nur frische Werte: eine Drehzahl von kurz vor dem Abstellen darf nicht „Motor läuft“ melden
         long now = SystemClock.elapsedRealtime();
-        Double coolant = LiveValues.fresh(latestValues, latestAt, 0x05, now, fuelTrimTest.isRunning());
-        Double rpm = LiveValues.fresh(latestValues, latestAt, 0x0C, now, fuelTrimTest.isRunning());
+        Double coolant = LiveValues.fresh(latestValues, latestAt, 0x05, now, this::maxAgeMs);
+        Double rpm = LiveValues.fresh(latestValues, latestAt, 0x0C, now, this::maxAgeMs);
         synchronized (testPlan) {
             testPlan.record(new TestPlan.Record(op, System.currentTimeMillis(), coolant == null ? Double.NaN : coolant,
                     rpm == null ? Double.NaN : rpm, message));

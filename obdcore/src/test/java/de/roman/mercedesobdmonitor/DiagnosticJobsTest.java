@@ -373,7 +373,7 @@ public class DiagnosticJobsTest {
         };
         String r = new DiagnosticJobs(host).readMisfires(client);
         assertTrue(r, r.contains("Zyl. 2: nicht gelesen"));
-        assertTrue(r, r.contains("nur 1 von 2 Zylindern"));
+        assertTrue(r, r.contains("nur von 1 von 2 Zylindern"));
     }
 
     /** 01 42 im Starttest: mit Headern, damit das Motorsteuergerät gilt und nicht die zuerst eintreffende Antwort. */

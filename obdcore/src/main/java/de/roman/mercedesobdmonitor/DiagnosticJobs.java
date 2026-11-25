@@ -359,6 +359,9 @@ final class DiagnosticJobs {
         Elm327Client.CommandResult sup = host.diag(c, Mode06.command(Mode06.MID_SUPPORT_A0), 3000);
         Set<Integer> mids = Mode06.supportedMids(sup.raw, Mode06.MID_SUPPORT_A0);
         boolean bitmapKnown = !mids.isEmpty();
+        // eine gestörte Bitmap ist keine fehlende: dann gilt ein stummer Zylinder als nicht gelesen
+        boolean bitmapAbsent = !bitmapKnown && !ObdParser.isLinkError(sup.raw)
+                && (ObdParser.isNoData(sup.raw) || Mode06.hasBitmap(sup.raw, Mode06.MID_SUPPORT_A0));
 
         List<Mode06.Misfire> list = new ArrayList<>();
         List<Integer> failed = new ArrayList<>();
@@ -366,11 +369,11 @@ final class DiagnosticJobs {
             int mid = Mode06.MID_MISFIRE_CYL1 + cyl - 1;
             if (bitmapKnown && !mids.contains(mid)) continue;
             Elm327Client.CommandResult r = host.diag(c, Mode06.command(mid), 3000);
-            // ohne Bitmap heißt NO DATA „nicht unterstützt“; ein angekündigter Zylinder muss antworten
-            if (ObdParser.isNoData(r.raw) && !bitmapKnown) continue;
+            // gibt es keine Bitmap, heißt NO DATA „nicht unterstützt“; ein angekündigter Zylinder muss antworten
+            if (ObdParser.isNoData(r.raw) && bitmapAbsent) continue;
             Mode06.Misfire m = Mode06.misfire(r.raw, cyl);
             if (m != null && !ObdParser.isLinkError(r.raw)) list.add(m);
-            else if (bitmapKnown || ObdParser.isLinkError(r.raw) || ObdParser.hasIncompleteMessage(r.raw)) failed.add(cyl);
+            else if (!bitmapAbsent || ObdParser.isLinkError(r.raw) || ObdParser.hasIncompleteMessage(r.raw)) failed.add(cyl);
         }
         String report = Mode06.misfireReport(list, failed);
         if (!bitmapKnown) {
@@ -541,7 +544,9 @@ final class DiagnosticJobs {
      */
     private double ecuVolts(Elm327Client c) throws IOException {
         try {
-            Double v = ObdPid.of(0x42).parse(c.sendCommand("0142", 1000).raw);
+            String raw = c.sendCommand("0142", 1000).raw;
+            // nur eine ungestörte Antwort des Motorsteuergeräts ist ein Vergleichswert
+            Double v = ObdParser.isEngineAnswer(raw, 0x42) ? ObdPid.of(0x42).parse(raw) : null;
             return v == null ? Double.NaN : v;
         } catch (SocketTimeoutException e) {
             host.countTimeouts(1);

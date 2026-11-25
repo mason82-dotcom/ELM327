@@ -76,4 +76,18 @@ public class ObdParserPidTest {
         }
         assertFalse(ObdParser.isLinkError("410C0FA0"));
     }
+
+    @Test public void engineAnswerNeedsTheEngineEcu() {
+        assertTrue(ObdParser.isEngineAnswer("7E904414226A4\r7E80441422CEC", 0x42));
+        assertFalse(ObdParser.isEngineAnswer("7E90441422A94", 0x42));
+        assertFalse(ObdParser.isEngineAnswer("7E80441422CEC<RX ERROR\r7E90441422A94", 0x42));
+        assertTrue(ObdParser.isEngineAnswer("41422CEC", 0x42));
+        assertFalse("ohne Header zwei Absender", ObdParser.isEngineAnswer("41422A94\r41422CEC", 0x42));
+    }
+
+    @Test public void corruptedLinesDropOutForEveryMode() {
+        assertNull(ObdParser.mode02Data("42050?05B", 0x05, 1));
+        assertTrue(ObdParser.supportedPids("4100BE?3EA813", 0).isEmpty());
+        assertTrue(ObdParser.canMessages("430?10171").isEmpty());
+    }
 }

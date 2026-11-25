@@ -20,6 +20,25 @@ public final class PollSchedule {
         return isSlow(key, fuelTrimFocus) ? SLOW_MAX_AGE_MS : LiveValues.MAX_AGE_MS;
     }
 
+    /**
+     * Höchstalter mit Übergang: Nach Beginn oder Ende des Fuel-Trim-Tests gilt noch {@link #SLOW_MAX_AGE_MS} lang das
+     * größere der beiden Limits – die vorhandenen Werte kamen im Takt davor. Aus mehreren Threads aufgerufen.
+     */
+    public static final class AgeLimit {
+        private boolean focus;
+        private long switchedAt = Long.MIN_VALUE;
+
+        public synchronized long of(int key, boolean fuelTrimFocus, long nowMs) {
+            if (fuelTrimFocus != focus) {
+                focus = fuelTrimFocus;
+                switchedAt = nowMs;
+            }
+            long limit = maxAgeMs(key, focus);
+            boolean changing = switchedAt != Long.MIN_VALUE && nowMs - switchedAt <= SLOW_MAX_AGE_MS;
+            return changing ? Math.max(limit, maxAgeMs(key, !focus)) : limit;
+        }
+    }
+
     /** Langsam = im Standardzweig von {@link #shouldPoll} (jede 5. bzw. 10. Runde). */
     private static boolean isSlow(int pid, boolean fuelTrimFocus) {
         for (int cycle = 1; cycle <= 4; cycle++) if (shouldPoll(pid, cycle, fuelTrimFocus)) return false;

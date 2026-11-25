@@ -75,6 +75,15 @@ public final class Mode06 {
         return out;
     }
 
+    /** true, wenn eine gültige Bitmap-Antwort vorliegt – auch eine, die keine Tests ankündigt. */
+    public static boolean hasBitmap(String raw, int baseMid) {
+        String marker = String.format(Locale.US, "46%02X", baseMid & 0xFF);
+        for (String msg : ObdParser.canMessages(raw)) {
+            if (msg.startsWith(marker) && msg.length() >= marker.length() + 8) return true;
+        }
+        return false;
+    }
+
     /** Alle Testergebnisse einer Antwort; bei mehreren ECUs werden alle Nachrichten gelesen. */
     public static List<TestResult> results(String raw) {
         List<TestResult> out = new ArrayList<>();
@@ -134,7 +143,7 @@ public final class Mode06 {
             sb.append("Das Motorsteuergerät liefert keine zylinderbezogenen Aussetzerdaten (OBDMID A2–A7).");
             return sb.toString();
         }
-        int total = 0, notRun = 0;
+        int total = 0, notRun = 0, withCycle = 0;
         int worst = -1;
         int worstCount = 0;
         int[] bank = new int[3];
@@ -145,6 +154,7 @@ public final class Mode06 {
                         .append("): noch nicht gelaufen\n");
                 continue;
             }
+            if (m.currentCycle != null) withCycle++;
             int cur = m.currentCycle == null ? 0 : m.currentCycle;
             int ew = m.ewma == null ? 0 : m.ewma;
             total += cur;
@@ -161,17 +171,17 @@ public final class Mode06 {
         }
         sb.append('\n');
         int counted = list.size() - notRun;
+        int all = list.size() + failed.size();
+        String gaps = withCycle == all ? ""
+                : " (Zähler dieses Zyklus nur von " + withCycle + " von " + all + " Zylindern)";
         if (counted == 0) {
             sb.append("Bewertung: keine Aussage – die Zählung ist in diesem Fahrzyklus noch nicht gelaufen.");
         } else if (worstCount == 0) {
-            sb.append("Bewertung: keine Aussetzer gezählt");
-            if (notRun + failed.size() > 0) sb.append(" (nur ").append(counted).append(" von ")
-                    .append(list.size() + failed.size()).append(" Zylindern ausgewertet)");
-            sb.append('.');
+            sb.append("Bewertung: keine Aussetzer gezählt").append(gaps).append('.');
         } else {
-            sb.append(String.format(Locale.GERMANY,
-                    "Bewertung: %d Aussetzer im Zyklus (Bank 1: %d · Bank 2: %d); auffälligster Zylinder %d.%n",
-                    total, bank[1], bank[2], worst));
+            sb.append("Bewertung: ").append(withCycle == 0 ? "Zähler dieses Zyklus noch nicht gelaufen, Mittelwert (EWMA) über 0"
+                    : total + " Aussetzer im Zyklus (Bank 1: " + bank[1] + " · Bank 2: " + bank[2] + ")" + gaps)
+                    .append("; auffälligster Zylinder ").append(worst).append(".\n");
             sb.append("Einzelner Zylinder auffällig → Zündspule/Zündkerze/Einspritzventil dieses Zylinders "
                     + "(Tauschtest der Zündspule mit Nachbarzylinder). Eine ganze Bank auffällig → eher "
                     + "Gemisch/Falschluft dieser Bank. Werte sind relativ zu vergleichen; die Grenzwerte "

@@ -3,6 +3,7 @@ package de.roman.mercedesobdmonitor;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntToLongFunction;
 
 /**
  * Regeln für angezeigte Live-Werte (Android-frei, damit testbar): ein Messwert, der nicht frisch
@@ -37,20 +38,20 @@ public final class LiveValues {
     public static final long MAX_AGE_MS = 15_000;
 
     /** PIDs, deren letzter frischer Wert älter als ihr Höchstalter ist (Zeit in ms, monoton). */
-    public static List<Integer> expired(Map<Integer, Long> freshAt, long nowMs, boolean fuelTrimFocus) {
+    public static List<Integer> expired(Map<Integer, Long> freshAt, long nowMs, IntToLongFunction maxAge) {
         List<Integer> out = new ArrayList<>();
         for (Map.Entry<Integer, Long> e : freshAt.entrySet()) {
-            if (nowMs - e.getValue() > PollSchedule.maxAgeMs(e.getKey(), fuelTrimFocus)) out.add(e.getKey());
+            if (nowMs - e.getValue() > maxAge.applyAsLong(e.getKey())) out.add(e.getKey());
         }
         return out;
     }
 
     /** Messwert nur, wenn er nicht älter als sein Höchstalter ist; sonst null (Review: Prüfplan nahm alte Drehzahl). */
     public static Double fresh(Map<Integer, Double> values, Map<Integer, Long> freshAt, int pid, long nowMs,
-            boolean fuelTrimFocus) {
+            IntToLongFunction maxAge) {
         Double v = values.get(pid);
         Long at = freshAt.get(pid);
-        return v == null || at == null || nowMs - at > PollSchedule.maxAgeMs(pid, fuelTrimFocus) ? null : v;
+        return v == null || at == null || nowMs - at > maxAge.applyAsLong(pid) ? null : v;
     }
 
     public static boolean isValid(String text) {

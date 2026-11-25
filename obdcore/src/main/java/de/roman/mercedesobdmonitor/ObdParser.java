@@ -36,8 +36,7 @@ public final class ObdParser {
         if (raw == null) return null;
         String marker = String.format(Locale.US, "41%02X", pid & 0xFF);
         for (String line : payloadLines(raw)) {
-            // Antwort beginnt mit der Kennung; gestörte Zeilen (Fremdzeichen, halbes Byte) zählen nicht
-            if (!line.startsWith(marker) || NON_HEX.matcher(line).find()) continue;
+            if (!line.startsWith(marker)) continue;
             String hex = line.substring(marker.length());
             if (hex.length() < minBytes * 2 || hex.length() % 2 != 0) continue;
             byte[] out = new byte[hex.length() / 2];
@@ -399,6 +398,37 @@ public final class ObdParser {
         return lines;
     }
 
+    /**
+     * Antwortzeile aus ganzen Bytes, ohne Fremdzeichen („… &lt;RX ERROR“, verlorene Zeichen). Ungerade Länge haben nur
+     * die Längenzeile und Zeilen mit 11-bit-Header. Meldungstexte („NO DATA“) prüfen die Aufrufer an der Rohantwort.
+     */
+    private static boolean isIntact(String line) {
+        String s = isIsoTpSegment(line) ? line.substring(2) : line;
+        if (s.isEmpty() || NON_HEX.matcher(s).find()) return false;
+        return s.length() % 2 == 0 || isIsoTpLength(s) || s.startsWith("7E");
+    }
+
+    /**
+     * Ob die Mode-01-Antwort sicher vom Motorsteuergerät stammt: mit Header eine Zeile von 7E8, ohne Header genau
+     * eine Antwort (bei mehreren ist der Absender unbekannt). Gestörte Antworten zählen nicht.
+     */
+    public static boolean isEngineAnswer(String raw, int pid) {
+        if (raw == null || isLinkError(raw)) return false;
+        String marker = String.format(Locale.US, "41%02X", pid & 0xFF);
+        boolean header = false;
+        int plain = 0;
+        for (String line : normalizedLines(raw)) {
+            String[] split = splitCanHeader(line);
+            if (split == null) {
+                if (line.startsWith(marker)) plain++;
+                continue;
+            }
+            header = true;
+            if (ENGINE_ECU.equals(split[0]) && split[1].startsWith(marker)) return true;
+        }
+        return !header && plain == 1;
+    }
+
     static List<String> normalizedLines(String raw) {
         String u = raw.toUpperCase(Locale.US).replace('\r', '\n');
         String[] pieces = u.split("\\n+");
@@ -411,11 +441,13 @@ public final class ObdParser {
                 if (dots >= 0 && dots + 3 < s.length()) s = s.substring(dots + 3).trim();
                 else continue;
             }
-            // „… <RX ERROR“ / „… <DATA ERROR“: diese Zeile ist gestört, ihre Bytes sind nicht verlässlich
-            if (s.indexOf('<') >= 0) continue;
             List<String> frames = flattenedFrames(s);
-            if (frames != null) lines.addAll(frames);
-            else lines.add(s.replace(" ", "").replace("\t", ""));
+            if (frames != null) {
+                lines.addAll(frames);
+                continue;
+            }
+            s = s.replace(" ", "").replace("\t", "").replace(">", "");
+            if (isIntact(s)) lines.add(s);
         }
         return lines;
     }

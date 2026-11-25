@@ -75,6 +75,7 @@ public final class Mode06Overview {
             // NO DATA auf 06 00 heißt „kein Mode 06“; jede weitere Bitmap hat das Steuergerät selbst angekündigt
             if (base == 0 && raw != null && ObdParser.isNoData(raw) && !ObdParser.isLinkError(raw)) break;
             Set<Integer> supported = raw == null || ObdParser.isLinkError(raw) ? Set.of() : Mode06.supportedMids(raw, base);
+            if (supported.isEmpty() && raw != null && !ObdParser.isLinkError(raw) && Mode06.hasBitmap(raw, base)) break;
             if (supported.isEmpty()) {
                 problems.add(String.format(Locale.US, "Testliste ab %s (%s)", Mode06.command(base), reason(raw)));
                 break;
