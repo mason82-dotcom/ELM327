@@ -58,7 +58,7 @@ public final class InspectionReader {
         in.permanentSupported = perm != null && ObdParser.hasDtcResponse(perm, 0x4A, isCan);
         if (perm == null || ObdParser.isLinkError(perm) || ObdParser.hasIncompleteMessage(perm)) {
             in.permanentSupported = false;
-            in.unavailable.add("permanente DTCs (0A)");
+            in.unavailable.add(InspectionCheck.PERMANENT_LABEL);
         }
         if (in.permanentSupported) in.permanent = ObdParser.dtcs(perm, 0x4A, isCan);
 
